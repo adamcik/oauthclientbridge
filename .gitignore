@@ -1,0 +1,10 @@
+*.egg-info
+*.pyc
+*.swp
+*.db
+.coverage
+.tox/
+MANIFEST
+build/
+dist/
+config.py
