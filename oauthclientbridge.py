@@ -163,7 +163,7 @@ def token():
                      'Only "client_credentials" is supported.')
     elif request.form.get('scope'):
         return error('invalid_scope', 'Setting scope is not supported.')
-    elif request.authorization and request.authorization.type != 'Basic':
+    elif request.authorization and request.authorization.type != 'basic':
         return error('invalid_request', 'Only Basic Auth is supported.')
 
     if request.authorization:
