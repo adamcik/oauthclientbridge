@@ -130,13 +130,11 @@ def callback():
     elif 'error' in request.args:
         return render(error=request.args['error']), 400
 
-    # TODO: if use_authorize_header: auth = (client_id, client_secret)
-    result = requests.post(app.config['OAUTH_TOKEN_URI'], data={
+    auth = (app.config['OAUTH_CLIENT_ID'], app.config['OAUTH_CLIENT_SECRET'])
+    result = requests.post(app.config['OAUTH_TOKEN_URI'], auth=auth, data={
         'grant_type': 'authorization_code',
         'redirect_uri': app.config['OAUTH_REDIRECT_URI'],
         'code': request.args.get('code'),
-        'client_id': app.config['OAUTH_CLIENT_ID'],
-        'client_secret': app.config['OAUTH_CLIENT_SECRET'],
     }).json()
 
     del session['state']  # Delete the state in case of replay.
@@ -208,13 +206,12 @@ def token():
     if 'refresh_token' not in result:
         return jsonify(result)
 
-    # TODO: if use_authorize_header: auth = (client_id, client_secret)
-    refresh_result = requests.post(app.config['OAUTH_REFRESH_URI'], data={
-        'grant_type': 'refresh_token',
-        'refresh_token': result['refresh_token'],
-        'client_id': app.config['OAUTH_CLIENT_ID'],
-        'client_secret': app.config['OAUTH_CLIENT_SECRET'],
-    }).json()
+    auth = (app.config['OAUTH_CLIENT_ID'], app.config['OAUTH_CLIENT_SECRET'])
+    refresh_result = requests.post(
+        app.config['OAUTH_REFRESH_URI'], auth=auth, data={
+            'grant_type': 'refresh_token',
+            'refresh_token': result['refresh_token'],
+        }).json()
 
     if 'error' in refresh_result:
         return error(
