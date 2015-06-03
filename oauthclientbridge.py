@@ -110,6 +110,7 @@ def error(code, description=None):
 @app.route('/')
 def authorize():
     """Store random state in session cookie and redirect to auth endpoint."""
+    # TODO: support setting extra params to auth redirect?
     session['state'] = str(uuid.uuid4())
     uri = app.config['OAUTH_AUTHORIZATION_URI'] + '?' + urllib.urlencode({
         'client_id': app.config['OAUTH_CLIENT_ID'],
@@ -117,7 +118,6 @@ def authorize():
         'redirect_uri': app.config['OAUTH_REDIRECT_URI'],
         'scope': ' '.join(app.config['OAUTH_SCOPES']),
         'state': session['state'],
-        'show_diaglog': 'true',
     })
     return redirect(uri)
 
