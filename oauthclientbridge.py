@@ -18,25 +18,29 @@ app.config.from_envvar('OAUTH_SETTINGS')
 
 
 def get_db():
-    db = getattr(g, '_oauth_database', None)
-    if db is None:
-        db = g._oauth_database = sqlite3.connect(app.config['OAUTH_DATABASE'])
-    return db
+    if getattr(g, '_oauth_connection', None) is None:
+        g._oauth_connection = sqlite3.connect(app.config['OAUTH_DATABASE'])
+    return g._oauth_connection
+
+
+@contextlib.contextmanager
+def get_cursor():
+    with get_db() as db:
+        yield db.cursor()
 
 
 @app.teardown_appcontext
 def close_db(exception):
-    db = getattr(g, '_oauth_database', None)
-    if db is not None:
-        db.close()
+    if getattr(g, '_oauth_connection', None) is not None:
+        g._oauth_connection.close()
 
 
 def init_db():
     with app.app_context():
         with app.open_resource('schema.sql', mode='r') as f:
-            db = get_db()
-            db.cursor().executescript(f.read())
-            db.commit()
+            schema = f.read()
+        with get_cursor() as cursor:
+            cursor.executescript(schema)
 
 
 def encrypt(key, data):
@@ -53,40 +57,37 @@ def rate_limit(key):
     now = time.time()
     key = hashlib.sha256(key).hexdigest()
 
-    db = get_db()
-    cursor = db.cursor()
+    with get_cursor() as cursor:
+        cursor.execute(
+            'SELECT updated, value FROM buckets WHERE key = ?', (key,))
+        row = cursor.fetchone()
 
-    cursor.execute(
-        'SELECT updated, value FROM buckets WHERE key = ?', (key,))
-    row = cursor.fetchone()
-    if row:
-        updated, value = row
-    else:
-        updated, value = now, 0
+        if row:
+            updated, value = row
+        else:
+            updated, value = now, 0
 
-    # TODO: add a penalty for being over cap?
-    value -= float(now - updated) / app.config['OAUTH_BUCKET_REFILL_RATE']
-    value = max(0, value + 1)
-    value = min(value, app.config['OAUTH_BUCKET_MAX_HITS'])
+        # TODO: add a penalty for being over cap?
+        # TODO: this is probably racy.
+        value -= float(now - updated) / app.config['OAUTH_BUCKET_REFILL_RATE']
+        value = max(0, value + 1)
+        value = min(value, app.config['OAUTH_BUCKET_MAX_HITS'])
 
-    cursor.execute(  # Insert/replace the bucket we just hit.
-        'INSERT OR REPLACE INTO buckets '
-        '(key, updated, value) VALUES (?, ?, ?)',
-        (key, now, value))
+        cursor.execute(  # Insert/replace the bucket we just hit.
+            'INSERT OR REPLACE INTO buckets '
+            '(key, updated, value) VALUES (?, ?, ?)',
+            (key, now, value))
 
-    db.commit()
     return value > app.config['OAUTH_BUCKET_CAPACITY']
 
 
 # TODO: integrate cleaning of stale limits along the lines of the following
 def clear_stale_limits():
     now = time.time()
-    db = get_db()
-    db.execute('DELETE FROM buckets WHERE updated < ? AND '
-               'value - (? - updated) / ? <= 0',
-               (now, now, app.config['OAUTH_BUCKET_REFILL_RATE']))
-    db.commit
-
+    with get_cursor() as cursor:
+        cursor.execute('DELETE FROM buckets WHERE updated < ? AND '
+                       'value - (? - updated) / ? <= 0',
+                       (now, now, app.config['OAUTH_BUCKET_REFILL_RATE']))
 
 
 def render(**context):
@@ -146,10 +147,9 @@ def callback():
     client_secret = fernet.Fernet.generate_key()
     token = encrypt(client_secret, json.dumps(result))
 
-    db = get_db()
-    db.cursor().execute('INSERT INTO tokens (client_id, token) VALUES (?, ?)',
-                        (client_id, token))
-    db.commit()
+    with get_cursor() as cursor:
+        cursor.execute('INSERT INTO tokens (client_id, token) VALUES (?, ?)',
+                       (client_id, token))
 
     return render(client_id=client_id, client_secret=client_secret)
 
@@ -171,8 +171,8 @@ def token():
         client_id = request.authorization.username
         client_secret = request.authorization.password
     else:
-       client_id = request.form.get('client_id')
-       client_secret = request.form.get('client_secret')
+        client_id = request.form.get('client_id')
+        client_secret = request.form.get('client_secret')
 
     client_limit = rate_limit(client_id)
     addr_limit = rate_limit(request.remote_addr)
@@ -183,13 +183,11 @@ def token():
         return error('invalid_client',
                      'Both client_id and client_secret must be set.')
 
-    db = get_db()
-    cursor = db.cursor()
-
-    cursor.execute(
-        'SELECT client_id, token FROM tokens WHERE client_id = ?',
-        (client_id,))
-    row = cursor.fetchone()
+    with get_cursor() as cursor:
+        cursor.execute(
+            'SELECT client_id, token FROM tokens WHERE client_id = ?',
+            (client_id,))
+        row = cursor.fetchone()
 
     if row is None:
         return error('invalid_client', 'Client not known.')
@@ -219,9 +217,9 @@ def token():
 
     result.update(refresh_result)
 
-    cursor.execute('UPDATE tokens SET token = ? WHERE client_id = ?',
-                   (encrypt(client_secret, json.dumps(result)), client_id))
-    db.commit()
+    with get_cursor() as cursor:
+        cursor.execute('UPDATE tokens SET token = ? WHERE client_id = ?',
+                       (encrypt(client_secret, json.dumps(result)), client_id))
 
     del result['refresh_token']
     return jsonify(result)
@@ -233,10 +231,9 @@ def revoke():
     client_id = request.form.get('client_id')
     if not client_id:
         return render(error='Missing client_id.'), 400
-    db = get_db()
-    db.cursor().execute(
-        'UPDATE tokens SET token = null WHERE client_id = ?', (client_id,))
-    db.commit()
+    with get_cursor() as cursor:
+        cursor.execute(
+            'UPDATE tokens SET token = null WHERE client_id = ?', (client_id,))
     # We always report success as to not leak info.
     return render(error='Revoked client_id.'), 200
 
