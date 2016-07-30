@@ -100,17 +100,19 @@ def render(**context):
         app.config['OAUTH_CALLBACK_TEMPLATE'], **context)
 
 
-def error(code, description=None):
+def ouath_error(code, description=None):
+    """Helper to serve oauth errors as JSON."""
     result = {'error': code}
     if description:
         result['error_description'] = description
-    err = jsonify(result)
+    response = jsonify(result)
+
     if request.authorization:
-        err.status_code = 401
-        err.www_authenticate.set_basic()
+        response.status_code = 401
+        response.www_authenticate.set_basic()
     else:
-        err.status_code = 400
-    return err
+        response.status_code = 400
+    return response
 
 
 @app.route('/')
@@ -164,12 +166,12 @@ def token():
     """Validate token request, refreshing when needed."""
 
     if request.form.get('grant_type') != 'client_credentials':
-        return error('unsupported_grant_type',
-                     'Only "client_credentials" is supported.')
+        return ouath_error('unsupported_grant_type',
+                           'Only "client_credentials" is supported.')
     elif request.form.get('scope'):
-        return error('invalid_scope', 'Setting scope is not supported.')
+        return ouath_error('invalid_scope', 'Setting scope is not supported.')
     elif request.authorization and request.authorization.type != 'basic':
-        return error('invalid_request', 'Only Basic Auth is supported.')
+        return ouath_error('invalid_request', 'Only Basic Auth is supported.')
 
     if request.authorization:
         # TODO: test this flow.
@@ -182,11 +184,11 @@ def token():
     client_limit = rate_limit(client_id)
     addr_limit = rate_limit(request.remote_addr)
     if client_limit or addr_limit:
-        return error('invalid_request', 'Too many requests.')
+        return ouath_error('invalid_request', 'Too many requests.')
 
     if not client_id or not client_secret:
-        return error('invalid_client',
-                     'Both client_id and client_secret must be set.')
+        return ouath_error('invalid_client',
+                           'Both client_id and client_secret must be set.')
 
     with get_cursor() as cursor:
         cursor.execute(
@@ -195,16 +197,16 @@ def token():
         row = cursor.fetchone()
 
     if row is None:
-        return error('invalid_client', 'Client not known.')
+        return ouath_error('invalid_client', 'Client not known.')
     elif row[1] is None:
-        return error('invalid_grant', 'Grant has been revoked.')
+        return ouath_error('invalid_grant', 'Grant has been revoked.')
 
     try:
         result = json.loads(decrypt(client_secret, row[1]))
     except fernet.InvalidToken:
         # Always return same message as for client not found to avoid leaking
         # valid clients directly, timing attacks could of course still work.
-        return error('invalid_client', 'Client not known.')
+        return ouath_error('invalid_client', 'Client not known.')
 
     if 'refresh_token' not in result:
         return jsonify(result)
@@ -217,7 +219,7 @@ def token():
         }).json()
 
     if 'error' in refresh_result:
-        return error(
+        return ouath_error(
             refresh_result['error'], refresh_result.get('error_description'))
 
     result.update(refresh_result)
