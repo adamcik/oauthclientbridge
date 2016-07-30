@@ -4,6 +4,7 @@ import json
 import sqlite3
 import time
 import urllib
+import urlparse
 import uuid
 
 from cryptography import fernet
@@ -115,19 +116,38 @@ def ouath_error(code, description=None):
     return response
 
 
+def update_query(original, params):
+    """Parses the query parameters and updates them."""
+    parts = []
+    query = urlparse.parse_qs(original, keep_blank_values=True)
+    for key, value in params.items():
+        query[key] = [value]  # Override with new params.
+    for key, values in query.items():
+        for value in values:  # Turn query into list of tuples.
+            if isinstance(value, unicode):
+                value = value.encode('utf-8')
+            parts.append((key, value))
+    return urllib.urlencode(parts)
+
+
+def update_uri_params(uri, **params):
+    """Parses the URI and updated the query parameters."""
+    scheme, netloc, path, query, fragment = urlparse.urlsplit(uri)
+    query = update_query(query, params)
+    return urlparse.urlunsplit((scheme, netloc, path, query, fragment))
+
+
 @app.route('/')
 def authorize():
     """Store random state in session cookie and redirect to auth endpoint."""
-    # TODO: support setting extra params to auth redirect?
     session['state'] = str(uuid.uuid4())
-    uri = app.config['OAUTH_AUTHORIZATION_URI'] + '?' + urllib.urlencode({
-        'client_id': app.config['OAUTH_CLIENT_ID'],
-        'response_type': 'code',
-        'redirect_uri': app.config['OAUTH_REDIRECT_URI'],
-        'scope': ' '.join(app.config['OAUTH_SCOPES']),
-        'state': session['state'],
-    })
-    return redirect(uri)
+    return redirect(update_uri_params(
+        app.config['OAUTH_AUTHORIZATION_URI'],
+        client_id=app.config['OAUTH_CLIENT_ID'],
+        response_type='code',
+        redirect_uri=app.config['OAUTH_REDIRECT_URI'],
+        scope=' '.join(app.config['OAUTH_SCOPES']),
+        state=session['state']))
 
 
 @app.route('/callback')
