@@ -223,12 +223,13 @@ def token():
             refresh_result['error'], refresh_result.get('error_description'))
 
     result.update(refresh_result)
+    token = encrypt(client_secret, json.dumps(result))
+    del result['refresh_token']
 
     with get_cursor() as cursor:
         cursor.execute('UPDATE tokens SET token = ? WHERE client_id = ?',
-                       (encrypt(client_secret, json.dumps(result)), client_id))
+                       (token, client_id))
 
-    del result['refresh_token']
     return jsonify(result)
 
 
