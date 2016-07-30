@@ -181,8 +181,12 @@ def callback():
     token = encrypt(client_secret, json.dumps(result))
 
     with get_cursor() as cursor:
-        cursor.execute('INSERT INTO tokens (client_id, token) VALUES (?, ?)',
-                       (client_id, token))
+        try:
+            cursor.execute(
+                'INSERT INTO tokens (client_id, token) VALUES (?, ?)',
+                (client_id, token))
+        except sqlite3.IntegrityError:
+            return render(error='Could not get unique client id.'), 500
 
     return render(client_id=client_id, client_secret=client_secret)
 
