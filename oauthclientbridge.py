@@ -251,12 +251,18 @@ def token():
     if 'refresh_token' not in result:
         return oauth_response(result)
 
+    uri = app.config['OAUTH_REFRESH_URI']
     auth = (app.config['OAUTH_CLIENT_ID'], app.config['OAUTH_CLIENT_SECRET'])
-    refresh_result = requests.post(
-        app.config['OAUTH_REFRESH_URI'], auth=auth, data={
-            'grant_type': 'refresh_token',
-            'refresh_token': result['refresh_token'],
-        }).json()
+    data = {'grant_type': 'refresh_token',
+            'refresh_token': result['refresh_token']}
+
+    try:
+        response = requests.post(uri, auth=auth, data=data)
+        response.raise_for_status()
+        refresh_result = response.json()
+    except requests.exceptions.RequestException:
+        # TODO: log this error.
+        return oauth_error('server_error', 'Token refresh failed.')
 
     if 'error' in refresh_result:
         return oauth_error(refresh_result['error'],
