@@ -266,8 +266,8 @@ def token():
 
     if 'error' in refresh_result:
         return oauth_error(refresh_result['error'],
-                           description=refresh_result.get('error_description'),
-                           uri=refresh_result.get('error_uri'))
+                           refresh_result.get('error_description'),
+                           refresh_result.get('error_uri'))
 
     result.update(refresh_result)
     token = encrypt(client_secret, json.dumps(result))
