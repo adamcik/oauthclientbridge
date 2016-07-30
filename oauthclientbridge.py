@@ -158,12 +158,18 @@ def callback():
     elif 'error' in request.args:
         return render(error=request.args['error']), 400
 
+    uri = app.config['OAUTH_TOKEN_URI']
     auth = (app.config['OAUTH_CLIENT_ID'], app.config['OAUTH_CLIENT_SECRET'])
-    result = requests.post(app.config['OAUTH_TOKEN_URI'], auth=auth, data={
-        'grant_type': 'authorization_code',
-        'redirect_uri': app.config['OAUTH_REDIRECT_URI'],
-        'code': request.args.get('code'),
-    }).json()
+    data = {'grant_type': 'authorization_code',
+            'redirect_uri': app.config['OAUTH_REDIRECT_URI'],
+            'code': request.args.get('code')}
+
+    try:
+        response = requests.post(uri, auth=auth, data=data)
+        response.raise_for_status()
+        result = response.json()
+    except requests.exceptions.RequestException as e:
+        return render(error='Fetching OAuth token failed: %s' % str(e)), 500
 
     del session['state']  # Delete the state in case of replay.
 
