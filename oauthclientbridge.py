@@ -101,6 +101,13 @@ def render(**context):
         app.config['OAUTH_CALLBACK_TEMPLATE'], **context)
 
 
+def oauth_response(result):
+    response = jsonify(result)
+    response.headers.add('Cache-Control', 'no-store')
+    response.headers.add('Pragma', 'no-cache')
+    return response
+
+
 def oauth_error(code, description=None, uri=None):
     """Helper to serve oauth errors as JSON."""
     result = {'error': code}
@@ -109,8 +116,7 @@ def oauth_error(code, description=None, uri=None):
     if uri:
         result['error_uri'] = uri
 
-    response = jsonify(result)
-
+    response = oauth_response(result)
     if request.authorization:
         response.status_code = 401
         response.www_authenticate.set_basic()
@@ -245,7 +251,7 @@ def token():
         return oauth_error('invalid_client', 'Client not known.')
 
     if 'refresh_token' not in result:
-        return jsonify(result)
+        return oauth_response(result)
 
     auth = (app.config['OAUTH_CLIENT_ID'], app.config['OAUTH_CLIENT_SECRET'])
     refresh_result = requests.post(
@@ -267,7 +273,7 @@ def token():
         cursor.execute('UPDATE tokens SET token = ? WHERE client_id = ?',
                        (token, client_id))
 
-    return jsonify(result)
+    return oauth_response(result)
 
 
 @app.route('/revoke', methods=['POST'])
