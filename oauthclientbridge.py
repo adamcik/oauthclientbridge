@@ -177,7 +177,10 @@ def callback():
     del session['state']  # Delete the state in case of replay.
 
     if 'error' in result:
-        return render(**result), 400
+        response = render(error=result['error'],
+                          error_description=result.get('error_description'),
+                          error_uri=result.get('error_uri'))
+        return response, 400
 
     client_id = str(uuid.uuid4())
     client_secret = fernet.Fernet.generate_key()
