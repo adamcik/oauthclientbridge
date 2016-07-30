@@ -18,6 +18,7 @@ app.config.from_envvar('OAUTH_SETTINGS')
 
 
 def get_db():
+    """Get singleton SQLite database connection."""
     if getattr(g, '_oauth_connection', None) is None:
         g._oauth_connection = sqlite3.connect(app.config['OAUTH_DATABASE'])
     return g._oauth_connection
@@ -25,17 +26,21 @@ def get_db():
 
 @contextlib.contextmanager
 def get_cursor():
-    with get_db() as db:
-        yield db.cursor()
+    """Get SQLite cursor with automatic commit if no exceptions are raised."""
+    with get_db() as connection:
+        yield connection.cursor()
 
 
 @app.teardown_appcontext
 def close_db(exception):
-    if getattr(g, '_oauth_connection', None) is not None:
-        g._oauth_connection.close()
+    """Ensure that connection gets closed when app teardown happens."""
+    c, g._oauth_connection = getattr(g, '_oauth_connection', None), None
+    if c is not None:
+        c.close()
 
 
 def init_db():
+    """Runs schema.sql in the configured database."""
     with app.app_context():
         with app.open_resource('schema.sql', mode='r') as f:
             schema = f.read()
