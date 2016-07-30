@@ -95,7 +95,10 @@ def rate_limit(key):
             '(key, updated, value) VALUES (?, ?, ?)',
             (key, now, value))
 
-    return value > app.config['OAUTH_BUCKET_CAPACITY']
+    result = value > app.config['OAUTH_BUCKET_CAPACITY']
+    if result:
+        app.logger.warning('Rate limiting key: %s', key)
+    return result
 
 
 # TODO: integrate cleaning of stale limits along the lines of the following
@@ -190,7 +193,8 @@ def callback():
         response.raise_for_status()
         result = response.json()
     except requests.exceptions.RequestException as e:
-        return render(error='Fetching OAuth token failed: %s' % str(e)), 500
+        app.logger.error('Token fetch failed: %s', e)
+        return render(error='Token fetch failed.'), 500
 
     del session['state']  # Delete the state in case of replay.
 
@@ -271,8 +275,8 @@ def token():
         response = requests.post(uri, auth=auth, data=data)
         response.raise_for_status()
         refresh_result = response.json()
-    except requests.exceptions.RequestException:
-        # TODO: log this error.
+    except requests.exceptions.RequestException as e:
+        app.logger.error('Token refresh failed: %s', e)
         return oauth_error('server_error', 'Token refresh failed.')
 
     if 'error' in refresh_result:
