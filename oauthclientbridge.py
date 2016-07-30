@@ -96,9 +96,10 @@ def clear_stale_limits():
                        (now, now, app.config['OAUTH_BUCKET_REFILL_RATE']))
 
 
-def render(**context):
+def render(client_id=None, client_secret=None, error=None):
     return render_template_string(
-        app.config['OAUTH_CALLBACK_TEMPLATE'], **context)
+        app.config['OAUTH_CALLBACK_TEMPLATE'],
+        client_id=client_id, client_secret=client_secret, error=error)
 
 
 def oauth_response(result):
@@ -183,10 +184,7 @@ def callback():
     del session['state']  # Delete the state in case of replay.
 
     if 'error' in result:
-        response = render(error=result['error'],
-                          error_description=result.get('error_description'),
-                          error_uri=result.get('error_uri'))
-        return response, 400
+        return render(error=result['error']), 400
 
     client_id = str(uuid.uuid4())
     client_secret = fernet.Fernet.generate_key()
