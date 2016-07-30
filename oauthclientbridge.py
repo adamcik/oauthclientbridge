@@ -101,11 +101,14 @@ def render(**context):
         app.config['OAUTH_CALLBACK_TEMPLATE'], **context)
 
 
-def ouath_error(code, description=None):
+def oauth_error(code, description=None, uri=None):
     """Helper to serve oauth errors as JSON."""
     result = {'error': code}
     if description:
         result['error_description'] = description
+    if uri:
+        result['error_uri'] = uri
+
     response = jsonify(result)
 
     if request.authorization:
@@ -196,12 +199,12 @@ def token():
     """Validate token request, refreshing when needed."""
 
     if request.form.get('grant_type') != 'client_credentials':
-        return ouath_error('unsupported_grant_type',
+        return oauth_error('unsupported_grant_type',
                            'Only "client_credentials" is supported.')
     elif request.form.get('scope'):
-        return ouath_error('invalid_scope', 'Setting scope is not supported.')
+        return oauth_error('invalid_scope', 'Setting scope is not supported.')
     elif request.authorization and request.authorization.type != 'basic':
-        return ouath_error('invalid_request', 'Only Basic Auth is supported.')
+        return oauth_error('invalid_request', 'Only Basic Auth is supported.')
 
     if request.authorization:
         # TODO: test this flow.
@@ -214,10 +217,10 @@ def token():
     client_limit = rate_limit(client_id)
     addr_limit = rate_limit(request.remote_addr)
     if client_limit or addr_limit:
-        return ouath_error('invalid_request', 'Too many requests.')
+        return oauth_error('invalid_request', 'Too many requests.')
 
     if not client_id or not client_secret:
-        return ouath_error('invalid_client',
+        return oauth_error('invalid_client',
                            'Both client_id and client_secret must be set.')
 
     with get_cursor() as cursor:
@@ -227,16 +230,16 @@ def token():
         row = cursor.fetchone()
 
     if row is None:
-        return ouath_error('invalid_client', 'Client not known.')
+        return oauth_error('invalid_client', 'Client not known.')
     elif row[1] is None:
-        return ouath_error('invalid_grant', 'Grant has been revoked.')
+        return oauth_error('invalid_grant', 'Grant has been revoked.')
 
     try:
         result = json.loads(decrypt(client_secret, row[1]))
     except fernet.InvalidToken:
         # Always return same message as for client not found to avoid leaking
         # valid clients directly, timing attacks could of course still work.
-        return ouath_error('invalid_client', 'Client not known.')
+        return oauth_error('invalid_client', 'Client not known.')
 
     if 'refresh_token' not in result:
         return jsonify(result)
@@ -249,8 +252,9 @@ def token():
         }).json()
 
     if 'error' in refresh_result:
-        return ouath_error(
-            refresh_result['error'], refresh_result.get('error_description'))
+        return oauth_error(refresh_result['error'],
+                           description=refresh_result.get('error_description'),
+                           uri=refresh_result.get('error_uri'))
 
     result.update(refresh_result)
     token = encrypt(client_secret, json.dumps(result))
