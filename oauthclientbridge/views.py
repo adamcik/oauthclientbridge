@@ -12,7 +12,7 @@ def authorize():
     """Store random state in session cookie and redirect to auth endpoint."""
 
     if rate_limit.check(request.remote_addr):
-        app.logger.warning('Rate limiting authorize.')
+        app.logger.warning('Rate limiting authorize: %s', request.remote_addr)
         return _render(error='Too many requests.'), 429
 
     session['state'] = crypto.generate_key()
@@ -30,7 +30,7 @@ def callback():
     """Validate callback and trade in code for a token."""
 
     if rate_limit.check(request.remote_addr):
-        app.logger.warning('Rate limiting callback.')
+        app.logger.warning('Rate limiting callback: %s', request.remote_addr)
         return _render(error='Too many requests.'), 429
     elif session.get('state', object()) != request.args.get('state'):
         return _render(error='Bad callback, state did not match.'), 400
@@ -158,7 +158,7 @@ def revoke():
     """Sets the clients token to null."""
 
     if rate_limit.check(request.remote_addr):
-        app.logger.warning('Rate limiting revoke.')
+        app.logger.warning('Rate limiting revoke: %s', request.remote_addr)
         return _render(error='Too many requests.'), 429
     elif 'client_id' not in request.form:
         return _render(error='Missing client_id.'), 400
