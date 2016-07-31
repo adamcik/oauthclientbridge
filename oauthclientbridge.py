@@ -117,14 +117,11 @@ def clear_stale_limits():
                        (now, now, app.config['OAUTH_BUCKET_REFILL_RATE']))
 
 
-def nocache(f):
-    @functools.wraps(f)
-    def decorated_function(*args, **kwargs):
-        response = make_response(f(*args, **kwargs))
-        response.headers.add('Cache-Control', 'no-store')
-        response.headers.add('Pragma', 'no-cache')
-        return response
-    return decorated_function
+@app.after_request
+def nocache(response):
+    response.headers['Cache-Control'] = 'no-store'
+    response.headers['Pragma'] = 'no-cache'
+    return response
 
 
 def render(client_id=None, client_secret=None, error=None):
@@ -188,7 +185,6 @@ def authorize():
 
 
 @app.route('/callback')
-@nocache
 def callback():
     """Validate callback and trade in code for a token."""
     if session.get('state', object()) != request.args.get('state'):
@@ -231,7 +227,6 @@ def callback():
 
 
 @app.route('/token', methods=['POST'])
-@nocache
 @oauth_response
 def token():
     """Validate token request, refreshing when needed."""
@@ -319,7 +314,6 @@ def token():
 
 
 @app.route('/revoke', methods=['POST'])
-@nocache
 def revoke():
     """Sets the clients token to null."""
     client_id = request.form.get('client_id')
