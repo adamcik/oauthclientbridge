@@ -275,9 +275,14 @@ def token():
         refresh_result = response.json()
     except requests.exceptions.RequestException as e:
         app.logger.error('Token refresh failed: %s', e)
+        # Server error isn't currently allowed, but fixing this has been
+        # brought up in https://www.rfc-editor.org/errata_search.php?eid=4745
         return oauth_error('server_error', 'Token refresh failed.')
 
     if 'error' in refresh_result:
+        # Client Credentials access token responses use the same errors
+        # as Authorization Code Grant access token responses. As such just
+        # return the error we got.
         return oauth_error(refresh_result['error'],
                            refresh_result.get('error_description'),
                            refresh_result.get('error_uri'))
