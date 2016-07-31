@@ -223,7 +223,7 @@ def token():
     elif request.form.get('scope'):
         return oauth_error('invalid_scope', 'Setting scope is not supported.')
     elif request.authorization and request.authorization.type != 'basic':
-        return oauth_error('invalid_request', 'Only Basic Auth is supported.')
+        return oauth_error('invalid_client', 'Only Basic Auth is supported.')
 
     if request.authorization:
         # TODO: test this flow.
