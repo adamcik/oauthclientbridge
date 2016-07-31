@@ -7,6 +7,8 @@ import urllib
 import urlparse
 import uuid
 
+import click
+
 from cryptography import fernet
 
 from flask import (Flask, g, jsonify, redirect, render_template_string,
@@ -47,13 +49,25 @@ def close_db(exception):
         c.close()
 
 
-def init_db():
-    """Runs schema.sql in the configured database."""
-    with app.app_context():
-        with app.open_resource('schema.sql', mode='r') as f:
-            schema = f.read()
-        with get_cursor() as cursor:
-            cursor.executescript(schema)
+@app.cli.command()
+def initdb():
+    """Initializes the database."""
+    click.echo('Initializing %s' % app.config['OAUTH_DATABASE'])
+    with app.open_resource('schema.sql', mode='r') as f:
+        schema = f.read()
+    with get_cursor() as cursor:
+        cursor.executescript(schema)
+
+
+@app.cli.command()
+def cleandb():
+    """Cleans database of stale data."""
+    now = time.time()
+    with get_cursor() as cursor:
+        cursor.execute('DELETE FROM buckets WHERE updated < ? AND '
+                       'value - (? - updated) / ? <= 0',
+                       (now, now, app.config['OAUTH_BUCKET_REFILL_RATE']))
+        click.echo('Deleted %s stale buckets' % cursor.rowcount)
 
 
 def encrypt(key, data):
@@ -103,15 +117,6 @@ def rate_limit(key):
             (key, now, value))
 
     return value > app.config['OAUTH_BUCKET_CAPACITY']
-
-
-# TODO: integrate cleaning of stale limits along the lines of the following
-def clear_stale_limits():
-    now = time.time()
-    with get_cursor() as cursor:
-        cursor.execute('DELETE FROM buckets WHERE updated < ? AND '
-                       'value - (? - updated) / ? <= 0',
-                       (now, now, app.config['OAUTH_BUCKET_REFILL_RATE']))
 
 
 @app.after_request
