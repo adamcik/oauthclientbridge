@@ -1,5 +1,4 @@
 import contextlib
-import functools
 import hashlib
 import json
 import sqlite3
@@ -10,8 +9,8 @@ import uuid
 
 from cryptography import fernet
 
-from flask import (Flask, g, jsonify, make_response, redirect,
-                   render_template_string, request, session)
+from flask import (Flask, g, jsonify, redirect, render_template_string,
+                   request, session)
 
 import requests
 
@@ -21,11 +20,9 @@ app.config.from_envvar('OAUTH_SETTINGS')
 
 class OAuthError(Exception):
     def __init__(self, error, error_description=None, error_uri=None):
-        self.data = {'error': error}
-        if error_description is not None:
-            self.data['error_description'] = error_description
-        if error_uri is not None:
-            self.data['error_uri'] = error_uri
+        self.error = error
+        self.description = error_description
+        self.uri = error_uri
 
 
 def get_db():
@@ -124,30 +121,27 @@ def nocache(response):
     return response
 
 
+@app.errorhandler(OAuthError)
+def oauth_error(e):
+    result = {'error': e.error}
+    if e.description is not None:
+        result['error_description'] = e.description
+    if e.uri is not None:
+        result['error_uri'] = e.uri
+
+    response = jsonify(result)
+    if request.authorization:
+        response.status_code = 401
+        response.www_authenticate.set_basic()
+    else:
+        response.status_code = 400
+    return response
+
+
 def render(client_id=None, client_secret=None, error=None):
     return render_template_string(
         app.config['OAUTH_CALLBACK_TEMPLATE'],
         client_id=client_id, client_secret=client_secret, error=error)
-
-
-def oauth_response(f):
-    @functools.wraps(f)
-    def decorated_function(*args, **kwargs):
-        try:
-            result = f(*args, **kwargs)
-        except OAuthError as e:
-            result = e.data
-
-        response = jsonify(result)
-        if 'error' in result:
-            if request.authorization:
-                response.status_code = 401
-                response.www_authenticate.set_basic()
-            else:
-                response.status_code = 400
-
-        return response
-    return decorated_function
 
 
 def update_query(original, params):
@@ -227,7 +221,6 @@ def callback():
 
 
 @app.route('/token', methods=['POST'])
-@oauth_response
 def token():
     """Validate token request, refreshing when needed."""
 
@@ -277,7 +270,7 @@ def token():
         raise OAuthError('invalid_client', 'Client not known.')
 
     if 'refresh_token' not in result:
-        return oauth_response(result)
+        return jsonify(result)
 
     uri = app.config['OAUTH_REFRESH_URI']
     auth = (app.config['OAUTH_CLIENT_ID'], app.config['OAUTH_CLIENT_SECRET'])
@@ -310,7 +303,7 @@ def token():
                        (token, client_id))
 
     del result['refresh_token']
-    return result
+    return jsonify(result)
 
 
 @app.route('/revoke', methods=['POST'])
