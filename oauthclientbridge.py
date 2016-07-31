@@ -95,10 +95,7 @@ def rate_limit(key):
             '(key, updated, value) VALUES (?, ?, ?)',
             (key, now, value))
 
-    result = value > app.config['OAUTH_BUCKET_CAPACITY']
-    if result:
-        app.logger.warning('Rate limiting key: %s', key)
-    return result
+    return value > app.config['OAUTH_BUCKET_CAPACITY']
 
 
 # TODO: integrate cleaning of stale limits along the lines of the following
@@ -239,6 +236,8 @@ def token():
     client_limit = rate_limit(client_id)
     addr_limit = rate_limit(request.remote_addr)
     if client_limit or addr_limit:
+        app.logger.warning('Rate limiting: client_id=%s address=%s',
+                           client_limit, addr_limit)
         return oauth_error('invalid_request', 'Too many requests.')
 
     if not client_id or not client_secret:
