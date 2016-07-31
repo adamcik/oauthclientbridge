@@ -225,13 +225,14 @@ def token():
     elif request.authorization and request.authorization.type != 'basic':
         return oauth_error('invalid_client', 'Only Basic Auth is supported.')
 
-    if request.authorization:
-        # TODO: test this flow.
+    client_id = request.form.get('client_id')
+    client_secret = request.form.get('client_secret')
+    if (client_id or client_secret) and request.authorization:
+        return oauth_error('invalid_request',
+                           'More than one mechanism for authenticating set.')
+    elif request.authorization:
         client_id = request.authorization.username
         client_secret = request.authorization.password
-    else:
-        client_id = request.form.get('client_id')
-        client_secret = request.form.get('client_secret')
 
     client_limit = rate_limit(client_id)
     addr_limit = rate_limit(request.remote_addr)
