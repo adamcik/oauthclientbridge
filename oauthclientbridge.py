@@ -120,9 +120,9 @@ def oauth_response(result):
     return response
 
 
-def oauth_error(code, description=None, uri=None):
+def oauth_error(error, description=None, uri=None):
     """Helper to serve oauth errors as JSON."""
-    result = {'error': code}
+    result = {'error': error}
     if description:
         result['error_description'] = description
     if uri:
