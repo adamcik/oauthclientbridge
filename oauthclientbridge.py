@@ -246,17 +246,16 @@ def token():
 
     with get_cursor() as cursor:
         cursor.execute(
-            'SELECT client_id, token FROM tokens WHERE client_id = ?',
-            (client_id,))
+            'SELECT token FROM tokens WHERE client_id = ?', (client_id,))
         row = cursor.fetchone()
 
     if row is None:
         return oauth_error('invalid_client', 'Client not known.')
-    elif row[1] is None:
+    elif row[0] is None:
         return oauth_error('invalid_grant', 'Grant has been revoked.')
 
     try:
-        result = json.loads(decrypt(client_secret, row[1]))
+        result = json.loads(decrypt(client_secret, row[0]))
     except fernet.InvalidToken:
         # Always return same message as for client not found to avoid leaking
         # valid clients directly, timing attacks could of course still work.
