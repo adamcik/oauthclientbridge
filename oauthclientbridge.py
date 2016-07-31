@@ -19,6 +19,15 @@ app = Flask(__name__)
 app.config.from_envvar('OAUTH_SETTINGS')
 
 
+class OAuthError(Exception):
+    def __init__(self, error, error_description=None, error_uri=None):
+        self.data = {'error': error}
+        if error_description is not None:
+            self.data['error_description'] = error_description
+        if error_uri is not None:
+            self.data['error_uri'] = error_uri
+
+
 def get_db():
     """Get singleton SQLite database connection."""
     if getattr(g, '_oauth_connection', None) is None:
@@ -124,25 +133,24 @@ def render(client_id=None, client_secret=None, error=None):
         client_id=client_id, client_secret=client_secret, error=error)
 
 
-def oauth_response(result):
-    return jsonify(result)
+def oauth_response(f):
+    @functools.wraps(f)
+    def decorated_function(*args, **kwargs):
+        try:
+            result = f(*args, **kwargs)
+        except OAuthError as e:
+            result = e.data
 
+        response = jsonify(result)
+        if 'error' in result:
+            if request.authorization:
+                response.status_code = 401
+                response.www_authenticate.set_basic()
+            else:
+                response.status_code = 400
 
-def oauth_error(error, description=None, uri=None):
-    """Helper to serve oauth errors as JSON."""
-    result = {'error': error}
-    if description:
-        result['error_description'] = description
-    if uri:
-        result['error_uri'] = uri
-
-    response = oauth_response(result)
-    if request.authorization:
-        response.status_code = 401
-        response.www_authenticate.set_basic()
-    else:
-        response.status_code = 400
-    return response
+        return response
+    return decorated_function
 
 
 def update_query(original, params):
@@ -224,22 +232,23 @@ def callback():
 
 @app.route('/token', methods=['POST'])
 @nocache
+@oauth_response
 def token():
     """Validate token request, refreshing when needed."""
 
     if request.form.get('grant_type') != 'client_credentials':
-        return oauth_error('unsupported_grant_type',
-                           'Only "client_credentials" is supported.')
+        raise OAuthError('unsupported_grant_type',
+                         'Only "client_credentials" is supported.')
     elif request.form.get('scope'):
-        return oauth_error('invalid_scope', 'Setting scope is not supported.')
+        raise OAuthError('invalid_scope', 'Setting scope is not supported.')
     elif request.authorization and request.authorization.type != 'basic':
-        return oauth_error('invalid_client', 'Only Basic Auth is supported.')
+        raise OAuthError('invalid_client', 'Only Basic Auth is supported.')
 
     client_id = request.form.get('client_id')
     client_secret = request.form.get('client_secret')
     if (client_id or client_secret) and request.authorization:
-        return oauth_error('invalid_request',
-                           'More than one mechanism for authenticating set.')
+        raise OAuthError('invalid_request',
+                         'More than one mechanism for authenticating set.')
     elif request.authorization:
         client_id = request.authorization.username
         client_secret = request.authorization.password
@@ -249,11 +258,11 @@ def token():
     if client_limit or addr_limit:
         app.logger.warning('Rate limiting: client_id=%s address=%s',
                            client_limit, addr_limit)
-        return oauth_error('invalid_request', 'Too many requests.')
+        raise OAuthError('invalid_request', 'Too many requests.')
 
     if not client_id or not client_secret:
-        return oauth_error('invalid_client',
-                           'Both client_id and client_secret must be set.')
+        raise OAuthError('invalid_client',
+                         'Both client_id and client_secret must be set.')
 
     with get_cursor() as cursor:
         cursor.execute(
@@ -261,16 +270,16 @@ def token():
         row = cursor.fetchone()
 
     if row is None:
-        return oauth_error('invalid_client', 'Client not known.')
+        raise OAuthError('invalid_client', 'Client not known.')
     elif row[0] is None:
-        return oauth_error('invalid_grant', 'Grant has been revoked.')
+        raise OAuthError('invalid_grant', 'Grant has been revoked.')
 
     try:
         result = json.loads(decrypt(client_secret, row[0]))
     except fernet.InvalidToken:
         # Always return same message as for client not found to avoid leaking
         # valid clients directly, timing attacks could of course still work.
-        return oauth_error('invalid_client', 'Client not known.')
+        raise OAuthError('invalid_client', 'Client not known.')
 
     if 'refresh_token' not in result:
         return oauth_response(result)
@@ -288,25 +297,25 @@ def token():
         app.logger.error('Token refresh failed: %s', e)
         # Server error isn't currently allowed, but fixing this has been
         # brought up in https://www.rfc-editor.org/errata_search.php?eid=4745
-        return oauth_error('server_error', 'Token refresh failed.')
+        raise OAuthError('server_error', 'Token refresh failed.')
 
     if 'error' in refresh_result:
         # Client Credentials access token responses use the same errors
         # as Authorization Code Grant access token responses. As such just
-        # return the error we got.
-        return oauth_error(refresh_result['error'],
-                           refresh_result.get('error_description'),
-                           refresh_result.get('error_uri'))
+        # raise the error we got.
+        raise OAuthError(refresh_result['error'],
+                         refresh_result.get('error_description'),
+                         refresh_result.get('error_uri'))
 
     result.update(refresh_result)
     token = encrypt(client_secret, json.dumps(result))
-    del result['refresh_token']
 
     with get_cursor() as cursor:
         cursor.execute('UPDATE tokens SET token = ? WHERE client_id = ?',
                        (token, client_id))
 
-    return oauth_response(result)
+    del result['refresh_token']
+    return result
 
 
 @app.route('/revoke', methods=['POST'])
