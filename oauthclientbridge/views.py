@@ -10,6 +10,11 @@ app.register_error_handler(oauth.Error, oauth.error_handler)
 @app.route('/')
 def authorize():
     """Store random state in session cookie and redirect to auth endpoint."""
+
+    if rate_limit.check(request.remote_addr):
+        app.logger.warning('Rate limiting authorize.')
+        return _render(error='Too many requests.'), 429
+
     session['state'] = crypto.generate_key()
     return oauth.redirect(
         app.config['OAUTH_AUTHORIZATION_URI'],
@@ -23,7 +28,11 @@ def authorize():
 @app.route('/callback')
 def callback():
     """Validate callback and trade in code for a token."""
-    if session.get('state', object()) != request.args.get('state'):
+
+    if rate_limit.check(request.remote_addr):
+        app.logger.warning('Rate limiting callback.')
+        return _render(error='Too many requests.'), 429
+    elif session.get('state', object()) != request.args.get('state'):
         return _render(error='Bad callback, state did not match.'), 400
     elif 'error' in request.args:
         return _render(error=request.args['error']), 400
@@ -147,12 +156,17 @@ def token():
 @app.route('/revoke', methods=['POST'])
 def revoke():
     """Sets the clients token to null."""
-    client_id = request.form.get('client_id')
-    if not client_id:
+
+    if rate_limit.check(request.remote_addr):
+        app.logger.warning('Rate limiting revoke.')
+        return _render(error='Too many requests.'), 429
+    elif 'client_id' not in request.form:
         return _render(error='Missing client_id.'), 400
+
     with db.cursor() as cursor:
-        cursor.execute(
-            'UPDATE tokens SET token = null WHERE client_id = ?', (client_id,))
+        cursor.execute('UPDATE tokens SET token = null WHERE client_id = ?',
+                       (request.form['client_id'],))
+
     # We always report success as to not leak info.
     return _render(error='Revoked client_id.'), 200
 
