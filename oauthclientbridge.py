@@ -201,7 +201,7 @@ def callback():
         response = requests.post(uri, auth=auth, data=data)
         response.raise_for_status()
         result = response.json()
-    except requests.exceptions.RequestException as e:
+    except (requests.exceptions.RequestException, ValueError) as e:
         app.logger.error('Token fetch failed: %s', e)
         return render(error='Token fetch failed.'), 500
 
@@ -286,7 +286,7 @@ def token():
         response = requests.post(uri, auth=auth, data=data)
         response.raise_for_status()
         refresh_result = response.json()
-    except requests.exceptions.RequestException as e:
+    except (requests.exceptions.RequestException, ValueError) as e:
         app.logger.error('Token refresh failed: %s', e)
         # Server error isn't currently allowed, but fixing this has been
         # brought up in https://www.rfc-editor.org/errata_search.php?eid=4745
