@@ -208,6 +208,7 @@ def callback():
     del session['state']  # Delete the state in case of replay.
 
     if 'error' in result:
+        app.logger.warning('Token fetch failed: %s', result)
         return render(error=result['error']), 400
 
     client_id = str(uuid.uuid4())
@@ -220,6 +221,7 @@ def callback():
                 'INSERT INTO tokens (client_id, token) VALUES (?, ?)',
                 (client_id, token))
         except sqlite3.IntegrityError:
+            app.log.warning('Could not get unique client id: %s', client_id)
             return render(error='Could not get unique client id.'), 500
 
     return render(client_id=client_id, client_secret=client_secret)
