@@ -1,4 +1,5 @@
 import contextlib
+import functools
 import hashlib
 import json
 import sqlite3
@@ -9,8 +10,8 @@ import uuid
 
 from cryptography import fernet
 
-from flask import (
-    jsonify, g, redirect, render_template_string, request, session, Flask)
+from flask import (Flask, g, jsonify, make_response, redirect,
+                   render_template_string, request, session)
 
 import requests
 
@@ -107,6 +108,16 @@ def clear_stale_limits():
                        (now, now, app.config['OAUTH_BUCKET_REFILL_RATE']))
 
 
+def nocache(f):
+    @functools.wraps(f)
+    def decorated_function(*args, **kwargs):
+        response = make_response(f(*args, **kwargs))
+        response.headers.add('Cache-Control', 'no-store')
+        response.headers.add('Pragma', 'no-cache')
+        return response
+    return decorated_function
+
+
 def render(client_id=None, client_secret=None, error=None):
     return render_template_string(
         app.config['OAUTH_CALLBACK_TEMPLATE'],
@@ -114,10 +125,7 @@ def render(client_id=None, client_secret=None, error=None):
 
 
 def oauth_response(result):
-    response = jsonify(result)
-    response.headers.add('Cache-Control', 'no-store')
-    response.headers.add('Pragma', 'no-cache')
-    return response
+    return jsonify(result)
 
 
 def oauth_error(error, description=None, uri=None):
@@ -172,6 +180,7 @@ def authorize():
 
 
 @app.route('/callback')
+@nocache
 def callback():
     """Validate callback and trade in code for a token."""
     if session.get('state', object()) != request.args.get('state'):
@@ -214,6 +223,7 @@ def callback():
 
 
 @app.route('/token', methods=['POST'])
+@nocache
 def token():
     """Validate token request, refreshing when needed."""
 
@@ -300,6 +310,7 @@ def token():
 
 
 @app.route('/revoke', methods=['POST'])
+@nocache
 def revoke():
     """Sets the clients token to null."""
     client_id = request.form.get('client_id')
