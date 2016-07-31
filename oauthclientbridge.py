@@ -175,7 +175,7 @@ def authorize():
 def callback():
     """Validate callback and trade in code for a token."""
     if session.get('state', object()) != request.args.get('state'):
-        return render(error='Invalid state.'), 400
+        return render(error='Bad callback, state did not match.'), 400
     elif 'error' in request.args:
         return render(error=request.args['error']), 400
 
