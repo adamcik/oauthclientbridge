@@ -73,6 +73,9 @@ def callback():
 @app.route('/token', methods=['POST'])
 def token():
     """Validate token request, refreshing when needed."""
+    if rate_limit.check(request.remote_addr):
+        app.logger.warning('Rate limiting token: %s', request.remote_addr)
+        raise oauth.Error('invalid_request', 'Too many requests.')
 
     if request.form.get('grant_type') != 'client_credentials':
         raise oauth.Error('unsupported_grant_type',
@@ -91,11 +94,8 @@ def token():
         client_id = request.authorization.username
         client_secret = request.authorization.password
 
-    client_limit = rate_limit.check(client_id)
-    addr_limit = rate_limit.check(request.remote_addr)
-    if client_limit or addr_limit:
-        app.logger.warning('Rate limiting: client_id=%s address=%s',
-                           client_limit, addr_limit)
+    if rate_limit.check(client_id):
+        app.logger.warning('Rate limiting token: %s', client_id)
         raise oauth.Error('invalid_request', 'Too many requests.')
 
     if not client_id or not client_secret:
