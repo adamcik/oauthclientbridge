@@ -57,6 +57,9 @@ OAUTH_CALLBACK_TEMPLATE = """
 {% endif %}
 """
 
+# If we should rate limit calls to the bridge.
+OAUTH_RATE_LIMIT = True
+
 # Steady state QPS the rate limiter will allow. This controls how quickly our
 # tracking buckets empty, i.e. the QPS.
 OAUTH_BUCKET_REFILL_RATE = 2

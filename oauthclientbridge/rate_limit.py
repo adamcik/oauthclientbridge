@@ -21,6 +21,9 @@ def check(key):
     happens when the bucket gets a hit. There is a maximum bucket fill to avoid
     callers being locket out for too long.
     """
+    if not app.config['OAUTH_RATE_LIMIT']:
+        return False
+
     now = time.time()
     key = hashlib.sha256(key).hexdigest()
 
