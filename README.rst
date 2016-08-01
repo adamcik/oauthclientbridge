@@ -44,8 +44,21 @@ data every now and then.
 
     FLASK_APP=oauthclientbridge OAUTH_SETTINGS=oauth.cfg flask cleandb
 
-For further details on deploying Flask applications see the upstream
-documentation.
+Setting up a production instance
+================================
+
+- Always use HTTPS since we are passing access tokens around.
+- Set ``SESSION_COOKIE_SECURE`` to keep the state used in the redirect safe.
+- Ideally also set ``SESSION_COOKIE_DOMAIN`` and ``SESSION_COOKIE_PATH``.
+- Note that this app does not handle proxying. See `flask proxy setups
+  <http://flask.pocoo.org/docs/latest/deploying/wsgi-standalone/#proxy-setups>`_
+  for create WSGI shim that fixes this. Note that uWSGI+NGINX does not have
+  this problem and is the recommended deployment method.
+
+.. TODO: Add notes about OAUTH_CALLBACK_TEMPLATE setup?
+
+For further details on deploying Flask applications see the `upstream
+documentation <http://flask.pocoo.org/docs/latest/deploying/>`_.
 
 OAuth flows
 ===========
