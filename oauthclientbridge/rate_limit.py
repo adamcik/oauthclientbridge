@@ -13,7 +13,7 @@ def clean():
         return cursor.rowcount
 
 
-def check(key):
+def check(key, increment=1):
     """Decide if the given key should be rate limited.
 
     Calls are allowed whenever the bucket is below capacity. Each hit fills the
@@ -29,27 +29,22 @@ def check(key):
 
     with db.cursor() as cursor:
         cursor.execute(
-            'SELECT updated, value FROM buckets WHERE key = ?', (key,))
-        row = cursor.fetchone()
+            """
+            INSERT OR REPLACE INTO buckets (key, updated, value)
+            SELECT
+               -- 1. Empty bucket by '(now - updated) / refill_rate'
+               -- 2. Set to zero if we emptied too much.
+               -- 3. Limit bucket fullness to max_hits
+               ?, ?, MIN(? + MAX(0, value - ((? - updated) / ?)), ?)
+            FROM (
+              WITH bucket AS (SELECT * FROM buckets WHERE key = ?)
+              SELECT
+                IFNULL((SELECT updated FROM bucket), 0) updated,
+                IFNULL((SELECT value FROM bucket), 0) value
+            );
+            """, (key, now, increment, now,
+                  app.config['OAUTH_BUCKET_REFILL_RATE'],
+                  app.config['OAUTH_BUCKET_MAX_HITS'], key))
 
-        if row:
-            updated, value = row
-        else:
-            updated, value = now, 0
-
-        # TODO: add a penalty for being over cap?
-        # TODO: this is probably racy.
-
-        # 1. Reduce by amount we should have refilled since last update.
-        value -= float(now - updated) / app.config['OAUTH_BUCKET_REFILL_RATE']
-        # 2. Update to 0 if bucket is "full" or value + 1 to account for hit.
-        value = max(0, value + 1)
-        # 3. Limit how much over you can go.
-        value = min(value, app.config['OAUTH_BUCKET_MAX_HITS'])
-
-        cursor.execute(  # Insert/replace the bucket we just hit.
-            'INSERT OR REPLACE INTO buckets '
-            '(key, updated, value) VALUES (?, ?, ?)',
-            (key, now, value))
-
-    return value > app.config['OAUTH_BUCKET_CAPACITY']
+        cursor.execute('SELECT value FROM buckets WHERE key = ?', (key,))
+        return cursor.fetchone()[0] > app.config['OAUTH_BUCKET_CAPACITY']
