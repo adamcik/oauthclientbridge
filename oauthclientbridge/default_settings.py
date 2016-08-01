@@ -9,28 +9,37 @@
 #
 # Also make sure you have secure access to this file _and_ the directory it's
 # in to keep it from leaking via .pyc files.
-SECRET_KEY = 'MUST-BE-REPLACED-WITH-A-GOOD-RANDOM-VALUE'
+SECRET_KEY = None
 
 # SQLite3 database to store tokens and rate limit information in:
-OAUTH_DATABASE = 'oauth.db'
+OAUTH_DATABASE = None
 
 # Client ID and secret provided by upstream OAuth provider:
-OAUTH_CLIENT_ID = 'some-client-id'
-OAUTH_CLIENT_SECRET = 'some-client-secret'
-
-# Upstream authorization URI to redirect users to:
-OAUTH_AUTHORIZATION_URI = 'https://example.com/authorize'
-
-# Upstream token and refresh URIs, this will often be the same endpoint:
-OAUTH_TOKEN_URI = 'https://example.com/token'
-OAUTH_REFRESH_URI = 'https://example.com/token'
+OAUTH_CLIENT_ID = None
+OAUTH_CLIENT_SECRET = None
 
 # List of OAuth scopes to request from the upstream provider:
 OAUTH_SCOPES = []
 
+# Upstream authorization URI to redirect users to:
+OAUTH_AUTHORIZATION_URI = None
+
+# Upstream token and refresh URIs, this will often be the same endpoint:
+OAUTH_TOKEN_URI = None
+OAUTH_REFRESH_URI = None
+
 # Bridge callback URI to send users back to. Should exactly match URI
 # registered with the upstream provider.
 OAUTH_REDIRECT_URI = 'http://localhost:5000/callback'
+
+# Steady state QPS the rate limiter will allow:
+OAUTH_BUCKET_REFILL_RATE = 2
+
+# Maximum number of requests the rate limiter will allow in an initial burst:
+OAUTH_BUCKET_CAPACITY = 10
+
+# Upper limit on how many exceeding requests you will be penalized for:
+OAUTH_BUCKET_MAX_HITS = 15
 
 # Jinja2 template to use for the callback page. Possible context values are:
 #  error, client_id, client_secret
@@ -54,11 +63,3 @@ OAUTH_CALLBACK_TEMPLATE = """
 </form>
 {% endif %}
 """
-# Steady state QPS the rate limiter will allow:
-OAUTH_BUCKET_REFILL_RATE = 2
-
-# Maximum number of requests the rate limiter will allow in an initial burst:
-OAUTH_BUCKET_CAPACITY = 5
-
-# Upper limit on how many exceeding requests you will be penalized for:
-OAUTH_BUCKET_MAX_HITS = 10

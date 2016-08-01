@@ -123,7 +123,8 @@ def token():
         return jsonify(result)
 
     try:
-        refresh_result = oauth.fetch(app.config['OAUTH_REFRESH_URI'],
+        refresh_result = oauth.fetch(app.config['OAUTH_REFRESH_URI'] or
+                                     app.config['OAUTH_TOKEN_URI'],
                                      app.config['OAUTH_CLIENT_ID'],
                                      app.config['OAUTH_CLIENT_SECRET'],
                                      grant_type='refresh_token',
