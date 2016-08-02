@@ -1,4 +1,4 @@
-from setuptools import setup
+from setuptools import find_packages, setup
 
 setup(
     name='OAuth-Client-Bridge',
@@ -9,7 +9,7 @@ setup(
     author_email='thomas@adamcik.no',
     description='Bridge OAuth2 Authorization Code Grants to Clients Grants.',
     long_description=open('README.rst').read(),
-    py_modules=['oauthclientbridge'],
+    packages=find_packages(),
     include_package_data=True,
     zip_safe=False,
     install_requires=[
