@@ -57,6 +57,9 @@ OAUTH_CALLBACK_TEMPLATE = """
 {% endif %}
 """
 
+# Number proxies to expect in front of us. Used for handling X-Forwarded-For
+OAUTH_NUM_PROXIES = 0
+
 # If we should rate limit calls to the bridge.
 OAUTH_RATE_LIMIT = True
 

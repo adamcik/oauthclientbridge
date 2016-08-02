@@ -50,10 +50,8 @@ Setting up a production instance
 - Always use HTTPS since we are passing access tokens around.
 - Set ``SESSION_COOKIE_SECURE`` to keep the state used in the redirect safe.
 - Ideally also set ``SESSION_COOKIE_DOMAIN`` and ``SESSION_COOKIE_PATH``.
-- Note that this app does not handle proxying. See `flask proxy setups
-  <http://flask.pocoo.org/docs/latest/deploying/wsgi-standalone/#proxy-setups>`_
-  for create WSGI shim that fixes this. Note that uWSGI+NGINX does not have
-  this problem and is the recommended deployment method.
+- If you are behind a proxy set ``OAUTH_NUM_PROXIES`` to the number of proxies.
+  This ensures ``X-Forwarded-For`` gets respected with the value from the proxy.
 
 .. TODO: Add notes about OAUTH_CALLBACK_TEMPLATE setup?
 
