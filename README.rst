@@ -40,7 +40,7 @@ Run the development server::
     FLASK_APP=oauthclientbridge OAUTH_SETTINGS=oauth.cfg flask run
 
 Additionally you might want to run ``cleandb`` as a cron job to clear out stale
-data every now and then.
+data every now and then.::
 
     FLASK_APP=oauthclientbridge OAUTH_SETTINGS=oauth.cfg flask cleandb
 
