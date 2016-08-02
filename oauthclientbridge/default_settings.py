@@ -70,3 +70,47 @@ OAUTH_BUCKET_CAPACITY = 10
 # Upper limit on how full the bucket can get. This ensures that you don't lock
 # yourself out for to long if you do a lot of excessive requests.
 OAUTH_BUCKET_MAX_HITS = 15
+
+# Additional log file for application level logging, set to None to disable.
+OAUTH_LOG_FILE = None
+
+# Log level for file logging.
+OAUTH_LOG_FILE_LEVEL = 'INFO'
+
+# Log format for file logging.
+OAUTH_LOG_FILE_FORMAT = ('%(asctime)s %(levelname)s: %(message)s '
+                         '[in %(pathname)s:%(lineno)d]')
+
+# Max bytes to pass to the RotatingFileHandler logging handler.
+OAUTH_LOG_FILE_MAX_BYTES = 0
+
+# Number of backups that the RotatingFileHandler should keep.
+OAUTH_LOG_FILE_BACKUP_COUNT = 0
+
+# List of addresses to send logging emails to, leave empty to disable.
+OAUTH_LOG_EMAIL = []
+
+# Log level for email logging.
+OAUTH_LOG_EMAIL_LEVEL = 'ERROR'
+
+# Log format for email logging.
+OAUTH_LOG_EMAIL_FORMAT = """
+Message type:       %(levelname)s
+Location:           %(pathname)s:%(lineno)d
+Module:             %(module)s
+Function:           %(funcName)s
+Time:               %(asctime)s
+
+Message:
+
+%(message)s
+"""
+
+# SMTP host to use for email logging.
+OAUTH_LOG_EMAIL_HOST = 'localhost'
+
+# From address to user for email logging.
+OAUTH_LOG_EMAIL_FROM = 'oauthclientbridge@localhost'
+
+# Subject line to use for email logging.
+OAUTH_LOG_EMAIL_SUBJECT = 'oauthclientbridge log message'

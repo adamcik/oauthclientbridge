@@ -7,4 +7,5 @@ app.config.from_object('oauthclientbridge.default_settings')
 app.config.from_envvar('OAUTH_SETTINGS')
 
 import oauthclientbridge.cli
+import oauthclientbridge.logging
 import oauthclientbridge.views
