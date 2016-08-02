@@ -8,7 +8,7 @@ def clean():
     now = time.time()
     with db.cursor() as cursor:
         cursor.execute('DELETE FROM buckets WHERE updated < ? AND '
-                       'value - (? - updated) / ? <= 0',
+                       'value - (? - updated) * ? <= 0',
                        (now, now, app.config['OAUTH_BUCKET_REFILL_RATE']))
         return cursor.rowcount
 
@@ -32,10 +32,10 @@ def check(key, increment=1):
             """
             INSERT OR REPLACE INTO buckets (key, updated, value)
             SELECT
-               -- 1. Empty bucket by '(now - updated) / refill_rate'
+               -- 1. Empty bucket by '(now - updated) * refill_rate'
                -- 2. Set to zero if we emptied too much.
                -- 3. Limit bucket fullness to max_hits
-               ?, ?, MIN(? + MAX(0, value - ((? - updated) / ?)), ?)
+               ?, ?, MIN(? + MAX(0, value - ((? - updated) * ?)), ?)
             FROM (
               WITH bucket AS (SELECT * FROM buckets WHERE key = ?)
               SELECT

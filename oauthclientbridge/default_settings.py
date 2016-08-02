@@ -62,7 +62,7 @@ OAUTH_RATE_LIMIT = True
 
 # Steady state QPS the rate limiter will allow. This controls how quickly our
 # tracking buckets empty, i.e. the QPS.
-OAUTH_BUCKET_REFILL_RATE = 2
+OAUTH_BUCKET_REFILL_RATE = 0.5
 
 # Maximum number of requests the rate limiter will allow in an initial burst:
 OAUTH_BUCKET_CAPACITY = 10
