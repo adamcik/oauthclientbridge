@@ -95,15 +95,14 @@ OAUTH_LOG_EMAIL_LEVEL = 'ERROR'
 
 # Log format for email logging.
 OAUTH_LOG_EMAIL_FORMAT = """
-Message type:       %(levelname)s
-Location:           %(pathname)s:%(lineno)d
-Module:             %(module)s
-Function:           %(funcName)s
-Time:               %(asctime)s
-
-Message:
-
 %(message)s
+
+Time:           %(asctime)s
+Message type:   %(levelname)s
+Path:           %(request_path)s
+Location:       %(pathname)s:%(lineno)d
+Module:         %(module)s
+Function:       %(funcName)s
 """
 
 # SMTP host to use for email logging.
@@ -113,4 +112,4 @@ OAUTH_LOG_EMAIL_HOST = 'localhost'
 OAUTH_LOG_EMAIL_FROM = 'oauthclientbridge@localhost'
 
 # Subject line to use for email logging.
-OAUTH_LOG_EMAIL_SUBJECT = 'oauthclientbridge log message'
+OAUTH_LOG_EMAIL_SUBJECT = 'oauthclientbridge: %(request_base_url)s'
