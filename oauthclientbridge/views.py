@@ -33,8 +33,9 @@ def callback():
         app.logger.warning('Rate limiting callback: %s', request.remote_addr)
         return _render(error='Too many requests.'), 429
     elif session.get('state', object()) != request.args.get('state'):
-        return _render(error='Bad callback, state did not match.'), 400
+        return _render(error='Invalid callback, unable to proceed.'), 400
     elif 'error' in request.args:
+        app.logger.warning('Callback failed: %s', request.args['error'])
         return _render(error=request.args['error']), 400
 
     try:
@@ -46,7 +47,7 @@ def callback():
                              code=request.args.get('code'))
     except (oauth.FetchException, ValueError) as e:
         app.logger.error('Token fetch failed: %s', e)
-        return _render(error='Token fetch failed.'), 500
+        return _render(error='Retrieving OAuth token failed.'), 500
 
     del session['state']  # Delete the state in case of replay.
 
@@ -65,7 +66,7 @@ def callback():
                 (client_id, token))
         except db.IntegrityError:
             app.log.warning('Could not get unique client id: %s', client_id)
-            return _render(error='Could not get unique client id.'), 500
+            return _render(error='Database integrity error.'), 500
 
     return _render(client_id=client_id, client_secret=client_secret)
 
