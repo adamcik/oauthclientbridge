@@ -14,11 +14,11 @@ setup(
     zip_safe=False,
     install_requires=[
         'cryptography',
-        'Flask',
+        'Flask>=0.11',
         'requests',
     ],
     classifiers=[
-        'Development Status :: 4 - Beta',
+        'Development Status :: 5 - Production/Stable',
         'License :: OSI Approved :: Apache Software License',
         'Operating System :: OS Independent',
         'Programming Language :: Python :: 2',
