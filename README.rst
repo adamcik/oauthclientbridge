@@ -53,10 +53,66 @@ Setting up a production instance
 - If you are behind a proxy set ``OAUTH_NUM_PROXIES`` to the number of proxies.
   This ensures ``X-Forwarded-For`` gets respected with the value from the proxy.
 
-.. TODO: Add notes about OAUTH_CALLBACK_TEMPLATE setup?
-
 For further details on deploying Flask applications see the `upstream
 documentation <http://flask.pocoo.org/docs/latest/deploying/>`_.
+
+The following code snippet can be used to create a popup pointed at the oauth
+server, and the poll the it for the results::
+
+  var target = 'https://example.net/oauth';
+  var targetOrigin = 'https://example.net'
+
+  window.addEventListener('message', function(event) {
+    if (event.origin !== targetOrigin) return;
+
+    if (event.data['error']) {
+      // Update webpage with error data.
+    } else {
+      // Update webpage with client_id and client_secret.
+    }
+
+    event.source.close();
+  }, false);
+
+  var child = window.open(target);
+  var interval = setInterval(function() {
+    if (child.closed) {
+      clearInterval(interval);
+    } else {
+      child.postMessage('oauthclientbridge', targetOrigin)
+    }
+  }, 1000);
+
+To get the snippet above to work setup the bridge with the following template
+which will listen for the ``postMessage`` and then respond with the results.::
+
+  OAUTH_CALLBACK_TEMPLATE = """
+  <!DOCTYPE html>
+  <html>
+    <head>
+      <meta charset="UTF-8">
+      <title>Connect to example.</title>
+      <script>
+        var sourceOrigin = 'https://example.com:8080';
+
+        window.addEventListener('message', function(event) {
+          if (event.origin !== sourceOrigin) return;
+          if (event.data !== 'oauthclientbridge') return;
+
+          event.source.postMessage({
+            client_id: {{ client_id|tojson }},
+            client_secret: {{ client_secret|tojson }},
+            error: {{ error|tojson }}
+          }, event.origin);
+        }, false)
+      </script>
+    </head>
+    <body>
+      <p>This popup should automatically close in a few seconds.</p>
+    </body>
+  </html>
+  """
+
 
 OAuth flows
 ===========
