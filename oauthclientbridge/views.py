@@ -116,7 +116,7 @@ def token():
 
     try:
         result = crypto.loads(client_secret, row[0])
-    except crypto.InvalidToken:
+    except (crypto.InvalidToken, TypeError):
         # Always return same message as for client not found to avoid leaking
         # valid clients directly, timing attacks could of course still work.
         raise oauth.Error('invalid_client', 'Client not known.')
