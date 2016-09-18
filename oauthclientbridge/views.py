@@ -15,13 +15,14 @@ def authorize():
         app.logger.warning('Rate limiting authorize: %s', request.remote_addr)
         return _render(error='Too many requests.'), 429
 
+    default_scope = ' '.join(app.config['OAUTH_SCOPES'])
     session['state'] = crypto.generate_key()
     return oauth.redirect(
         app.config['OAUTH_AUTHORIZATION_URI'],
         client_id=app.config['OAUTH_CLIENT_ID'],
         response_type='code',
         redirect_uri=app.config['OAUTH_REDIRECT_URI'],
-        scope=' '.join(app.config['OAUTH_SCOPES']),
+        scope=request.args.get('scope', default_scope),
         state=session['state'])
 
 
