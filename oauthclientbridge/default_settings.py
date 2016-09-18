@@ -100,12 +100,13 @@ OAUTH_LOG_EMAIL_LEVEL = 'ERROR'
 OAUTH_LOG_EMAIL_FORMAT = """
 %(message)s
 
-Time:           %(asctime)s
-Message type:   %(levelname)s
-Path:           %(request_path)s
-Location:       %(pathname)s:%(lineno)d
-Module:         %(module)s
-Function:       %(funcName)s
+Remote address:   %(request_remote_address)s
+Time:             %(asctime)s
+Message type:     %(levelname)s
+Path:             %(request_path)s
+Location:         %(pathname)s:%(lineno)d
+Module:           %(module)s
+Function:         %(funcName)s
 """
 
 # SMTP host to use for email logging.
