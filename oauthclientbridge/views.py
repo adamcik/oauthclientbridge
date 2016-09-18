@@ -131,7 +131,7 @@ def token():
                                      app.config['OAUTH_CLIENT_SECRET'],
                                      grant_type='refresh_token',
                                      refresh_token=result['refresh_token'])
-    except (oauth.FetchException, ValueError) as e:
+    except (oauth.FetchError, ValueError) as e:
         app.logger.error('Token refresh failed: %s', e)
         # Server error isn't currently allowed, but fixing this has been
         # brought up in https://www.rfc-editor.org/errata_search.php?eid=4745

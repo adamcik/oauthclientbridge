@@ -5,7 +5,7 @@ import requests
 
 from flask import jsonify, redirect as flask_redirect, request
 
-FetchException = requests.exceptions.RequestException
+FetchError = requests.exceptions.RequestException
 
 
 class Error(Exception):
