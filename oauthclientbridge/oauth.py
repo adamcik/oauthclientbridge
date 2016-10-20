@@ -5,8 +5,6 @@ import requests
 
 from flask import jsonify, redirect as flask_redirect, request
 
-FetchError = requests.exceptions.RequestException
-
 
 class Error(Exception):
     def __init__(self, error, error_description=None, error_uri=None):
@@ -42,8 +40,25 @@ def nocache(response):
 def fetch(uri, username, password, **data):
     """Perform post given URI with auth and provided data."""
     response = requests.post(uri, auth=(username, password), data=data)
-    response.raise_for_status()  # Force caller to handler errors.
-    return response.json()
+    status_code = response.status_code
+
+    try:
+        result = response.json()
+    except ValueError:
+        # Server error isn't allowed everywhere, but fixing this has been
+        # brought up in https://www.rfc-editor.org/errata_search.php?eid=4745
+        return {'error': 'server_error',
+                'error_description': 'Decoding JSON response failed.'}
+
+    if 400 <= status_code < 500 and 'error' not in result:
+        # TODO: Log the result for better debugging?
+        status = httplib.responses.get(status_code, status_code)
+        description = 'Got HTTP %s, but no error set in response.' % status
+        return {'error': 'server_error', 'error_description': description}
+
+    # TODO: Log != 200 responses that make it here?
+
+    return result
 
 
 def redirect(uri, **params):

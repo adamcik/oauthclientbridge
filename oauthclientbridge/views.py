@@ -36,24 +36,25 @@ def callback():
     elif session.get('state', object()) != request.args.get('state'):
         return _render(error='Invalid callback, unable to proceed.'), 400
     elif 'error' in request.args:
-        app.logger.warning('Callback failed: %s', request.args['error'])
+        if request.args['error'] == 'access_denied':
+            app.logger.info('Resource owner denied the request.')
+        elif request.args['error'] == 'invalid_scope':
+            app.logger.warning('Invalid scope: %r', request.args.get('scope'))
+        else:
+            app.logger.error('Callback failed: %s', request.args['error'])
         return _render(error=request.args['error']), 400
-
-    try:
-        result = oauth.fetch(app.config['OAUTH_TOKEN_URI'],
-                             app.config['OAUTH_CLIENT_ID'],
-                             app.config['OAUTH_CLIENT_SECRET'],
-                             grant_type='authorization_code',
-                             redirect_uri=app.config['OAUTH_REDIRECT_URI'],
-                             code=request.args.get('code'))
-    except (oauth.FetchException, ValueError) as e:
-        app.logger.error('Token fetch failed: %s', e)
-        return _render(error='Retrieving OAuth token failed.'), 500
 
     del session['state']  # Delete the state in case of replay.
 
+    result = oauth.fetch(app.config['OAUTH_TOKEN_URI'],
+                         app.config['OAUTH_CLIENT_ID'],
+                         app.config['OAUTH_CLIENT_SECRET'],
+                         grant_type='authorization_code',
+                         redirect_uri=app.config['OAUTH_REDIRECT_URI'],
+                         code=request.args.get('code'))
+
     if 'error' in result:
-        app.logger.warning('Token fetch failed: %s', result)
+        app.logger.warning('Retrieving token failed: %s', result)
         return _render(error=result['error']), 400
 
     client_id = db.generate_id()
@@ -124,20 +125,20 @@ def token():
     if 'refresh_token' not in result:
         return jsonify(result)
 
-    try:
-        refresh_result = oauth.fetch(app.config['OAUTH_REFRESH_URI'] or
-                                     app.config['OAUTH_TOKEN_URI'],
-                                     app.config['OAUTH_CLIENT_ID'],
-                                     app.config['OAUTH_CLIENT_SECRET'],
-                                     grant_type='refresh_token',
-                                     refresh_token=result['refresh_token'])
-    except (oauth.FetchError, ValueError) as e:
-        app.logger.error('Token refresh failed: %s', e)
-        # Server error isn't currently allowed, but fixing this has been
-        # brought up in https://www.rfc-editor.org/errata_search.php?eid=4745
-        raise oauth.Error('server_error', 'Token refresh failed.')
+    refresh_result = oauth.fetch(app.config['OAUTH_REFRESH_URI'] or
+                                 app.config['OAUTH_TOKEN_URI'],
+                                 app.config['OAUTH_CLIENT_ID'],
+                                 app.config['OAUTH_CLIENT_SECRET'],
+                                 grant_type='refresh_token',
+                                 refresh_token=result['refresh_token'])
 
     if 'error' in refresh_result:
+        # TODO: Consider deleting token when we get invalid_grant?
+
+        # Log errors that aren't from revoked grants.
+        if refresh_result['error'] != 'invalid_grant':
+            app.logger.error('Token refresh failed: %s', refresh_result)
+
         # Client Credentials access token responses use the same errors
         # as Authorization Code Grant access token responses. As such just
         # raise the error we got.
