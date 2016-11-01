@@ -41,7 +41,16 @@ def nocache(response):
 
 def fetch(uri, username, password, **data):
     """Perform post given URI with auth and provided data."""
-    response = requests.post(uri, auth=(username, password), data=data)
+    try:
+        response = requests.post(uri, auth=(username, password), data=data,
+                                 timeout=app.config['OAUTH_TIMEOUT'])
+    except IOError as e:
+        app.logger.warning('Fetching %r failed: %s', uri, e)
+        # Server error isn't allowed everywhere, but fixing this has been
+        # brought up in https://www.rfc-editor.org/errata_search.php?eid=4745
+        return {'error': 'server_error',
+                'error_description': e.__class__.__name__}
+
     status_code = response.status_code
 
     try:

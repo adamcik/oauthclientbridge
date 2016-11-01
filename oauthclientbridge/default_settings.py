@@ -30,6 +30,10 @@ OAUTH_AUTHORIZATION_URI = None
 OAUTH_TOKEN_URI = None
 OAUTH_REFRESH_URI = None
 
+# Number of seconds to wait for initial connection and subsequent reads to
+# upstream OAuth endpoint.
+OAUTH_TIMEOUT = 10
+
 # Bridge callback URI to send users back to. Should exactly match URI
 # registered with the upstream provider.
 OAUTH_REDIRECT_URI = 'http://localhost:5000/callback'
