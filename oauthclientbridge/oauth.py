@@ -5,6 +5,8 @@ import requests
 
 from flask import jsonify, redirect as flask_redirect, request
 
+from oauthclientbridge import app
+
 
 class Error(Exception):
     def __init__(self, error, error_description=None, error_uri=None):
@@ -45,15 +47,14 @@ def fetch(uri, username, password, **data):
     try:
         result = response.json()
     except ValueError:
-        # Server error isn't allowed everywhere, but fixing this has been
-        # brought up in https://www.rfc-editor.org/errata_search.php?eid=4745
+        app.logger.warning('Fetching %r failed: Invalid JSON.')
         return {'error': 'server_error',
                 'error_description': 'Decoding JSON response failed.'}
 
     if 400 <= status_code < 500 and 'error' not in result:
-        # TODO: Log the result for better debugging?
         status = httplib.responses.get(status_code, status_code)
         description = 'Got HTTP %s, but no error set in response.' % status
+        app.logger.warning('Fetching %r failed: %s', uri, description())
         return {'error': 'server_error', 'error_description': description}
 
     # TODO: Log != 200 responses that make it here?
