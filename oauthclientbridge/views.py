@@ -97,7 +97,7 @@ def token():
         client_id = request.authorization.username
         client_secret = request.authorization.password
 
-    if rate_limit.check(client_id):
+    if client_id and rate_limit.check(client_id):
         app.logger.warning('Rate limiting token: %s', client_id)
         raise oauth.Error('invalid_request', 'Too many requests.')
 
