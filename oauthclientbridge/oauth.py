@@ -55,8 +55,8 @@ def fetch(uri, username, password, **data):
 
     try:
         result = response.json()
-    except ValueError:
-        app.logger.warning('Fetching %r failed: Invalid JSON.')
+    except ValueError as e:
+        app.logger.warning('Fetching %r failed: Invalid JSON: %s', uri, e)
         return {'error': 'server_error',
                 'error_description': 'Decoding JSON response failed.'}
 
