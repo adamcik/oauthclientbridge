@@ -20,12 +20,17 @@ def check(key, increment=1):
     bucket by one. Buckets drain at a configurable rate, though refill only
     happens when the bucket gets a hit. There is a maximum bucket fill to avoid
     callers being locket out for too long.
+
+    Returns number of seconds you should wait before trying again.
     """
     if not app.config['OAUTH_RATE_LIMIT']:
         return False
 
     now = time.time()
     key = hashlib.sha256(key).hexdigest()
+    refill = app.config['OAUTH_BUCKET_REFILL_RATE']
+    capacity = app.config['OAUTH_BUCKET_CAPACITY']
+    max_hits = app.config['OAUTH_BUCKET_MAX_HITS']
 
     with db.cursor() as cursor:
         cursor.execute(
@@ -42,9 +47,7 @@ def check(key, increment=1):
                 IFNULL((SELECT updated FROM bucket), 0) updated,
                 IFNULL((SELECT value FROM bucket), 0) value
             );
-            """, (key, now, increment, now,
-                  app.config['OAUTH_BUCKET_REFILL_RATE'],
-                  app.config['OAUTH_BUCKET_MAX_HITS'], key))
+            """, (key, now, increment, now, refill, max_hits, key))
 
         cursor.execute('SELECT value FROM buckets WHERE key = ?', (key,))
-        return cursor.fetchone()[0] > app.config['OAUTH_BUCKET_CAPACITY']
+        return max(0, (cursor.fetchone()[0] - capacity) / float(refill))

@@ -11,10 +11,11 @@ from oauthclientbridge import app
 
 
 class Error(Exception):
-    def __init__(self, error, error_description=None, error_uri=None):
+    def __init__(self, error, description=None, uri=None, retry_after=None):
         self.error = error
-        self.description = error_description
-        self.uri = error_uri
+        self.description = description
+        self.uri = uri
+        self.retry_after = retry_after
 
 
 def error_handler(e):
@@ -31,6 +32,10 @@ def error_handler(e):
         response.www_authenticate.set_basic()
     else:
         response.status_code = 400
+
+    if e.retry_after:
+        response.headers['Retry-After'] = int(e.try_again_in + 1)
+
     return response
 
 
