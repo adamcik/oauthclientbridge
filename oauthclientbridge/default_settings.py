@@ -32,7 +32,16 @@ OAUTH_REFRESH_URI = None
 
 # Number of seconds to wait for initial connection and subsequent reads to
 # upstream OAuth endpoint.
-OAUTH_TIMEOUT = 10
+OAUTH_FETCH_TIMEOUT = 10
+
+# Maximum number of retries for fetching oauth data.
+OAUTH_FETCH_TOTAL_RETRIES = 5
+
+# Status codes that should be considered retryable for oauth.
+OAUTH_FETCH_RETRY_STATUS_CODES = (500, 503, 429)
+
+# Backoff factor to use for not hammering the oauth server too much.
+OAUTH_FETCH_BACKOFF_FACTOR = 0.05
 
 # Bridge callback URI to send users back to. Should exactly match URI
 # registered with the upstream provider.
