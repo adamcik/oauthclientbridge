@@ -34,7 +34,7 @@ def error_handler(e):
         response.status_code = 400
 
     if e.retry_after:
-        response.headers['Retry-After'] = int(e.try_again_in + 1)
+        response.headers['Retry-After'] = int(e.retry_after + 1)
 
     return response
 
