@@ -24,6 +24,7 @@ class CustomSMTPHandler(SMTPHandler):
 
 context_provider = ContextualFilter()
 app.logger.addFilter(context_provider)
+app.logger.setLevel('DEBUG')
 
 if app.config['OAUTH_LOG_FILE']:
     file_handler = RotatingFileHandler(

@@ -72,8 +72,8 @@ def fetch(uri, username, password, **data):
     try:
         result = resp.json()
     except ValueError as e:
-        app.logger.warning('Fetching %r failed: Invalid JSON: %s', uri, e)
-        app.logger.debug('Response: %s', resp.text.encode('unicode-escape'))
+        app.logger.warning('Fetching %r failed: %s', uri, e)
+        app.logger.debug('Response: %s', _sanitize(resp.text))
         description = 'Decoding JSON response from provider failed.'
         return {'error': 'server_error', 'error_description': description}
 
@@ -89,6 +89,14 @@ def fetch(uri, username, password, **data):
 
 def redirect(uri, **params):
     return flask_redirect(_rewrite_uri(uri, params))
+
+
+def _sanitize(value, cutoff=100):
+    length = len(value)
+    if length > cutoff:
+        value = '%s...' % value[:cutoff]
+    return '%r %d bytes' % (value, length)
+    return value.encode('unicode-escape')
 
 
 def _retry_session():
