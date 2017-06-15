@@ -7,7 +7,7 @@ from requests.packages import urllib3
 
 from flask import g, jsonify, redirect as flask_redirect, request
 
-from oauthclientbridge import app
+from oauthclientbridge import __version__, app
 
 
 class Error(Exception):
@@ -110,6 +110,8 @@ def _session():
         g._oauth_session = requests.Session()
         g._oauth_session.mount('http://', adapter)
         g._oauth_session.mount('https://', adapter)
+        g._oauth_session.headers['user-agent'] = (
+            'oauthclientbridge %s' % __version__)
 
     return g._oauth_session
 
