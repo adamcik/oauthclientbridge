@@ -5,7 +5,7 @@ import requests
 
 from requests.packages import urllib3
 
-from flask import jsonify, redirect as flask_redirect, request
+from flask import g, jsonify, redirect as flask_redirect, request
 
 from oauthclientbridge import app
 
@@ -48,11 +48,9 @@ def nocache(response):
 
 def fetch(uri, username, password, **data):
     """Perform post given URI with auth and provided data."""
-    session = _retry_session()
-
     try:
-        resp = session.post(uri, auth=(username, password), data=data,
-                            timeout=app.config['OAUTH_FETCH_TIMEOUT'])
+        resp = _session().post(uri, auth=(username, password), data=data,
+                               timeout=app.config['OAUTH_FETCH_TIMEOUT'])
     except IOError as e:
         # Don't give API users error messages we don't control the contents of.
         if isinstance(e, requests.exceptions.ConnectionError):
@@ -99,19 +97,21 @@ def _sanitize(value, cutoff=100):
     return value.encode('unicode-escape')
 
 
-def _retry_session():
-    retry = urllib3.util.Retry(
-        total=app.config['OAUTH_FETCH_TOTAL_RETRIES'],
-        status_forcelist=app.config['OAUTH_FETCH_RETRY_STATUS_CODES'],
-        backoff_factor=app.config['OAUTH_FETCH_BACKOFF_FACTOR'],
-        method_whitelist=['POST'], respect_retry_after_header=True)
+def _session():
+    if getattr(g, '_oauth_session', None) is None:
+        retry = urllib3.util.Retry(
+            total=app.config['OAUTH_FETCH_TOTAL_RETRIES'],
+            status_forcelist=app.config['OAUTH_FETCH_RETRY_STATUS_CODES'],
+            backoff_factor=app.config['OAUTH_FETCH_BACKOFF_FACTOR'],
+            method_whitelist=['POST'], respect_retry_after_header=True)
 
-    adapter = requests.adapters.HTTPAdapter(max_retries=retry)
+        adapter = requests.adapters.HTTPAdapter(max_retries=retry)
 
-    session = requests.Session()
-    session.mount('http://', adapter)
-    session.mount('https://', adapter)
-    return session
+        g._oauth_session = requests.Session()
+        g._oauth_session.mount('http://', adapter)
+        g._oauth_session.mount('https://', adapter)
+
+    return g._oauth_session
 
 
 def _rewrite_query(original, params):
