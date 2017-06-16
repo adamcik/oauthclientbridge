@@ -1,5 +1,7 @@
 import urllib
 import urlparse
+import re
+import time
 
 import requests
 
@@ -48,41 +50,93 @@ def nocache(response):
 
 def fetch(uri, username, password, **data):
     """Perform post given URI with auth and provided data."""
+    req = requests.Request('POST', uri, auth=(username, password), data=data)
+    prepared = req.prepare()
+
+    timeout = time.time() + app.config['OAUTH_FETCH_TIMEOUT']
+    retry = 0
+
+    error_description = 'An unknown error occurred talking to provider.'
+    result = {'error': 'server_error', 'error_description': error_description}
+
+    for i in range(app.config['OAUTH_FETCH_TOTAL_RETRIES']):
+        prefix = 'attempt #%d %s' % (i + 1, uri)
+
+        backoff = (2**i - 1) * app.config['OAUTH_FETCH_BACKOFF_FACTOR']
+        remaining_timeout = timeout - time.time()
+
+        if (retry or backoff) > remaining_timeout:
+            app.logger.debug('Abort %s no timeout remaining.', prefix)
+            break
+        elif (retry or backoff) > 0:
+            app.logger.debug('Retry %s [sleep %.3f]', prefix, retry or backoff)
+            time.sleep(retry or backoff)
+
+        app.logger.debug('Fetch %s [timeout %.3f]', prefix, remaining_timeout)
+        result, status, retry = _fetch(prepared, remaining_timeout)
+        app.logger.debug('Result %s [status %s] [retry after %s]',
+                         prefix, status, retry)
+
+        if status is None:
+            pass  # We didn't even get a response, so try again.
+        elif status not in app.config['OAUTH_FETCH_RETRY_STATUS_CODES']:
+            break
+        elif 'error' not in result:
+            break  # No error reported so might as well return it.
+
+    return result
+
+
+def _fetch(prepared, timeout):
     try:
-        resp = _session().post(uri, auth=(username, password), data=data,
-                               timeout=app.config['OAUTH_FETCH_TIMEOUT'])
+        resp = _session().send(prepared, timeout=timeout)
     except IOError as e:
         # Don't give API users error messages we don't control the contents of.
         if isinstance(e, requests.exceptions.ConnectionError):
             description = 'An error occurred while connecting to the provider.'
-        elif isinstance(e, requests.exceptions.RetryError):
-            description = 'Request exceeded allowed retries to provider.'
         elif isinstance(e, requests.exceptions.Timeout):
             description = 'Request timed out while talking to provider.'
         else:
             description = 'An unknown error occurred talking to provider.'
 
-        app.logger.warning('Fetching %r failed: %s', uri, e)
+        app.logger.warning(
+            'Fetching %r (%s) failed: %s', resp.url, resp.status_code, e)
         # Server error isn't allowed everywhere, but fixing this has been
         # brought up in https://www.rfc-editor.org/errata_search.php?eid=4745
-        return {'error': 'server_error', 'error_description': description}
+        result = {'error': 'server_error', 'error_description': description}
+        status_code = None
+        retry_after = 0
+    else:
+        result = _decode(resp)
+        status_code = resp.status_code
+        retry_after = _parse_retry(resp.headers.get('retry-after'))
 
+    return result, status_code, retry_after
+
+
+def _decode(resp):
     try:
-        result = resp.json()
+        return resp.json()
     except ValueError as e:
-        app.logger.warning('Fetching %r failed: %s', uri, e)
-        app.logger.debug('Response: %s', _sanitize(resp.text))
+        app.logger.warning(
+            'Fetching %r (%s) failed: %s', resp.url, resp.status_code, e)
+        app.logger.debug('Response: %s', _sanitize(resp.content))
         description = 'Decoding JSON response from provider failed.'
         return {'error': 'server_error', 'error_description': description}
 
-    if 400 <= resp.status_code < 500 and 'error' not in result:
-        status = httplib.responses.get(resp.status_code, resp.status_code)
-        description = 'Got HTTP %s without error from provider.' % status
-        app.logger.warning('Fetching %r failed: %s', uri, description)
-        return {'error': 'server_error', 'error_description': description}
 
-    # TODO: Log != 200 responses that make it here?
-    return result
+def _parse_retry(value):
+    if not value:
+        seconds = 0
+    elif re.match(r'^\s*[0-9]+\s*$', value):
+        seconds = int(value)
+    else:
+        date_tuple= email.utils.parsedate(value)
+        if date_tuple is None:
+            seconds = 0
+        else:
+            seconds = time.mktime(date_tuple) - time.time()
+    return max(0, seconds)
 
 
 def redirect(uri, **params):
@@ -99,20 +153,9 @@ def _sanitize(value, cutoff=100):
 
 def _session():
     if getattr(g, '_oauth_session', None) is None:
-        retry = urllib3.util.Retry(
-            total=app.config['OAUTH_FETCH_TOTAL_RETRIES'],
-            status_forcelist=app.config['OAUTH_FETCH_RETRY_STATUS_CODES'],
-            backoff_factor=app.config['OAUTH_FETCH_BACKOFF_FACTOR'],
-            method_whitelist=['POST'], respect_retry_after_header=True)
-
-        adapter = requests.adapters.HTTPAdapter(max_retries=retry)
-
         g._oauth_session = requests.Session()
-        g._oauth_session.mount('http://', adapter)
-        g._oauth_session.mount('https://', adapter)
         g._oauth_session.headers['user-agent'] = (
             'oauthclientbridge %s' % __version__)
-
     return g._oauth_session
 
 

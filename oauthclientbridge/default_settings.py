@@ -41,10 +41,10 @@ OAUTH_FETCH_TIMEOUT = 10
 OAUTH_FETCH_TOTAL_RETRIES = 5
 
 # Status codes that should be considered retryable for oauth.
-OAUTH_FETCH_RETRY_STATUS_CODES = (500, 503, 429)
+OAUTH_FETCH_RETRY_STATUS_CODES = (500, 503, 429, 413)
 
 # Backoff factor to use for not hammering the oauth server too much.
-OAUTH_FETCH_BACKOFF_FACTOR = 0.05
+OAUTH_FETCH_BACKOFF_FACTOR = 0.1
 
 # Bridge callback URI to send users back to. Should exactly match URI
 # registered with the upstream provider.
