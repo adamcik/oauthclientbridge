@@ -136,12 +136,13 @@ def token():
     if 'refresh_token' not in result:
         return jsonify(result)
 
-    refresh_result = oauth.fetch(app.config['OAUTH_REFRESH_URI'] or
-                                 app.config['OAUTH_TOKEN_URI'],
-                                 app.config['OAUTH_CLIENT_ID'],
-                                 app.config['OAUTH_CLIENT_SECRET'],
-                                 grant_type='refresh_token',
-                                 refresh_token=result['refresh_token'])
+    refresh_result = oauth.fetch(
+        app.config['OAUTH_REFRESH_URI'] or
+        app.config['OAUTH_TOKEN_URI'],
+        app.config['OAUTH_CLIENT_ID'],
+        app.config['OAUTH_CLIENT_SECRET'],
+        grant_type=app.config['OAUTH_GRANT_TYPE'],
+        refresh_token=result['refresh_token'])
 
     if 'error' in refresh_result:
         # TODO: Consider deleting token when we get invalid_grant?

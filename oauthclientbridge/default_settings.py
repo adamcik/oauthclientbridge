@@ -19,6 +19,9 @@ OAUTH_DATABASE = None
 OAUTH_CLIENT_ID = None
 OAUTH_CLIENT_SECRET = None
 
+# Type of grant to request from upstream.
+OAUTH_GRANT_TYPE = 'refresh_token'
+
 # List of OAuth scopes to request from the upstream provider:
 OAUTH_SCOPES = []
 
