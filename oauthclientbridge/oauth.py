@@ -72,10 +72,7 @@ def fetch(uri, username, password, **data):
             app.logger.debug('Retry %s [sleep %.3f]', prefix, retry or backoff)
             time.sleep(retry or backoff)
 
-        app.logger.debug('Fetch %s [timeout %.3f]', prefix, remaining_timeout)
         result, status, retry = _fetch(prepared, remaining_timeout)
-        app.logger.debug('Result %s [status %s] [retry after %s]',
-                         prefix, status, retry)
 
         if status is None:
             pass  # We didn't even get a response, so try again.
@@ -83,6 +80,9 @@ def fetch(uri, username, password, **data):
             break
         elif 'error' not in result:
             break  # No error reported so might as well return it.
+
+        app.logger.debug('Result %s [status %s] [retry after %s]',
+                         prefix, status, retry)
 
     return result
 
