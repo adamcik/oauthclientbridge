@@ -131,7 +131,7 @@ def _parse_retry(value):
     elif re.match(r'^\s*[0-9]+\s*$', value):
         seconds = int(value)
     else:
-        date_tuple= email.utils.parsedate(value)
+        date_tuple = email.utils.parsedate(value)
         if date_tuple is None:
             seconds = 0
         else:
