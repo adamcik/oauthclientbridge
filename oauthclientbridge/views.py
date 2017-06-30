@@ -124,6 +124,7 @@ def token():
     if row is None:
         raise oauth.Error('invalid_client', 'Client not known.')
     elif row[0] is None:
+        # TODO: How do we avoid client retries here?
         raise oauth.Error('invalid_grant', 'Grant has been revoked.')
 
     try:

@@ -29,7 +29,7 @@ def error_handler(e):
         result['error_uri'] = e.uri
 
     response = jsonify(result)
-    if request.authorization and e.error == 'invalid_client':
+    if e.error == 'invalid_client':
         response.status_code = 401
         response.www_authenticate.set_basic()
     elif e.retry_after:
