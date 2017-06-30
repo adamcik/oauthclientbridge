@@ -5,6 +5,7 @@ from oauthclientbridge import app, crypto, db, oauth, rate_limit
 # Disable caching, and handle OAuth error responses automatically.
 app.after_request(oauth.nocache)
 app.register_error_handler(oauth.Error, oauth.error_handler)
+app.register_error_handler(500, oauth.fallback_error_handler)
 
 
 @app.route('/')

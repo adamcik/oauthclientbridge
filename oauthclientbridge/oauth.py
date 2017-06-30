@@ -41,6 +41,11 @@ def error_handler(e):
     return response
 
 
+def fallback_error_handler(e):
+    result = {'error': 'server_error', 'error_description': 'Unhandled error.'}
+    return jsonify(result), 500
+
+
 def nocache(response):
     """Turns off caching in case there is sensitive content in responses."""
     response.headers['Cache-Control'] = 'no-store'
