@@ -115,14 +115,19 @@ def _fetch(prepared, timeout):
 
 
 def _decode(resp):
+    # Per OAuth spec all responses should be JSON, but this isn't allways
+    # the case. For instance 502 errors and a gateway that does not correctly
+    # create a fake JSON error response.
+
     try:
         return resp.json()
     except ValueError as e:
         app.logger.warning(
-            'Fetching %r (%s) failed: %s', resp.url, resp.status_code, e)
-        app.logger.debug('Response: %s', _sanitize(resp.content))
-        description = 'Decoding JSON response from provider failed.'
-        return {'error': 'server_error', 'error_description': description}
+            'Fetching %r (HTTP %s, %s) failed: %s', resp.url, resp.status_code,
+             resp.headers.get('Content-Type', 'text/plain'), e)
+
+    description = 'Invalid JSON response from provider (%s)' % resp.status_code
+    return {'error': 'server_error', 'error_description': description}
 
 
 def _parse_retry(value):
@@ -141,14 +146,6 @@ def _parse_retry(value):
 
 def redirect(uri, **params):
     return flask_redirect(_rewrite_uri(uri, params))
-
-
-def _sanitize(value, cutoff=100):
-    length = len(value)
-    if length > cutoff:
-        value = '%s...' % value[:cutoff]
-    return '%r %d bytes' % (value, length)
-    return value.encode('unicode-escape')
 
 
 def _session():
