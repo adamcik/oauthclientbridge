@@ -99,8 +99,8 @@ def _fetch(prepared, timeout):
         else:
             description = 'An unknown error occurred talking to provider.'
 
-        app.logger.warning(
-            'Fetching %r (%s) failed: %s', resp.url, resp.status_code, e)
+        app.logger.warning('Fetching %r failed: %s', prepared.url, e)
+
         # Server error isn't allowed everywhere, but fixing this has been
         # brought up in https://www.rfc-editor.org/errata_search.php?eid=4745
         result = {'error': 'server_error', 'error_description': description}
