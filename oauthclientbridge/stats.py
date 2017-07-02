@@ -30,28 +30,34 @@ TIME_BUCKETS = (0.001, 0.003, 0.005, 0.010, 0.020, 0.030, 0.050, 0.075, 0.100,
 
 BYTE_BUCKETS = (0, 16, 64, 256, 512, 1024, 2048, 4096, float('inf'))
 
+RETRY_BUCKETS = (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, float('inf'))
+
 # Rest of these get populated lazily with http_%d as fallback.
 HTTP_STATUS = {429: 'http_too_many_requests'}
 
 ServerLatencyHistogram = pyprometheus.Histogram(
     'oauth_server_latency_seconds', 'Overall request latency.',
-    ['method', 'handler', 'status'], buckets=TIME_BUCKETS, registry=registry)
+    ['method', 'url', 'status'], buckets=TIME_BUCKETS, registry=registry)
 
 ServerResponseSizeHistogram = pyprometheus.Histogram(
     'oauth_server_response_bytes', 'Overall response size.',
-    ['method', 'handler', 'status'], buckets=BYTE_BUCKETS, registry=registry)
+    ['method', 'url', 'status'], buckets=BYTE_BUCKETS, registry=registry)
 
 ClientErrorCounter = pyprometheus.Counter(
     'oauth_client_error_total', 'OAuth errors from upstream provider.',
-    ['url', 'status', 'error'], registry=registry)
+    ['method', 'url', 'status', 'error'], registry=registry)
 
 ClientRetryHistogram = pyprometheus.Histogram(
     'oauth_client_retries', 'OAuth fetch retries.',
-    ['url', 'status'], buckets=range(10) + [float('inf')], registry=registry)
+    ['method', 'url', 'status'], buckets=RETRY_BUCKETS, registry=registry)
 
 ClientLatencyHistogram = pyprometheus.Histogram(
     'oauth_client_latency_seconds', 'Overall request latency.',
-    ['url', 'status'], buckets=TIME_BUCKETS, registry=registry)
+    ['method', 'url', 'status'], buckets=TIME_BUCKETS, registry=registry)
+
+ClientResponseSizeHistogram = pyprometheus.Histogram(
+    'oauth_client_response_bytes', 'Overall response size.',
+    ['method', 'url', 'status'], buckets=BYTE_BUCKETS, registry=registry)
 
 
 def status_enum(status_code):
@@ -70,7 +76,7 @@ def after_request(response):
     content_length = response.content_length
 
     labels = {'method': request.method,
-              'handler': getattr(request.url_rule, 'endpoint', 'none'),
+              'url': request.base_url if request.url_rule else '',
               'status': status_enum(response.status_code)}
 
     ServerLatencyHistogram.labels(**labels).observe(request_latency)

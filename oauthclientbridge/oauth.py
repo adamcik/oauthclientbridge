@@ -78,14 +78,16 @@ def fetch(uri, username, password, **data):
             time.sleep(retry or backoff)
 
         result, status, retry = _fetch(prepared, remaining_timeout)
-        status_string = stats.status_enum(status)
 
-        stats.ClientRetryHistogram.labels(
-            url=uri, status=status_string).observe(i)
+        labels = {'method': prepared.method,
+                  'url': prepared.url,
+                  'status': stats.status_enum(status)}
+
+        stats.ClientRetryHistogram.labels(**labels).observe(i)
 
         if status is not None and 'error' in result:
-            stats.ClientErrorCounter.labels(url=uri, status=status_string,
-                                            error=result['error']).inc()
+            stats.ClientErrorCounter.labels(
+                error=result['error'], **labels).inc()
 
         if status is None:
             pass  # We didn't even get a response, so try again.
@@ -104,19 +106,28 @@ def _fetch(prepared, timeout):
     try:
         start_time = time.time()
         resp = _session().send(prepared, timeout=timeout)
-    except IOError as e:
+    except requests.exceptions.RequestException as e:
         request_latency = time.time() - start_time
 
+        # Fallback values in case we can't say anything better.
+        status_label = 'unknown_exception'
+        description = 'An unknown error occurred while talking to provider.'
+
         # Don't give API users error messages we don't control the contents of.
-        if isinstance(e, requests.exceptions.ConnectionError):
-            status_string = 'connection_error'
+        if isinstance(e, requests.exceptions.Timeout):
+            description = 'Request timed out while connecting to provider.'
+            if isinstance(e, requests.exceptions.ConnectTimeout):
+                status_label = 'connection_timeout'
+            elif isinstance(e, requests.exceptions.ReadTimeout):
+                status_label = 'read_timeout'
+        elif isinstance(e, requests.exceptions.ConnectionError):
             description = 'An error occurred while connecting to the provider.'
-        elif isinstance(e, requests.exceptions.Timeout):
-            status_string = 'connection_timeout'
-            description = 'Request timed out while talking to provider.'
-        else:
-            status_string = 'unknown'
-            description = 'An unknown error occurred talking to provider.'
+            if isinstance(e, requests.exceptions.SSLError):
+                status_label = 'ssl_error'
+            elif isinstance(e, requests.exceptions.ProxyError):
+                status_label = 'proxy_error'
+            else:
+                status_label = 'connection_error'
 
         app.logger.warning('Fetching %r failed: %s', prepared.url, e)
 
@@ -124,17 +135,23 @@ def _fetch(prepared, timeout):
         # brought up in https://www.rfc-editor.org/errata_search.php?eid=4745
         result = {'error': 'server_error', 'error_description': description}
         status_code = None
+        length = None
         retry_after = 0
     else:
         request_latency = time.time() - start_time
-        status_string = stats.status_enum(resp.status_code)
+        status_label = stats.status_enum(resp.status_code)
 
         result = _decode(resp)
         status_code = resp.status_code
+        length = len(resp.content)
         retry_after = _parse_retry(resp.headers.get('retry-after'))
 
-    stats.ClientLatencyHistogram.labels(
-        url=prepared.url, status=status_string).observe(request_latency)
+    labels = {'method': prepared.method,
+              'url': prepared.url,
+              'status': status_label}
+    if length is not None:
+        stats.ClientResponseSizeHistogram.labels(**labels).observe(length)
+    stats.ClientLatencyHistogram.labels(**labels).observe(request_latency)
 
     return result, status_code, retry_after
 
