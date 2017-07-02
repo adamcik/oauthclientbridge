@@ -48,6 +48,10 @@ ClientRetryHistogram = pyprometheus.Histogram(
     'oauth_client_retries', 'OAuth fetch retries.',
     ['url', 'status'], buckets=range(10) + [float('inf')], registry=registry)
 
+ClientLatencyHistogram = pyprometheus.Histogram(
+    'oauth_client_latency_seconds', 'Overall request latency.',
+    ['url', 'status'], buckets=TIME_BUCKETS, registry=registry)
+
 
 def status_enum(status_code):
     if status_code not in HTTP_STATUS:

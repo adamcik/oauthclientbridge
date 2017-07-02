@@ -102,14 +102,20 @@ def fetch(uri, username, password, **data):
 
 def _fetch(prepared, timeout):
     try:
+        start_time = time.time()
         resp = _session().send(prepared, timeout=timeout)
     except IOError as e:
+        request_latency = time.time() - start_time
+
         # Don't give API users error messages we don't control the contents of.
         if isinstance(e, requests.exceptions.ConnectionError):
+            status_string = 'connection_error'
             description = 'An error occurred while connecting to the provider.'
         elif isinstance(e, requests.exceptions.Timeout):
+            status_string = 'connection_timeout'
             description = 'Request timed out while talking to provider.'
         else:
+            status_string = 'unknown'
             description = 'An unknown error occurred talking to provider.'
 
         app.logger.warning('Fetching %r failed: %s', prepared.url, e)
@@ -120,9 +126,15 @@ def _fetch(prepared, timeout):
         status_code = None
         retry_after = 0
     else:
+        request_latency = time.time() - start_time
+        status_string = stats.status_enum(resp.status_code)
+
         result = _decode(resp)
         status_code = resp.status_code
         retry_after = _parse_retry(resp.headers.get('retry-after'))
+
+    stats.ClientLatencyHistogram.labels(
+        url=prepared.url, status=status_string).observe(request_latency)
 
     return result, status_code, retry_after
 
