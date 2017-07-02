@@ -33,15 +33,15 @@ BYTE_BUCKETS = (0, 16, 64, 256, 512, 1024, 2048, 4096, float('inf'))
 HTTP_STATUS = {429: 'http_too_many_requests'}
 
 ServerLatencyHistogram = pyprometheus.Histogram(
-    'oauth_http_server_latency_seconds', 'Overall request latency.',
+    'oauth_server_latency_seconds', 'Overall request latency.',
     ['method', 'handler', 'status'], buckets=TIME_BUCKETS, registry=registry)
 
 ServerResponseSizeHistogram = pyprometheus.Histogram(
-    'oauth_http_server_response_bytes', 'Overall response size.',
+    'oauth_server_response_bytes', 'Overall response size.',
     ['method', 'handler', 'status'], buckets=BYTE_BUCKETS, registry=registry)
 
 ClientErrorCounter = pyprometheus.Counter(
-    'oauth_client_errors_total', 'OAuth errors from upstream provider.',
+    'oauth_client_error_total', 'OAuth errors from upstream provider.',
     ['url', 'status', 'error'], registry=registry)
 
 
