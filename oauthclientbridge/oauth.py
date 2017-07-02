@@ -9,7 +9,7 @@ from requests.packages import urllib3
 
 from flask import g, jsonify, redirect as flask_redirect, request
 
-from oauthclientbridge import __version__, app
+from oauthclientbridge import __version__, app, stats
 
 
 class Error(Exception):
@@ -78,6 +78,11 @@ def fetch(uri, username, password, **data):
             time.sleep(retry or backoff)
 
         result, status, retry = _fetch(prepared, remaining_timeout)
+
+        if status is not None and 'error' in result:
+            status_enum = stats.status_enum(status)
+            stats.ClientErrorCounter.labels(url=uri, status=status_enum,
+                                            error=result['error']).inc()
 
         if status is None:
             pass  # We didn't even get a response, so try again.

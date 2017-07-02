@@ -40,6 +40,10 @@ ServerResponseSizeHistogram = pyprometheus.Histogram(
     'oauth_http_server_response_bytes', 'Overall response size.',
     ['method', 'handler', 'status'], buckets=BYTE_BUCKETS, registry=registry)
 
+ClientErrorCounter = pyprometheus.Counter(
+    'oauth_client_errors_total', 'OAuth errors from upstream provider.',
+    ['url', 'status', 'error'], registry=registry)
+
 
 def status_enum(status_code):
     if status_code not in HTTP_STATUS:
