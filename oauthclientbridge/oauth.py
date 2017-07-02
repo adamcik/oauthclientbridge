@@ -1,7 +1,7 @@
-import urllib
-import urlparse
 import re
 import time
+import urllib
+import urlparse
 
 import requests
 
