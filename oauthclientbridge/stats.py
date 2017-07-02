@@ -1,4 +1,6 @@
+import httplib
 import os
+import re
 import time
 
 import pyprometheus
@@ -27,6 +29,8 @@ TIME_BUCKETS = (0.001, 0.003, 0.005, 0.010, 0.020, 0.030, 0.050, 0.075, 0.100,
 
 BYTE_BUCKETS = (0, 16, 64, 256, 512, 1024, 2048, 4096, float('inf'))
 
+# Rest of these get populated lazily with http_%d as fallback.
+HTTP_STATUS = {429: 'http_too_many_requests'}
 
 ServerLatencyHistogram = pyprometheus.Histogram(
     'oauth_http_server_latency_seconds', 'Overall request latency.',
@@ -35,6 +39,13 @@ ServerLatencyHistogram = pyprometheus.Histogram(
 ServerResponseSizeHistogram = pyprometheus.Histogram(
     'oauth_http_server_response_bytes', 'Overall response size.',
     ['method', 'handler', 'status'], buckets=BYTE_BUCKETS, registry=registry)
+
+
+def status_enum(status_code):
+    if status_code not in HTTP_STATUS:
+        text = httplib.responses.get(status_code, str(status_code)).lower()
+        HTTP_STATUS[status_code] = 'http_%s' % re.sub(r'[ -]', '_', text)
+    return HTTP_STATUS[status_code]
 
 
 def before_request():
@@ -47,7 +58,7 @@ def after_request(response):
 
     labels = {'method': request.method,
               'handler': getattr(request.url_rule, 'endpoint', 'none'),
-              'status': response.status_code}
+              'status': status_enum(response.status_code)}
 
     ServerLatencyHistogram.labels(**labels).observe(request_latency)
     if content_length >= 0:
