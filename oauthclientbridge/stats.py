@@ -44,6 +44,10 @@ ClientErrorCounter = pyprometheus.Counter(
     'oauth_client_error_total', 'OAuth errors from upstream provider.',
     ['url', 'status', 'error'], registry=registry)
 
+ClientRetryHistogram = pyprometheus.Histogram(
+    'oauth_client_retries', 'OAuth fetch retries.',
+    ['url', 'status'], buckets=range(10) + [float('inf')], registry=registry)
+
 
 def status_enum(status_code):
     if status_code not in HTTP_STATUS:

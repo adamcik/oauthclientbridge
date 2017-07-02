@@ -78,10 +78,13 @@ def fetch(uri, username, password, **data):
             time.sleep(retry or backoff)
 
         result, status, retry = _fetch(prepared, remaining_timeout)
+        status_string = stats.status_enum(status)
+
+        stats.ClientRetryHistogram.labels(
+            url=uri, status=status_string).observe(i)
 
         if status is not None and 'error' in result:
-            status_enum = stats.status_enum(status)
-            stats.ClientErrorCounter.labels(url=uri, status=status_enum,
+            stats.ClientErrorCounter.labels(url=uri, status=status_string,
                                             error=result['error']).inc()
 
         if status is None:
