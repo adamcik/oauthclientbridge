@@ -133,3 +133,6 @@ OAUTH_LOG_EMAIL_FROM = 'oauthclientbridge@localhost'
 
 # Subject line to use for email logging.
 OAUTH_LOG_EMAIL_SUBJECT = 'oauthclientbridge: %(request_base_url)s'
+
+# If we should enable metric tracking.
+OAUTH_STATS = True

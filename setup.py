@@ -15,6 +15,7 @@ setup(
     install_requires=[
         'cryptography',
         'Flask>=0.11',
+        'pyprometheus',
         'requests',
     ],
     classifiers=[

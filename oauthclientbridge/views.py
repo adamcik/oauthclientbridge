@@ -1,11 +1,17 @@
 from flask import jsonify, render_template_string, request, session
 
-from oauthclientbridge import app, crypto, db, oauth, rate_limit
+from oauthclientbridge import app, crypto, db, oauth, rate_limit, stats
 
-# Disable caching, and handle OAuth error responses automatically.
+# Disable caching across the board.
 app.after_request(oauth.nocache)
+
+# Handle OAuth and unhandled errors automatically.
 app.register_error_handler(oauth.Error, oauth.error_handler)
 app.register_error_handler(500, oauth.fallback_error_handler)
+
+# Keep track of requests and response stats.
+app.before_request(stats.before_request)
+app.after_request(stats.after_request)
 
 
 @app.route('/')
@@ -189,6 +195,11 @@ def revoke():
 
     # We always report success as to not leak info.
     return _render(error='Revoked client_id.'), 200
+
+
+@app.route('/metrics', methods=['GET'])
+def metrics():
+    return stats.export_metrics()
 
 
 def _render(client_id=None, client_secret=None, error=None):
