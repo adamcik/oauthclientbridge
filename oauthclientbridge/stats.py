@@ -4,6 +4,7 @@ import re
 import time
 
 import pyprometheus
+import pyprometheus.contrib.uwsgi_features
 import pyprometheus.registry
 
 from flask import request, Response
