@@ -21,7 +21,7 @@ else:
 registry = pyprometheus.registry.BaseRegistry(storage=storage)
 
 if running_under_uwsgi:
-    collector = pyprometheus.contrib.uwsgi_features.UWSGICollector()
+    collector = pyprometheus.contrib.uwsgi_features.UWSGICollector('uwsgi')
     registry.register(collector)
 
 
