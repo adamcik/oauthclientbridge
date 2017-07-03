@@ -4,7 +4,7 @@ import uuid
 
 from flask import g
 
-from oauthclientbridge import app
+from oauthclientbridge import app, stats
 
 IntegrityError = sqlite3.IntegrityError
 
@@ -28,10 +28,11 @@ def get():
 
 
 @contextlib.contextmanager
-def cursor():
+def cursor(name):
     """Get SQLite cursor with automatic commit if no exceptions are raised."""
-    with get() as connection:
-        yield connection.cursor()
+    with stats.DBLatencyHistorgram.labels(query=name).time():
+        with get() as connection:
+            yield connection.cursor()
 
 
 @app.teardown_appcontext
