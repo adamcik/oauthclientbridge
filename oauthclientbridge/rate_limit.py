@@ -1,7 +1,7 @@
 import hashlib
 import time
 
-from oauthclientbridge import app, db
+from oauthclientbridge import app, db, stats
 
 
 def clean():
@@ -33,21 +33,23 @@ def check(key, increment=1):
     max_hits = app.config['OAUTH_BUCKET_MAX_HITS']
 
     with db.cursor() as cursor:
-        cursor.execute(
-            """
-            INSERT OR REPLACE INTO buckets (key, updated, value)
-            SELECT
-               -- 1. Empty bucket by '(now - updated) * refill_rate'
-               -- 2. Set to zero if we emptied too much.
-               -- 3. Limit bucket fullness to max_hits
-               ?, ?, MIN(? + MAX(0, value - ((? - updated) * ?)), ?)
-            FROM (
-              WITH bucket AS (SELECT * FROM buckets WHERE key = ?)
-              SELECT
-                IFNULL((SELECT updated FROM bucket), 0) updated,
-                IFNULL((SELECT value FROM bucket), 0) value
-            );
-            """, (key, now, increment, now, refill, max_hits, key))
+        with stats.DBLatencyHistorgram.labels(query='update_limit').time():
+            cursor.execute(
+                """
+                INSERT OR REPLACE INTO buckets (key, updated, value)
+                SELECT
+                   -- 1. Empty bucket by '(now - updated) * refill_rate'
+                   -- 2. Set to zero if we emptied too much.
+                   -- 3. Limit bucket fullness to max_hits
+                   ?, ?, MIN(? + MAX(0, value - ((? - updated) * ?)), ?)
+                FROM (
+                  WITH bucket AS (SELECT * FROM buckets WHERE key = ?)
+                  SELECT
+                    IFNULL((SELECT updated FROM bucket), 0) updated,
+                    IFNULL((SELECT value FROM bucket), 0) value
+                );
+                """, (key, now, increment, now, refill, max_hits, key))
 
-        cursor.execute('SELECT value FROM buckets WHERE key = ?', (key,))
-        return max(0, (cursor.fetchone()[0] - capacity) / float(refill))
+        with stats.DBLatencyHistorgram.labels(query='select_limit').time():
+            cursor.execute('SELECT value FROM buckets WHERE key = ?', (key,))
+            return max(0, (cursor.fetchone()[0] - capacity) / float(refill))

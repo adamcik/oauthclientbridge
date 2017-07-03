@@ -87,10 +87,12 @@ def callback():
 
     with db.cursor() as cursor:
         try:
-            cursor.execute(
-                'INSERT INTO tokens (client_id, token) VALUES (?, ?)',
-                (client_id, token))
+            with stats.DBLatencyHistorgram.labels(query='insert_token').time():
+                cursor.execute(
+                    'INSERT INTO tokens (client_id, token) VALUES (?, ?)',
+                    (client_id, token))
         except db.IntegrityError:
+            # TODO: Add logging metric for DB errors?
             app.log.warning('Could not get unique client id: %s', client_id)
             return _render(error='Database integrity error.'), 500
 
@@ -137,9 +139,10 @@ def token():
                           'Both client_id and client_secret must be set.')
 
     with db.cursor() as cursor:
-        cursor.execute(
-            'SELECT token FROM tokens WHERE client_id = ?', (client_id,))
-        row = cursor.fetchone()
+        with stats.DBLatencyHistorgram.labels(query='select_token').time():
+            cursor.execute(
+                'SELECT token FROM tokens WHERE client_id = ?', (client_id,))
+            row = cursor.fetchone()
 
     if row is None:
         raise oauth.Error('invalid_client', 'Client not known.')
@@ -183,8 +186,9 @@ def token():
     token = crypto.dumps(client_secret, result)
 
     with db.cursor() as cursor:
-        cursor.execute('UPDATE tokens SET token = ? WHERE client_id = ?',
-                       (token, client_id))
+        with stats.DBLatencyHistorgram.labels(query='update_token').time():
+            cursor.execute('UPDATE tokens SET token = ? WHERE client_id = ?',
+                           (token, client_id))
 
     del result['refresh_token']
     return jsonify(result)
@@ -203,8 +207,10 @@ def revoke():
         return _render(error='Missing client_id.'), 400
 
     with db.cursor() as cursor:
-        cursor.execute('UPDATE tokens SET token = null WHERE client_id = ?',
-                       (request.form['client_id'],))
+        with stats.DBLatencyHistorgram.labels(query='revoke_token').time():
+            cursor.execute(
+                'UPDATE tokens SET token = null WHERE client_id = ?',
+                (request.form['client_id'],))
 
     # We always report success as to not leak info.
     return _render(error='Revoked client_id.'), 200
