@@ -63,9 +63,11 @@ def callback():
             app.logger.error('Callback failed: %s', error)
 
     if error is not None:
+        # Treat error from query string as a client error.
         labels = {'method': request.method, 'url': request.base_url,
                   'status': stats.status_enum(400), 'error': error}
         stats.ClientErrorCounter.labels(**labels).inc()
+        # TODO: Add human readable error?
         return _render(error=error), 400
 
     del session['state']  # Delete the state in case of replay.
@@ -79,6 +81,7 @@ def callback():
 
     if 'error' in result:
         app.logger.warning('Retrieving token failed: %s', result)
+        # TODO: check error against error types, add human readable bit?
         return _render(error=result['error']), 400
 
     client_id = db.generate_id()
@@ -205,6 +208,7 @@ def revoke():
                            request.remote_addr, retry_after)
         return _rate_limit(retry_after)
     elif 'client_id' not in request.form:
+        # TODO: Register server error in this case.
         return _render(error='Missing client_id.'), 400
 
     with db.cursor() as cursor:
