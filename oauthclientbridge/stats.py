@@ -31,6 +31,10 @@ RETRY_BUCKETS = (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, float('inf'))
 # Rest of these get populated lazily with http_%d as fallback.
 HTTP_STATUS = {429: 'http_too_many_requests'}
 
+DBErrorCounter = pyprometheus.Counter(
+    'oauth_database_error_total', 'Database errors.',
+    ['query', 'error'], registry=registry)
+
 DBLatencyHistorgram = pyprometheus.Histogram(
     'oauth_database_latency_seconds', 'Database query latency.',
     ['query'], buckets=[v / 100.0 for v in TIME_BUCKETS], registry=registry)
