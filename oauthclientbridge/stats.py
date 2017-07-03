@@ -20,10 +20,6 @@ else:
 
 registry = pyprometheus.registry.BaseRegistry(storage=storage)
 
-if running_under_uwsgi:
-    collector = pyprometheus.contrib.uwsgi_features.UWSGICollector('uwsgi')
-    registry.register(collector)
-
 
 TIME_BUCKETS = (0.001, 0.003, 0.005, 0.010, 0.020, 0.030, 0.050, 0.075, 0.100,
                 0.250, 0.500, 0.750, 1.0, 2.5, 5, 7.5, 10, 15, float('inf'))
