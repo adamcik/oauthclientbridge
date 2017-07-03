@@ -44,16 +44,29 @@ def callback():
         app.logger.warning('Rate limiting callback: %s try again in %.2f',
                            request.remote_addr, retry_after)
         return _rate_limit(retry_after)
-    elif session.get('state', object()) != request.args.get('state'):
-        return _render(error='Invalid callback, unable to proceed.'), 400
+
+
+    error = None
+    if session.get('state', object()) != request.args.get('state'):
+        error = 'invalid_state'
     elif 'error' in request.args:
-        if request.args['error'] == 'access_denied':
+        error = request.args['error']
+
+        if error == 'access_denied':
             app.logger.info('Resource owner denied the request.')
-        elif request.args['error'] == 'invalid_scope':
+        elif error == 'invalid_scope':
             app.logger.warning('Invalid scope: %r', request.args.get('scope'))
+        elif error not in oauth.ERROR_TYPES:
+            app.logger.error('Invalid error: %s', error)
+            error = 'invalid_error'
         else:
-            app.logger.error('Callback failed: %s', request.args['error'])
-        return _render(error=request.args['error']), 400
+            app.logger.error('Callback failed: %s', error)
+
+    if error is not None:
+        labels = {'method': request.method, 'url': request.base_url,
+                  'status': stats.status_enum(400), 'error': error}
+        stats.ClientErrorCounter.labels(**labels).inc()
+        return _render(error=error), 400
 
     del session['state']  # Delete the state in case of replay.
 

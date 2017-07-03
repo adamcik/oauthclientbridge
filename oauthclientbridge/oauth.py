@@ -12,6 +12,11 @@ from flask import g, jsonify, redirect as flask_redirect, request
 from oauthclientbridge import __version__, app, stats
 
 
+ERROR_TYPES = {'invalid_request', 'unauthorized_client', 'access_denied',
+               'unsupported_response_type', 'invalid_scope', 'server_error',
+               'temporarily_unavailable', 'invalid_client', 'invalid_grant'}
+
+
 class Error(Exception):
     def __init__(self, error, description=None, uri=None, retry_after=None):
         self.error = error
@@ -86,8 +91,12 @@ def fetch(uri, username, password, **data):
         stats.ClientRetryHistogram.labels(**labels).observe(i)
 
         if status is not None and 'error' in result:
-            stats.ClientErrorCounter.labels(
-                error=result['error'], **labels).inc()
+            if result['error'] in ERROR_TYPES:
+                error = result['error']
+            else:
+                app.logger.error('Invalid error: %s', result['error'])
+                error = 'invalid_error'
+            stats.ClientErrorCounter.labels(error=error, **labels).inc()
 
         if status is None:
             pass  # We didn't even get a response, so try again.
