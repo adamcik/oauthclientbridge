@@ -63,11 +63,10 @@ def callback():
             app.logger.error('Callback failed: %s', error)
 
     if error is not None:
-        # Treat error from query string as a client error.
-        labels = {'method': request.method, 'url': request.base_url,
-                  'status': stats.status_enum(400), 'error': error}
-        stats.ClientErrorCounter.labels(**labels).inc()
-        # TODO: Add human readable error?
+        stats.ServerErrorCounter.labels(
+            method=request.method, url=request.base_url,
+            status=stats.status_enum(400), error=error).inc()
+        # TODO: Add human readable error to pass to the template?
         return _render(error=error), 400
 
     del session['state']  # Delete the state in case of replay.
@@ -81,7 +80,12 @@ def callback():
 
     if 'error' in result:
         app.logger.warning('Retrieving token failed: %s', result)
-        # TODO: check error against error types, add human readable bit?
+
+        stats.ServerErrorCounter.labels(
+            method=request.method, url=request.base_url,
+            status=stats.status_enum(400), error=result['error']).inc()
+
+        # TODO: Add human readable error to pass to the template?
         return _render(error=result['error']), 400
 
     client_id = db.generate_id()
@@ -206,7 +210,10 @@ def revoke():
                            request.remote_addr, retry_after)
         return _rate_limit(retry_after)
     elif 'client_id' not in request.form:
-        # TODO: Register server error in this case.
+        stats.ServerErrorCounter.labels(method=request.method,
+                                        url=request.base_url,
+                                        status=stats.status_enum(400),
+                                        error='invalid_request').inc()
         return _render(error='Missing client_id.'), 400
 
     with db.cursor(name='revoke_token') as cursor:
@@ -229,5 +236,9 @@ def _render(client_id=None, client_secret=None, error=None):
 
 
 def _rate_limit(retry_after):
+        stats.ServerErrorCounter.labels(method=request.method,
+                                        url=request.base_url,
+                                        status=stats.status_enum(429),
+                                        error='invalid_request').inc()
         headers = [('Retry-After', str(int(retry_after + 1)))]
         return _render(error='Too many requests.'), 429, headers
