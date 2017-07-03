@@ -94,9 +94,10 @@ def callback():
                 'INSERT INTO tokens (client_id, token) VALUES (?, ?)',
                 (client_id, token))
         except db.IntegrityError:
-            stats.DBErrorCounter.labels(
-                query='insert_token', error='integrity_error').inc()
             app.log.warning('Could not get unique client id: %s', client_id)
+            stats.ServerErrorCounter.labels(
+                method=request.method, url=request.base_url,
+                status=stats.status_enum(500), error='integrity_error').inc()
             return _render(error='Database integrity error.'), 500
 
     return _render(client_id=client_id, client_secret=client_secret)
