@@ -78,7 +78,7 @@ def after_request(response):
     content_length = response.content_length
 
     labels = {'method': request.method,
-              'url': request.base_url if request.url_rule else '',
+              'url': request.base_url if request.url_rule else '-',
               'status': status_enum(response.status_code)}
 
     ServerLatencyHistogram.labels(**labels).observe(request_latency)
