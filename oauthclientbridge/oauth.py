@@ -43,12 +43,23 @@ def error_handler(e):
     else:
         response.status_code = 400
 
+    stats.ServerErrorCounter.labels(
+        method=request.method, url=request.base_url,
+        status=stats.status_enum(response.status_code), error=e.error).inc()
+
     return response
 
 
 def fallback_error_handler(e):
-    result = {'error': 'server_error', 'error_description': 'Unhandled error.'}
-    return jsonify(result), 500
+    response = jsonify({'error': 'server_error',
+                        'error_description': 'Unhandled error.'})
+    response.status_code = 500
+
+    stats.ServerErrorCounter.labels(
+        method=request.method, url=request.base_url, error='server_error',
+        status=stats.status_enum(response.status_code)).inc()
+
+    return response
 
 
 def nocache(response):

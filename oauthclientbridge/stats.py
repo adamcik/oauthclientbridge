@@ -39,6 +39,10 @@ DBLatencyHistorgram = pyprometheus.Histogram(
     'oauth_database_latency_seconds', 'Database query latency.',
     ['query'], buckets=[v / 100.0 for v in TIME_BUCKETS], registry=registry)
 
+ServerErrorCounter = pyprometheus.Counter(
+    'oauth_server_error_total', 'OAuth errors returned to users.',
+    ['method', 'url', 'status', 'error'], registry=registry)
+
 ServerLatencyHistogram = pyprometheus.Histogram(
     'oauth_server_latency_seconds', 'Overall request latency.',
     ['method', 'url', 'status'], buckets=TIME_BUCKETS, registry=registry)
