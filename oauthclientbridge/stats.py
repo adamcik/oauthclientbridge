@@ -11,9 +11,7 @@ from flask import request, Response
 
 from pyprometheus.utils.exposition import registry_to_text
 
-running_under_uwsgi = 'PROMETHEUS_UWSGI_SHAREDAREA' in os.environ
-
-if running_under_uwsgi:
+if 'PROMETHEUS_UWSGI_SHAREDAREA' in os.environ:
     storage = pyprometheus.contrib.uwsgi_features.UWSGIStorage()
 else:
     storage = pyprometheus.LocalMemoryStorage()
