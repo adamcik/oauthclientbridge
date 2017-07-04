@@ -44,22 +44,21 @@ def error_handler(e):
         response.status_code = 400
 
     stats.ServerErrorCounter.labels(
-        method=request.method, url=request.base_url,
-        status=stats.status_enum(response.status_code), error=e.error).inc()
+        method=request.method, endpoint=stats.endpoint(),
+        status=stats.status(response.status_code), error=e.error).inc()
 
     return response
 
 
 def fallback_error_handler(e):
-    response = jsonify({'error': 'server_error',
-                        'error_description': 'Unhandled error.'})
-    response.status_code = 500
+    result = {'error': 'server_error',
+              'error_description': 'Unhandled error.'}
 
     stats.ServerErrorCounter.labels(
-        method=request.method, url=request.base_url, error='server_error',
-        status=stats.status_enum(response.status_code)).inc()
+        method=request.method, endpoint=stats.endpoint(),
+        status=stats.status(500), error='server_error').inc()
 
-    return response
+    return jsonify(result), 500
 
 
 def nocache(response):
@@ -69,7 +68,7 @@ def nocache(response):
     return response
 
 
-def fetch(uri, username, password, **data):
+def fetch(uri, username, password, endpoint=None, **data):
     """Perform post given URI with auth and provided data."""
     req = requests.Request('POST', uri, auth=(username, password), data=data)
     prepared = req.prepare()
@@ -93,12 +92,10 @@ def fetch(uri, username, password, **data):
             app.logger.debug('Retry %s [sleep %.3f]', prefix, retry or backoff)
             time.sleep(retry or backoff)
 
-        result, status, retry = _fetch(prepared, remaining_timeout)
+        result, status, retry = _fetch(prepared, remaining_timeout, endpoint)
 
-        labels = {'method': prepared.method,
-                  'url': prepared.url,
-                  'status': stats.status_enum(status)}
-
+        labels = {'method': prepared.method, 'url': endpoint,
+                  'status': stats.status(status)}
         stats.ClientRetryHistogram.labels(**labels).observe(i)
 
         if status is not None and 'error' in result:
@@ -122,7 +119,7 @@ def fetch(uri, username, password, **data):
     return result
 
 
-def _fetch(prepared, timeout):
+def _fetch(prepared, timeout, endpoint):
     try:
         start_time = time.time()
         resp = _session().send(prepared, timeout=timeout)
@@ -159,7 +156,7 @@ def _fetch(prepared, timeout):
         retry_after = 0
     else:
         request_latency = time.time() - start_time
-        status_label = stats.status_enum(resp.status_code)
+        status_label = stats.status(resp.status_code)
 
         result = _decode(resp)
         status_code = resp.status_code
@@ -167,7 +164,7 @@ def _fetch(prepared, timeout):
         retry_after = _parse_retry(resp.headers.get('retry-after'))
 
     labels = {'method': prepared.method,
-              'url': prepared.url,
+              'url': endpoint,
               'status': status_label}
     if length is not None:
         stats.ClientResponseSizeHistogram.labels(**labels).observe(length)

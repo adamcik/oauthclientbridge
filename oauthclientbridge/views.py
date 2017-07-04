@@ -26,6 +26,7 @@ def authorize():
 
     default_scope = ' '.join(app.config['OAUTH_SCOPES'])
     session['state'] = crypto.generate_key()
+
     return oauth.redirect(
         app.config['OAUTH_AUTHORIZATION_URI'],
         client_id=app.config['OAUTH_CLIENT_ID'],
@@ -45,13 +46,14 @@ def callback():
                            request.remote_addr, retry_after)
         return _rate_limit(retry_after)
 
-
     error = None
     if session.get('state', object()) != request.args.get('state'):
         error = 'invalid_state'
     elif 'error' in request.args:
         error = request.args['error']
 
+        # TODO: Probably not worth it sanity checking the error enum, the state
+        # check would filter out anyone passing in random things trivially.
         if error == 'access_denied':
             app.logger.info('Resource owner denied the request.')
         elif error == 'invalid_scope':
@@ -64,8 +66,8 @@ def callback():
 
     if error is not None:
         stats.ServerErrorCounter.labels(
-            method=request.method, url=request.base_url,
-            status=stats.status_enum(400), error=error).inc()
+            method=request.method, endpoint=stats.endpoint(),
+            status=stats.status(400), error=error).inc()
         # TODO: Add human readable error to pass to the template?
         return _render(error=error), 400
 
@@ -76,14 +78,14 @@ def callback():
                          app.config['OAUTH_CLIENT_SECRET'],
                          grant_type='authorization_code',
                          redirect_uri=app.config['OAUTH_REDIRECT_URI'],
-                         code=request.args.get('code'))
+                         code=request.args.get('code'), endpoint='token')
 
     if 'error' in result:
         app.logger.warning('Retrieving token failed: %s', result)
 
         stats.ServerErrorCounter.labels(
-            method=request.method, url=request.base_url,
-            status=stats.status_enum(400), error=result['error']).inc()
+            method=request.method, endpoint=stats.endpoint(),
+            status=stats.status(400), error=result['error']).inc()
 
         # TODO: Add human readable error to pass to the template?
         return _render(error=result['error']), 400
@@ -93,6 +95,7 @@ def callback():
     token = crypto.dumps(client_secret, result)
 
     with db.cursor(name='insert_token') as cursor:
+        # TODO: Retry creating client_id?
         try:
             cursor.execute(
                 'INSERT INTO tokens (client_id, token) VALUES (?, ?)',
@@ -100,8 +103,8 @@ def callback():
         except db.IntegrityError:
             app.log.warning('Could not get unique client id: %s', client_id)
             stats.ServerErrorCounter.labels(
-                method=request.method, url=request.base_url,
-                status=stats.status_enum(500), error='integrity_error').inc()
+                method=request.method, endpoint=stats.endpoint(),
+                status=stats.status(500), error='integrity_error').inc()
             return _render(error='Database integrity error.'), 500
 
     return _render(client_id=client_id, client_secret=client_secret)
@@ -173,7 +176,7 @@ def token():
         app.config['OAUTH_CLIENT_ID'],
         app.config['OAUTH_CLIENT_SECRET'],
         grant_type=app.config['OAUTH_GRANT_TYPE'],
-        refresh_token=result['refresh_token'])
+        refresh_token=result['refresh_token'], endpoint='refresh')
 
     if 'error' in refresh_result:
         # TODO: Consider deleting token when we get invalid_grant?
@@ -183,7 +186,7 @@ def token():
             app.logger.error('Token refresh failed: %s', refresh_result)
 
         # Client Credentials access token responses use the same errors
-        # as Authorization Code Grant access token responses. As such just
+        # as Authorization Code Grant access token responses. As such, just
         # raise the error we got.
         raise oauth.Error(refresh_result['error'],
                           refresh_result.get('error_description'),
@@ -210,10 +213,9 @@ def revoke():
                            request.remote_addr, retry_after)
         return _rate_limit(retry_after)
     elif 'client_id' not in request.form:
-        stats.ServerErrorCounter.labels(method=request.method,
-                                        url=request.base_url,
-                                        status=stats.status_enum(400),
-                                        error='invalid_request').inc()
+        stats.ServerErrorCounter.labels(
+            method=request.method, endpoint=stats.endpoint(),
+            status=stats.status(400), error='invalid_request').inc()
         return _render(error='Missing client_id.'), 400
 
     with db.cursor(name='revoke_token') as cursor:
@@ -236,9 +238,8 @@ def _render(client_id=None, client_secret=None, error=None):
 
 
 def _rate_limit(retry_after):
-        stats.ServerErrorCounter.labels(method=request.method,
-                                        url=request.base_url,
-                                        status=stats.status_enum(429),
-                                        error='invalid_request').inc()
+        stats.ServerErrorCounter.labels(
+            method=request.method, endpoint=stats.endpoint(),
+            status=stats.status(429), error='invalid_request').inc()
         headers = [('Retry-After', str(int(retry_after + 1)))]
         return _render(error='Too many requests.'), 429, headers

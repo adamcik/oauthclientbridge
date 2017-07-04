@@ -35,38 +35,42 @@ DBLatencyHistorgram = pyprometheus.Histogram(
 
 ServerErrorCounter = pyprometheus.Counter(
     'oauth_server_error_total', 'OAuth errors returned to users.',
-    ['method', 'url', 'status', 'error'], registry=registry)
+    ['method', 'endpoint', 'status', 'error'], registry=registry)
 
 ServerLatencyHistogram = pyprometheus.Histogram(
     'oauth_server_latency_seconds', 'Overall request latency.',
-    ['method', 'url', 'status'], buckets=TIME_BUCKETS, registry=registry)
+    ['method', 'endpoint', 'status'], buckets=TIME_BUCKETS, registry=registry)
 
 ServerResponseSizeHistogram = pyprometheus.Histogram(
     'oauth_server_response_bytes', 'Overall response size.',
-    ['method', 'url', 'status'], buckets=BYTE_BUCKETS, registry=registry)
+    ['method', 'endpoint', 'status'], buckets=BYTE_BUCKETS, registry=registry)
 
 ClientErrorCounter = pyprometheus.Counter(
     'oauth_client_error_total', 'OAuth errors from upstream provider.',
-    ['method', 'url', 'status', 'error'], registry=registry)
+    ['method', 'endpoint', 'status', 'error'], registry=registry)
 
 ClientRetryHistogram = pyprometheus.Histogram(
     'oauth_client_retries', 'OAuth fetch retries.',
-    ['method', 'url', 'status'], buckets=RETRY_BUCKETS, registry=registry)
+    ['method', 'endpoint', 'status'], buckets=RETRY_BUCKETS, registry=registry)
 
 ClientLatencyHistogram = pyprometheus.Histogram(
     'oauth_client_latency_seconds', 'Overall request latency.',
-    ['method', 'url', 'status'], buckets=TIME_BUCKETS, registry=registry)
+    ['method', 'endpoint', 'status'], buckets=TIME_BUCKETS, registry=registry)
 
 ClientResponseSizeHistogram = pyprometheus.Histogram(
     'oauth_client_response_bytes', 'Overall response size.',
-    ['method', 'url', 'status'], buckets=BYTE_BUCKETS, registry=registry)
+    ['method', 'endpoint', 'status'], buckets=BYTE_BUCKETS, registry=registry)
 
 
-def status_enum(status_code):
-    if status_code not in HTTP_STATUS:
-        text = httplib.responses.get(status_code, str(status_code)).lower()
-        HTTP_STATUS[status_code] = 'http_%s' % re.sub(r'[ -]', '_', text)
-    return HTTP_STATUS[status_code]
+def status(code):
+    if code not in HTTP_STATUS:
+        text = httplib.responses.get(code, str(code)).lower()
+        HTTP_STATUS[code] = 'http_%s' % re.sub(r'[ -]', '_', text)
+    return HTTP_STATUS[code]
+
+
+def endpoint():
+    return getattr(request.url_rule, 'endpoint', 'notfound')
 
 
 def before_request():
@@ -77,9 +81,8 @@ def after_request(response):
     request_latency = time.time() - request._stats_latency_start_time
     content_length = response.content_length
 
-    labels = {'method': request.method,
-              'url': request.base_url if request.url_rule else '-',
-              'status': status_enum(response.status_code)}
+    labels = {'method': request.method, 'endpoint': endpoint(),
+              'status': status(response.status_code)}
 
     ServerLatencyHistogram.labels(**labels).observe(request_latency)
     if content_length >= 0:
