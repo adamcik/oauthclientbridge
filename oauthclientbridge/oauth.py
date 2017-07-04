@@ -94,7 +94,7 @@ def fetch(uri, username, password, endpoint=None, **data):
 
         result, status, retry = _fetch(prepared, remaining_timeout, endpoint)
 
-        labels = {'method': prepared.method, 'url': endpoint,
+        labels = {'method': prepared.method, 'endpoint': endpoint,
                   'status': stats.status(status)}
         stats.ClientRetryHistogram.labels(**labels).observe(i)
 
