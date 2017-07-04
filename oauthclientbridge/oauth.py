@@ -164,7 +164,7 @@ def _fetch(prepared, timeout, endpoint):
         retry_after = _parse_retry(resp.headers.get('retry-after'))
 
     labels = {'method': prepared.method,
-              'url': endpoint,
+              'endpoint': endpoint,
               'status': status_label}
     if length is not None:
         stats.ClientResponseSizeHistogram.labels(**labels).observe(length)
