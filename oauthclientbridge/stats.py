@@ -22,9 +22,9 @@ registry = pyprometheus.registry.BaseRegistry(storage=storage)
 TIME_BUCKETS = (0.001, 0.003, 0.005, 0.010, 0.020, 0.030, 0.050, 0.075, 0.100,
                 0.250, 0.500, 0.750, 1.0, 2.5, 5, 7.5, 10, 15, float('inf'))
 
-BYTE_BUCKETS = (0, 16, 64, 256, 512, 1024, 2048, 4096, float('inf'))
+BYTE_BUCKETS = (0, 8, 16, 64, 256, 512, 1024, 2048, 4096, float('inf'))
 
-RETRY_BUCKETS = (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, float('inf'))
+RETRY_BUCKETS = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, float('inf'))
 
 # Rest of these get populated lazily with http_%d as fallback.
 HTTP_STATUS = {429: 'http_too_many_requests'}
