@@ -228,6 +228,15 @@ def revoke():
 
 @app.route('/metrics', methods=['GET'])
 def metrics():
+    with db.cursor(name='metrics') as cursor:
+        cursor.execute('SELECT COUNT(*), token IS NULL FROM tokens GROUP BY 2')
+
+    for row in cursor.fetchall():
+        if row[1]:
+            stats.TokenGauge.labels(state='revoked').set(row[0])
+        else:
+            stats.TokenGauge.labels(state='active').set(row[0])
+
     return stats.export_metrics()
 
 
