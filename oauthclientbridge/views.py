@@ -230,8 +230,9 @@ def revoke():
 def metrics():
     with db.cursor(name='metrics') as cursor:
         cursor.execute('SELECT COUNT(*), token IS NULL FROM tokens GROUP BY 2')
+        rows = cursor.fetchall()
 
-    for row in cursor.fetchall():
+    for row in rows:
         if row[1]:
             stats.TokenGauge.labels(state='revoked').set(row[0])
         else:
