@@ -33,21 +33,17 @@ def check(key, increment=1):
     max_hits = app.config['OAUTH_BUCKET_MAX_HITS']
 
     with db.cursor(name='rate_limit') as cursor:
+        # 1. Empty buckets by 'time-since-last-update x refill-rate'.
         cursor.execute(
-            """
-            INSERT OR REPLACE INTO buckets (key, updated, value)
-            SELECT
-               -- 1. Empty bucket by '(now - updated) * refill_rate'
-               -- 2. Set to zero if we emptied too much.
-               -- 3. Limit bucket fullness to max_hits
-               ?, ?, MIN(? + MAX(0, value - ((? - updated) * ?)), ?)
-            FROM (
-              WITH bucket AS (SELECT * FROM buckets WHERE key = ?)
-              SELECT
-                IFNULL((SELECT updated FROM bucket), 0) updated,
-                IFNULL((SELECT value FROM bucket), 0) value
-            );
-            """, (key, now, increment, now, refill, max_hits, key))
-
+            'UPDATE buckets SET value = MAX(0, value - (? - updated) * ?), '
+            'updated = ? WHERE key = ?', (now, refill, now, key))
+        # 2. Increment value up to the max-hits level.
+        cursor.execute(
+            'INSERT OR REPLACE INTO buckets (key, updated, value) VALUES '
+            '(?, ?, MIN((SELECT value FROM buckets WHERE key = ?) + ?, ?))',
+            (key, now, key, increment, max_hits))
+        # 3. Check what the value actually is now.
         cursor.execute('SELECT value FROM buckets WHERE key = ?', (key,))
+
+        # 4. Calculate how many seconds until the bucket would be below capacity.
         return max(0, (cursor.fetchone()[0] - capacity) / float(refill))
