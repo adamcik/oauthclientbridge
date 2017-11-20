@@ -94,18 +94,18 @@ def callback():
     client_secret = crypto.generate_key()
     token = crypto.dumps(client_secret, result)
 
-    with db.cursor(name='insert_token') as cursor:
-        # TODO: Retry creating client_id?
-        try:
+    try:
+        with db.cursor(name='insert_token') as cursor:
+            # TODO: Retry creating client_id?
             cursor.execute(
                 'INSERT INTO tokens (client_id, token) VALUES (?, ?)',
                 (client_id, token))
-        except db.IntegrityError:
-            app.log.warning('Could not get unique client id: %s', client_id)
-            stats.ServerErrorCounter.labels(
-                method=request.method, endpoint=stats.endpoint(),
-                status=stats.status(500), error='integrity_error').inc()
-            return _render(error='Database integrity error.'), 500
+    except db.IntegrityError:
+        app.log.warning('Could not get unique client id: %s', client_id)
+        stats.ServerErrorCounter.labels(
+            method=request.method, endpoint=stats.endpoint(),
+            status=stats.status(500), error='integrity_error').inc()
+        return _render(error='Database integrity error.'), 500
 
     return _render(client_id=client_id, client_secret=client_secret)
 
