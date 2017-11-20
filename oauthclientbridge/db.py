@@ -1,5 +1,6 @@
 import contextlib
 import sqlite3
+import re
 import uuid
 
 from flask import g
@@ -30,9 +31,15 @@ def get():
 @contextlib.contextmanager
 def cursor(name):
     """Get SQLite cursor with automatic commit if no exceptions are raised."""
-    with stats.DBLatencyHistorgram.labels(query=name).time():
-        with get() as connection:
-            yield connection.cursor()
+    try:
+        with stats.DBLatencyHistorgram.labels(query=name).time():
+            with get() as connection:
+                yield connection.cursor()
+    except sqlite3.Error as e:
+        # https://www.python.org/dev/peps/pep-0249/#exceptions for values.
+        error = '_'.join(re.findall('([A-Z]+[a-z]+)', e.__class__.__name__))
+        stats.DBErrorCounter.labels(query=name, error=error.lower()).inc()
+        raise
 
 
 @app.teardown_appcontext
