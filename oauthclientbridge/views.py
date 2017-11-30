@@ -58,6 +58,8 @@ def callback():
             app.logger.info('Resource owner denied the request.')
         elif error == 'invalid_scope':
             app.logger.warning('Invalid scope: %r', request.args.get('scope'))
+        elif error in app.config['OAUTH_FETCH_ERROR_TYPES']:
+            error = app.config['OAUTH_FETCH_ERROR_TYPES'][error]
         elif error not in oauth.ERROR_TYPES:
             app.logger.error('Invalid error: %s', error)
             error = 'invalid_error'

@@ -101,6 +101,8 @@ def fetch(uri, username, password, endpoint=None, **data):
         if status is not None and 'error' in result:
             if result['error'] in ERROR_TYPES:
                 error = result['error']
+            elif result['error'] in app.config['OAUTH_FETCH_ERROR_TYPES']:
+                error = app.config['OAUTH_FETCH_ERROR_TYPES'][error]
             else:
                 app.logger.error('Invalid error: %s', result['error'])
                 error = 'invalid_error'
