@@ -52,18 +52,20 @@ def callback():
     elif 'error' in request.args:
         error = request.args['error']
 
+        # Translate any "bad" error types to something more sane.
+        error = app.config.get('OAUTH_FETCH_ERROR_TYPES', error)
+
         # TODO: Probably not worth it sanity checking the error enum, the state
         # check would filter out anyone passing in random things trivially.
         if error == 'access_denied':
             app.logger.info('Resource owner denied the request.')
         elif error == 'invalid_scope':
             app.logger.warning('Invalid scope: %r', request.args.get('scope'))
-        elif error in app.config['OAUTH_FETCH_ERROR_TYPES']:
-            error = app.config['OAUTH_FETCH_ERROR_TYPES'][error]
         elif error not in oauth.ERROR_TYPES:
             app.logger.error('Invalid error: %s', error)
             error = 'invalid_error'
         else:
+            # TODO: Reduce this to warning for temporarily_unavailable?
             app.logger.error('Callback failed: %s', error)
 
     if error is not None:
