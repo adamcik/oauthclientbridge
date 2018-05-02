@@ -82,6 +82,7 @@ def fetch(uri, username, password, endpoint=None, **data):
     for i in range(app.config['OAUTH_FETCH_TOTAL_RETRIES']):
         prefix = 'attempt #%d %s' % (i + 1, uri)
 
+        # TODO: Add jitter to backoff and/or retry after?
         backoff = (2**i - 1) * app.config['OAUTH_FETCH_BACKOFF_FACTOR']
         remaining_timeout = timeout - time.time()
 
@@ -130,6 +131,9 @@ def _fetch(prepared, timeout, endpoint):
         resp = _session().send(prepared, timeout=timeout)
     except requests.exceptions.RequestException as e:
         request_latency = time.time() - start_time
+
+        # Increase chances that we get connected to a different instance.
+        _session.close()
 
         # Fallback values in case we can't say anything better.
         status_label = 'unknown_exception'
