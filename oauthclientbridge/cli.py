@@ -4,10 +4,11 @@ from oauthclientbridge import app, db, rate_limit
 
 
 @app.cli.command()
-def initdb():
+@click.option('--name', type=click.Choice(['tokens', 'rate_limits']))
+def initdb(name):
     """Initializes the database."""
-    click.echo('Initializing %s' % app.config['OAUTH_DATABASE'])
-    db.initialize()
+    click.echo('Initializing %s' % name)
+    db.initialize(name)
 
 
 @app.cli.command()

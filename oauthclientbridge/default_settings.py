@@ -14,6 +14,7 @@ SECRET_KEY = None
 
 # SQLite3 database to store tokens and rate limit information in, MUST be set.
 OAUTH_DATABASE = None
+OAUTH_RATE_LIMIT_DATABASE = None
 
 # Client ID and secret provided by upstream OAuth provider, MUST be set.
 OAUTH_CLIENT_ID = None
