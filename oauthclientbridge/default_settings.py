@@ -33,12 +33,15 @@ OAUTH_AUTHORIZATION_URI = None
 OAUTH_TOKEN_URI = None
 OAUTH_REFRESH_URI = None
 
+# Overall allowed timeout across all retires, backoff and retry-after time.
+OAUTH_FETCH_TOTAL_TIMEOUT = 20
+
 # Number of seconds to wait for initial connection and subsequent reads to
-# upstream OAuth endpoint.
-OAUTH_FETCH_TIMEOUT = 10
+# upstream OAuth endpoint for a single fetch attempt.
+OAUTH_FETCH_TIMEOUT = 5.0
 
 # Maximum number of retries for fetching oauth data.
-OAUTH_FETCH_TOTAL_RETRIES = 5
+OAUTH_FETCH_TOTAL_RETRIES = 3
 
 # Status codes that should be considered retryable for oauth.
 OAUTH_FETCH_RETRY_STATUS_CODES = (429, 500, 502, 503)

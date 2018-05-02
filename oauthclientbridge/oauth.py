@@ -73,7 +73,7 @@ def fetch(uri, username, password, endpoint=None, **data):
     req = requests.Request('POST', uri, auth=(username, password), data=data)
     prepared = req.prepare()
 
-    timeout = time.time() + app.config['OAUTH_FETCH_TIMEOUT']
+    timeout = time.time() + app.config['OAUTH_FETCH_TOTAL_TIMEOUT']
     retry = 0
 
     error_description = 'An unknown error occurred talking to provider.'
@@ -122,6 +122,9 @@ def fetch(uri, username, password, endpoint=None, **data):
 
 
 def _fetch(prepared, timeout, endpoint):
+    # Make sure we always have at least a minimal timeout.
+    timeout = max(1.0, min(app.config['OAUTH_FETCH_TIMEOUT'], timeout))
+
     try:
         start_time = time.time()
         resp = _session().send(prepared, timeout=timeout)
