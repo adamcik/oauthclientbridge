@@ -14,51 +14,58 @@ def generate_id():
     return str(uuid.uuid4())
 
 
-def initialize(db):
-    if db == 'tokens':
+def initialize(database):
+    if database == 'tokens':
         schema = '../schema.sql'
-    elif db == 'rate_limits':
+    elif database == 'rate_limits':
         schema = '../schema.sql'
     else:
-        raise LookupError('%r is not a valid database type.' % db)
+        raise LookupError('%r is not a valid database type.' % database)
 
     with app.open_resource(schema, mode='r') as f:
         schema = f.read()
-    with cursor(db, name='init') as c:
+    with cursor(database, name='init') as c:
         c.executescript(schema)
 
 
-def get(db):
+def get(database):
     """Get singleton SQLite database connection."""
-    if db == 'tokens':
+    if database == 'tokens':
         path = app.config['OAUTH_DATABASE']
-    elif db == 'rate_limits':
+    elif database == 'rate_limits':
         path = app.config['OAUTH_RATE_LIMIT_DATABASE']
     else:
-        raise LookupError('%r is not a valid database type.' % db)
+        raise LookupError('%r is not a valid database type.' % database)
 
-    if not path:
+    if database == 'rate_limits' and not path:
         # Fallback to using tokens database if rate_limits not set.
         path = app.config['OAUTH_DATABASE']
+    elif database == 'rate_limits':
+        pass # Setup PRAGMA etc
 
     if getattr(g, '_oauth_databases', None) is None:
         g._oauth_databases = {}
-    if db not in g._oauth_databases:
-        g._oauth_databases[db] = sqlite3.connect(path)
-    return g._oauth_databases[db]
+    if database not in g._oauth_databases:
+        g._oauth_databases[database] = sqlite3.connect(path)
+    return g._oauth_databases[database]
+
+
+def vacuum(database):
+    with get(database) as connection:
+        connection.execute('VACUUM')
 
 
 @contextlib.contextmanager
-def cursor(db, name):
+def cursor(database, name):
     """Get SQLite cursor with automatic commit if no exceptions are raised."""
     try:
-        with stats.DBLatencyHistorgram.labels(db=db, query=name).time():
-            with get(db) as connection:
+        with stats.DBLatencyHistorgram.labels(db=database, query=name).time():
+            with get(database) as connection:
                 yield connection.cursor()
     except sqlite3.Error as e:
         # https://www.python.org/dev/peps/pep-0249/#exceptions for values.
         error = '_'.join(re.findall('([A-Z]+[a-z]+)', e.__class__.__name__))
-        stats.DBErrorCounter.labels(db=db, query=name, error=error.lower()).inc()
+        stats.DBErrorCounter.labels(db=database, query=name, error=error.lower()).inc()
         raise
 
 

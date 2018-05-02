@@ -4,9 +4,9 @@ import time
 from oauthclientbridge import app, db, stats
 
 
-def clean():
+def clean(database='rate_limits'):
     now = time.time()
-    with db.cursor('rate_limits', name='clean') as cursor:
+    with db.cursor(database, name='clean') as cursor:
         cursor.execute('DELETE FROM buckets WHERE updated < ? AND '
                        'value - (? - updated) * ? <= 0',
                        (now, now, app.config['OAUTH_BUCKET_REFILL_RATE']))
