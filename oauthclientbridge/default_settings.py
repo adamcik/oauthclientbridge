@@ -44,7 +44,7 @@ OAUTH_FETCH_TIMEOUT = 5.0
 OAUTH_FETCH_TOTAL_RETRIES = 3
 
 # Status codes that should be considered retryable for oauth.
-OAUTH_FETCH_RETRY_STATUS_CODES = (429, 500, 502, 503)
+OAUTH_FETCH_RETRY_STATUS_CODES = (429, 500, 502, 503, 504)
 
 # Non-standard oauth errors and what standard errors to translate them to.
 OAUTH_FETCH_ERROR_TYPES = {'errorTransient': 'temporarily_unavailable'}
