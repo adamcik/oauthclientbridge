@@ -44,9 +44,12 @@ def get(database):
 
     if database not in g._oauth_databases:
         connection = sqlite3.connect(path)
-        connection.execute('PRAGMA journal_mode = TRUNCATE')
-        # TODO: Try this is we are using rate_limits DB?
-        # connection.execute('PRAGMA synchronous = OFF')
+
+        if database == 'tokens':
+            connection.execute('PRAGMA synchronous = FULL')
+        elif database == 'rate_limits':
+            connection.execute('PRAGMA synchronous = NORMAL')
+
         g._oauth_databases[database] = connection
 
     return g._oauth_databases[database]
