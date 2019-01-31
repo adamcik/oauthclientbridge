@@ -99,7 +99,7 @@ def callback():
     token = crypto.dumps(client_secret, result)
 
     try:
-        with db.cursor('tokens', name='insert') as cursor:
+        with db.cursor(name='insert_token') as cursor:
             # TODO: Retry creating client_id?
             cursor.execute(
                 'INSERT INTO tokens (client_id, token) VALUES (?, ?)',
@@ -153,7 +153,7 @@ def token():
         raise oauth.Error('invalid_client',
                           'Both client_id and client_secret must be set.')
 
-    with db.cursor('tokens', name='lookup') as cursor:
+    with db.cursor(name='lookup_token') as cursor:
         cursor.execute('SELECT token FROM tokens WHERE client_id = ?',
                        (client_id,))
         row = cursor.fetchone()
@@ -202,7 +202,7 @@ def token():
     result.update(refresh_result)
     token = crypto.dumps(client_secret, result)
 
-    with db.cursor('tokens', name='update') as cursor:
+    with db.cursor(name='update_token') as cursor:
         cursor.execute('UPDATE tokens SET token = ? WHERE client_id = ?',
                        (token, client_id))
 
@@ -225,7 +225,7 @@ def revoke():
             status=stats.status(400), error='invalid_request').inc()
         return _render(error='Missing client_id.'), 400
 
-    with db.cursor('tokens', name='revoke') as cursor:
+    with db.cursor(name='revoke_token') as cursor:
         cursor.execute('UPDATE tokens SET token = null WHERE client_id = ?',
                        (request.form['client_id'],))
 
@@ -236,7 +236,7 @@ def revoke():
 @app.route('/metrics', methods=['GET'])
 def metrics():
     try:
-        with db.cursor('tokens', name='metrics') as cursor:
+        with db.cursor(name='metrics') as cursor:
             cursor.execute('SELECT COUNT(*), token IS NULL FROM tokens GROUP BY 2')
             rows = cursor.fetchall()
     except db.Error:

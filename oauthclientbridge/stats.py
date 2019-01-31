@@ -31,11 +31,11 @@ HTTP_STATUS = {429: 'http_too_many_requests'}
 
 DBErrorCounter = pyprometheus.Counter(
     'oauth_database_error_total', 'Database errors.',
-    ['db', 'query', 'error'], registry=registry)
+    ['query', 'error'], registry=registry)
 
 DBLatencyHistorgram = pyprometheus.Histogram(
     'oauth_database_latency_seconds', 'Database query latency.',
-    ['db', 'query'], buckets=[v / 100.0 for v in TIME_BUCKETS], registry=registry)
+    ['query'], buckets=[v / 100.0 for v in TIME_BUCKETS], registry=registry)
 
 TokenGauge = pyprometheus.Gauge(
     'oauth_tokens_count', 'Number of tokens.', ['state'], registry=registry)

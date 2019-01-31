@@ -4,21 +4,17 @@ from oauthclientbridge import app, db, rate_limit
 
 
 @app.cli.command()
-@click.argument('name', type=click.Choice(['tokens', 'rate_limits']))
-def initdb(name):
+def initdb():
     """Initializes the database."""
-    click.echo('Initializing %s' % name)
-    db.initialize(name)
+    click.echo('Initializing %s' % app.config['OAUTH_DATABASE'])
+    db.initialize()
 
 
 @app.cli.command()
 def cleandb():
     """Cleans database of stale data."""
-    for name in ['tokens', 'rate_limits']:
-        click.echo(name)
+    cleaned = rate_limit.clean()
+    click.echo(' - Deleted %s stale buckets' % cleaned)
 
-        cleaned = rate_limit.clean(name)
-        click.echo(' - Deleted %s stale buckets' % cleaned)
-
-        click.echo(' - Vacummed')
-        db.vacuum(name)
+    click.echo(' - Vacummed')
+    db.vacuum()

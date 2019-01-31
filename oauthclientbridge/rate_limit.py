@@ -4,9 +4,9 @@ import time
 from oauthclientbridge import app, db, stats
 
 
-def clean(database='rate_limits'):
+def clean():
     now = time.time()
-    with db.cursor(database, name='clean') as cursor:
+    with db.cursor(name='clean') as cursor:
         cursor.execute('DELETE FROM buckets WHERE updated < ? AND '
                        'value - (? - updated) * ? <= 0',
                        (now, now, app.config['OAUTH_BUCKET_REFILL_RATE']))
@@ -32,7 +32,7 @@ def check(key, increment=1):
     capacity = app.config['OAUTH_BUCKET_CAPACITY']
     max_hits = app.config['OAUTH_BUCKET_MAX_HITS']
 
-    with db.cursor('rate_limits', name='limit') as cursor:
+    with db.cursor(name='rate_limit') as cursor:
         # 1. Empty buckets by 'time-since-last-update x refill-rate'.
         cursor.execute(
             'UPDATE buckets SET value = MAX(0, value - (? - updated) * ?), '
