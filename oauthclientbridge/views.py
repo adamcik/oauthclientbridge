@@ -235,15 +235,18 @@ def revoke():
 
 @app.route('/metrics', methods=['GET'])
 def metrics():
-    with db.cursor('tokens', name='metrics') as cursor:
-        cursor.execute('SELECT COUNT(*), token IS NULL FROM tokens GROUP BY 2')
-        rows = cursor.fetchall()
-
-    for row in rows:
-        if row[1]:
-            stats.TokenGauge.labels(state='revoked').set(row[0])
-        else:
-            stats.TokenGauge.labels(state='active').set(row[0])
+    try:
+        with db.cursor('tokens', name='metrics') as cursor:
+            cursor.execute('SELECT COUNT(*), token IS NULL FROM tokens GROUP BY 2')
+            rows = cursor.fetchall()
+    except db.Error:
+        pass
+    else:
+        for row in rows:
+            if row[1]:
+                stats.TokenGauge.labels(state='revoked').set(row[0])
+            else:
+                stats.TokenGauge.labels(state='active').set(row[0])
 
     return stats.export_metrics()
 
