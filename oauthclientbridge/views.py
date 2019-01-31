@@ -126,6 +126,9 @@ def token():
     if not client_id or not client_secret:
         raise oauth.Error('invalid_client',
                           'Both client_id and client_secret must be set.')
+    elif client_id == client_secret:
+        raise oauth.Error('invalid_client',
+                          'client_id and client_secret set to same value.')
 
     with db.cursor(name='lookup_token') as cursor:
         cursor.execute('SELECT token FROM tokens WHERE client_id = ?',
