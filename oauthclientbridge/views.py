@@ -159,11 +159,9 @@ def token():
         refresh_token=result['refresh_token'], endpoint='refresh')
 
     if 'error' in refresh_result:
-        # TODO: Consider deleting token when we get invalid_grant?
-        # Or cache error to avoid hammering provider?
-
-        # Log errors that aren't from revoked grants.
-        if refresh_result['error'] != 'invalid_grant':
+        if refresh_result['error'] == 'invalid_grant':
+            _revoke(client_id)
+        else:
             app.logger.error('Token refresh failed: %s', refresh_result)
 
         # Client Credentials access token responses use the same errors
@@ -197,9 +195,7 @@ def revoke():
             status=stats.status(400), error='invalid_request').inc()
         return _render(error='Missing client_id.'), 400
 
-    with db.cursor(name='revoke_token') as cursor:
-        cursor.execute('UPDATE tokens SET token = null WHERE client_id = ?',
-                       (request.form['client_id'],))
+    _revoke(request.form['client_id'])
 
     # We always report success as to not leak info.
     return _render(error='Revoked client_id.'), 200
@@ -221,6 +217,13 @@ def metrics():
                 stats.TokenGauge.labels(state='active').set(row[0])
 
     return stats.export_metrics()
+
+
+def _revoke(client_id):
+    with db.cursor(name='revoke_token') as cursor:
+        cursor.execute('UPDATE tokens SET token = null WHERE client_id = ?',
+                       (client_id,))
+    app.logger.warning('Revoked: %s', client_id)
 
 
 def _render(client_id=None, client_secret=None, error=None):
