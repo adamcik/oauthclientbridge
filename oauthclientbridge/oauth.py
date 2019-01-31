@@ -63,8 +63,9 @@ def fallback_error_handler(e):
 
 def nocache(response):
     """Turns off caching in case there is sensitive content in responses."""
-    response.headers['Cache-Control'] = 'no-store'
-    response.headers['Pragma'] = 'no-cache'
+    if 'Cache-Control' not in response.headers:
+        response.headers['Cache-Control'] = 'no-store'
+        response.headers['Pragma'] = 'no-cache'
     return response
 
 
