@@ -175,8 +175,7 @@ def token():
         return jsonify(result)
 
     refresh_result = oauth.fetch(
-        app.config['OAUTH_REFRESH_URI'] or
-        app.config['OAUTH_TOKEN_URI'],
+        app.config['OAUTH_REFRESH_URI'] or app.config['OAUTH_TOKEN_URI'],
         app.config['OAUTH_CLIENT_ID'],
         app.config['OAUTH_CLIENT_SECRET'],
         grant_type=app.config['OAUTH_GRANT_TYPE'],
@@ -184,6 +183,7 @@ def token():
 
     if 'error' in refresh_result:
         # TODO: Consider deleting token when we get invalid_grant?
+        # Or cache error to avoid hammering provider?
 
         # Log errors that aren't from revoked grants.
         if refresh_result['error'] != 'invalid_grant':
@@ -192,10 +192,13 @@ def token():
         # Client Credentials access token responses use the same errors
         # as Authorization Code Grant access token responses. As such, just
         # raise the error we got.
+        # TODO: Retry after header for error case?
         raise oauth.Error(refresh_result['error'],
                           refresh_result.get('error_description'),
                           refresh_result.get('error_uri'))
 
+    # TODO: Only update if refresh has new values (excluding access_token)?
+    # TODO: Don't store access_token in DB?
     result.update(refresh_result)
     token = crypto.dumps(client_secret, result)
 
