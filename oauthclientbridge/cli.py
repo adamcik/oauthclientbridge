@@ -13,5 +13,5 @@ def initdb():
 @app.cli.command()
 def cleandb():
     """Cleans database of stale data."""
-    click.echo('Vacummedi %s' % app.config['OAUTH_DATABASE'])
+    click.echo('Vacummed %s' % app.config['OAUTH_DATABASE'])
     db.vacuum()
