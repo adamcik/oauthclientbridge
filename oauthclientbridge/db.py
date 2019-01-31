@@ -7,6 +7,7 @@ from flask import g
 
 from oauthclientbridge import app, stats
 
+Error = sqlite3.Error
 IntegrityError = sqlite3.IntegrityError
 
 
