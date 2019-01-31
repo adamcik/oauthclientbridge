@@ -1,6 +1,6 @@
 from flask import jsonify, render_template_string, request, session
 
-from oauthclientbridge import app, crypto, db, oauth, rate_limit, stats
+from oauthclientbridge import app, crypto, db, oauth, stats
 
 # Disable caching across the board.
 app.after_request(oauth.nocache)
@@ -18,12 +18,6 @@ app.after_request(stats.after_request)
 def authorize():
     """Store random state in session cookie and redirect to auth endpoint."""
 
-    retry_after = rate_limit.check(request.remote_addr)
-    if retry_after > 0:
-        app.logger.warning('Rate limiting authorize: %s try again in %.2f',
-                           request.remote_addr, retry_after)
-        return _rate_limit(retry_after)
-
     default_scope = ' '.join(app.config['OAUTH_SCOPES'])
     session['state'] = crypto.generate_key()
 
@@ -39,12 +33,6 @@ def authorize():
 @app.route('/callback')
 def callback():
     """Validate callback and trade in code for a token."""
-
-    retry_after = rate_limit.check(request.remote_addr)
-    if retry_after > 0:
-        app.logger.warning('Rate limiting callback: %s try again in %.2f',
-                           request.remote_addr, retry_after)
-        return _rate_limit(retry_after)
 
     error = None
     if session.get('state', object()) != request.args.get('state'):
@@ -117,12 +105,6 @@ def callback():
 @app.route('/token', methods=['POST'])
 def token():
     """Validate token request, refreshing when needed."""
-    retry_after = rate_limit.check(request.remote_addr)
-    if retry_after > 0:
-        app.logger.warning('Rate limiting token: %s try again in %.2f',
-                           request.remote_addr, retry_after)
-        raise oauth.Error('invalid_request', 'Too many requests.',
-                          retry_after=retry_after)
 
     if request.form.get('grant_type') != 'client_credentials':
         raise oauth.Error('unsupported_grant_type',
@@ -140,14 +122,6 @@ def token():
     elif request.authorization:
         client_id = request.authorization.username
         client_secret = request.authorization.password
-
-    if client_id:
-        retry_after = rate_limit.check(client_id)
-        if retry_after > 0:
-            app.logger.warning('Rate limiting token: %s try again in %.2f',
-                               client_id, retry_after)
-            raise oauth.Error('invalid_request', 'Too many requests.',
-                              retry_after=retry_after)
 
     if not client_id or not client_secret:
         raise oauth.Error('invalid_client',
@@ -214,12 +188,7 @@ def token():
 def revoke():
     """Sets the clients token to null."""
 
-    retry_after = rate_limit.check(request.remote_addr)
-    if retry_after > 0:
-        app.logger.warning('Rate limiting revoke: %s try again in %.2f',
-                           request.remote_addr, retry_after)
-        return _rate_limit(retry_after)
-    elif 'client_id' not in request.form:
+    if 'client_id' not in request.form:
         stats.ServerErrorCounter.labels(
             method=request.method, endpoint=stats.endpoint(),
             status=stats.status(400), error='invalid_request').inc()
@@ -255,11 +224,3 @@ def _render(client_id=None, client_secret=None, error=None):
     return render_template_string(
         app.config['OAUTH_CALLBACK_TEMPLATE'],
         client_id=client_id, client_secret=client_secret, error=error)
-
-
-def _rate_limit(retry_after):
-        stats.ServerErrorCounter.labels(
-            method=request.method, endpoint=stats.endpoint(),
-            status=stats.status(429), error='invalid_request').inc()
-        headers = [('Retry-After', str(int(retry_after + 1)))]
-        return _render(error='Too many requests.'), 429, headers

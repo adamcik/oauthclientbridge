@@ -1,6 +1,6 @@
 import click
 
-from oauthclientbridge import app, db, rate_limit
+from oauthclientbridge import app, db
 
 
 @app.cli.command()
@@ -13,8 +13,5 @@ def initdb():
 @app.cli.command()
 def cleandb():
     """Cleans database of stale data."""
-    cleaned = rate_limit.clean()
-    click.echo(' - Deleted %s stale buckets' % cleaned)
-
-    click.echo(' - Vacummed')
+    click.echo('Vacummedi %s' % app.config['OAUTH_DATABASE'])
     db.vacuum()
