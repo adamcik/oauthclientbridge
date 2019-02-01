@@ -55,7 +55,7 @@ def cursor(name):
 @app.teardown_appcontext
 def close(exception):
     """Ensure that connection gets closed when app teardown happens."""
-    if getattr(g, '_oauth_databases', None) is None:
+    if getattr(g, '_oauth_database', None) is None:
         return
     connection, g._oauth_database = g._oauth_database, None
     connection.close()
