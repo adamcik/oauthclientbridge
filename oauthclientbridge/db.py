@@ -52,6 +52,40 @@ def cursor(name):
         raise
 
 
+def insert(token):
+    """Store encrypted token and return what client_id it was stored under."""
+    client_id = generate_id()
+
+    with cursor(name='insert_token') as c:
+        # TODO: Retry creating client_id?
+        c.execute('INSERT INTO tokens (client_id, token) VALUES (?, ?)',
+                  (client_id, token))
+    return client_id
+
+
+def lookup(client_id):
+    """Lookup a client_id and return encrypted token.
+
+    Raises a LookupError if client_id is not found.
+    Returns the encrypted token or None if token is revoked.
+    """
+    with cursor(name='lookup_token') as c:
+        c.execute('SELECT token FROM tokens WHERE client_id = ?', (client_id,))
+        row = c.fetchone()
+
+    if row is None:
+        raise LookupError('Client not found.')
+    else:
+        return row[0]
+
+
+def update(client_id, token):
+    """Update a client_id with a new encrypted token."""
+    with cursor(name='update_token') as c:
+        c.execute('UPDATE tokens SET token = ? WHERE client_id = ?',
+                  (token, client_id))
+
+
 @app.teardown_appcontext
 def close(exception):
     """Ensure that connection gets closed when app teardown happens."""

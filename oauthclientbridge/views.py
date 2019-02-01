@@ -82,16 +82,11 @@ def callback():
         # TODO: Add human readable error to pass to the template?
         return _render(error=result['error']), 400
 
-    client_id = db.generate_id()
     client_secret = crypto.generate_key()
     token = crypto.dumps(client_secret, result)
 
     try:
-        with db.cursor(name='insert_token') as cursor:
-            # TODO: Retry creating client_id?
-            cursor.execute(
-                'INSERT INTO tokens (client_id, token) VALUES (?, ?)',
-                (client_id, token))
+        client_id = db.insert(token)
     except db.IntegrityError:
         app.log.warning('Could not get unique client id: %s', client_id)
         stats.ServerErrorCounter.labels(
@@ -130,19 +125,17 @@ def token():
         raise oauth.Error('invalid_client',
                           'client_id and client_secret set to same value.')
 
-    with db.cursor(name='lookup_token') as cursor:
-        cursor.execute('SELECT token FROM tokens WHERE client_id = ?',
-                       (client_id,))
-        row = cursor.fetchone()
-
-    if row is None:
+    try:
+        token = db.lookup(client_id)
+    except LookupError:
         raise oauth.Error('invalid_client', 'Client not known.')
-    elif row[0] is None:
+
+    if token is None:
         # TODO: How do we avoid client retries here?
         raise oauth.Error('invalid_grant', 'Grant has been revoked.')
 
     try:
-        result = crypto.loads(client_secret, row[0])
+        result = crypto.loads(client_secret, token)
     except (crypto.InvalidToken, TypeError, ValueError):
         # Always return same message as for client not found to avoid leaking
         # valid clients directly, timing attacks could of course still work.
@@ -160,7 +153,8 @@ def token():
 
     if 'error' in refresh_result:
         if refresh_result['error'] == 'invalid_grant':
-            _revoke(client_id)
+            db.update(client_id, None)
+            app.logger.warning('Revoked: %s', client_id)
         else:
             app.logger.error('Token refresh failed: %s', refresh_result)
 
@@ -177,9 +171,7 @@ def token():
     result.update(refresh_result)
     token = crypto.dumps(client_secret, result)
 
-    with db.cursor(name='update_token') as cursor:
-        cursor.execute('UPDATE tokens SET token = ? WHERE client_id = ?',
-                       (token, client_id))
+    db.update(client_id, token)
 
     del result['refresh_token']
     return jsonify(result)
@@ -195,7 +187,8 @@ def revoke():
             status=stats.status(400), error='invalid_request').inc()
         return _render(error='Missing client_id.'), 400
 
-    _revoke(request.form['client_id'])
+    db.update(request.form['client_id'], None)
+    app.logger.warning('Revoked: %s', request.form['client_id'])
 
     # We always report success as to not leak info.
     return _render(error='Revoked client_id.'), 200
@@ -217,13 +210,6 @@ def metrics():
                 stats.TokenGauge.labels(state='active').set(row[0])
 
     return stats.export_metrics()
-
-
-def _revoke(client_id):
-    with db.cursor(name='revoke_token') as cursor:
-        cursor.execute('UPDATE tokens SET token = null WHERE client_id = ?',
-                       (client_id,))
-    app.logger.warning('Revoked: %s', client_id)
 
 
 def _render(client_id=None, client_secret=None, error=None):
