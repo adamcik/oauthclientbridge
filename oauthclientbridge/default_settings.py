@@ -12,8 +12,14 @@
 # in to keep it from leaking via .pyc files.
 SECRET_KEY = None
 
-# SQLite3 database to store tokens and rate limit information in, MUST be set.
+# SQLite3 database to store tokens information in, MUST be set.
 OAUTH_DATABASE = None
+
+# SQlite3 database timeout to use at "connection" time.
+OAUTH_DATABASE_TIMEOUT = 5
+
+# SQlite3 database PRAGMA to run at connection time for database.
+OAUTH_DATABASE_PRAGMA = 'PRAGMA synchronous = FULL'
 
 # Client ID and secret provided by upstream OAuth provider, MUST be set.
 OAUTH_CLIENT_ID = None
