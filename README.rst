@@ -148,10 +148,7 @@ been made.
   <https://cryptography.io>`_ which gives us both signed and encrypted data so
   we can know if a valid secret was provided without storing the secret.
 
-- Access to the ``/token`` endpoint is rate limited by both ``client_id`` and
-  the remote address to slow down brute force attempts.
-
-- All other endpoints are rate limited by the remote address only.
+- Access to the endpoints should be rate limited in e.g. nginx.
 
 - The ``/revoke`` endpoint allows for deletion of the grants we've stored,
   invalidating a ``client_id``. This was added as we don't ever want to have to

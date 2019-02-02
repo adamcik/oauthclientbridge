@@ -88,20 +88,6 @@ OAUTH_CALLBACK_TEMPLATE = """
 # Number proxies to expect in front of us. Used for handling X-Forwarded-For
 OAUTH_NUM_PROXIES = 0
 
-# If we should rate limit calls to the bridge.
-OAUTH_RATE_LIMIT = True
-
-# Steady state QPS the rate limiter will allow. This controls how quickly our
-# tracking buckets empty, i.e. the QPS.
-OAUTH_BUCKET_REFILL_RATE = 0.5
-
-# Maximum number of requests the rate limiter will allow in an initial burst:
-OAUTH_BUCKET_CAPACITY = 10
-
-# Upper limit on how full the bucket can get. This ensures that you don't lock
-# yourself out for to long if you do a lot of excessive requests.
-OAUTH_BUCKET_MAX_HITS = 15
-
 # Additional log file for application level logging, set to None to disable.
 OAUTH_LOG_FILE = None
 
