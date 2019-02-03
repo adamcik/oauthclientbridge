@@ -19,7 +19,7 @@ OAUTH_DATABASE = None
 OAUTH_DATABASE_TIMEOUT = 5
 
 # SQlite3 database PRAGMA to run at connection time for database.
-OAUTH_DATABASE_PRAGMA = 'PRAGMA synchronous = FULL'
+OAUTH_DATABASE_PRAGMA = 'PRAGMA journal_mode = WAL'
 
 # Client ID and secret provided by upstream OAuth provider, MUST be set.
 OAUTH_CLIENT_ID = None
