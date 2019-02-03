@@ -35,6 +35,8 @@ def callback():
     """Validate callback and trade in code for a token."""
 
     error = None
+
+    # TODO: switch to pop for getting state so it always gets cleared?
     if session.get('state', object()) != request.args.get('state'):
         error = 'invalid_state'
     elif 'error' in request.args:
@@ -57,11 +59,8 @@ def callback():
             app.logger.error('Callback failed: %s', error)
 
     if error is not None:
-        stats.ServerErrorCounter.labels(
-            method=request.method, endpoint=stats.endpoint(),
-            status=stats.status(400), error=error).inc()
         # TODO: Add human readable error to pass to the template?
-        return _render(error=error), 400
+        return _error(error, error, 400)
 
     del session['state']  # Delete the state in case of replay.
 
@@ -74,13 +73,8 @@ def callback():
 
     if 'error' in result:
         app.logger.warning('Retrieving token failed: %s', result)
-
-        stats.ServerErrorCounter.labels(
-            method=request.method, endpoint=stats.endpoint(),
-            status=stats.status(400), error=result['error']).inc()
-
         # TODO: Add human readable error to pass to the template?
-        return _render(error=result['error']), 400
+        return _error(result['error'], result['error'], 400)
 
     client_secret = crypto.generate_key()
     token = crypto.dumps(client_secret, result)
@@ -89,10 +83,7 @@ def callback():
         client_id = db.insert(token)
     except db.IntegrityError:
         app.log.warning('Could not get unique client id: %s', client_id)
-        stats.ServerErrorCounter.labels(
-            method=request.method, endpoint=stats.endpoint(),
-            status=stats.status(500), error='integrity_error').inc()
-        return _render(error='Database integrity error.'), 500
+        return _error('integrity_error', 'Database integrity error.', 500)
 
     return _render(client_id=client_id, client_secret=client_secret)
 
@@ -100,6 +91,7 @@ def callback():
 @app.route('/token', methods=['POST'])
 def token():
     """Validate token request, refreshing when needed."""
+    # TODO: allow all methods and raise invalid_request for !POST?
 
     if request.form.get('grant_type') != 'client_credentials':
         raise oauth.Error('unsupported_grant_type',
@@ -184,10 +176,7 @@ def revoke():
     """Sets the clients token to null."""
 
     if 'client_id' not in request.form:
-        stats.ServerErrorCounter.labels(
-            method=request.method, endpoint=stats.endpoint(),
-            status=stats.status(400), error='invalid_request').inc()
-        return _render(error='Missing client_id.'), 400
+        return _error('invalid_request', 'Missing client_id.', 400)
 
     db.update(request.form['client_id'], None)
     app.logger.warning('Revoked: %s', request.form['client_id'])
@@ -212,6 +201,13 @@ def metrics():
                 stats.TokenGauge.labels(state='active').set(row[0])
 
     return stats.export_metrics()
+
+
+def _error(error_code, error, status):
+    stats.ServerErrorCounter.labels(
+        method=request.method, endpoint=stats.endpoint(),
+        status=stats.status(status), error=error_code).inc()
+    return _render(error=error), status
 
 
 def _render(client_id=None, client_secret=None, error=None):
