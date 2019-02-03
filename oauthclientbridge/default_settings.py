@@ -52,6 +52,10 @@ OAUTH_FETCH_TOTAL_RETRIES = 3
 # Status codes that should be considered retryable for oauth.
 OAUTH_FETCH_RETRY_STATUS_CODES = (429, 500, 502, 503, 504)
 
+# Status codes to treat as temporarily_unavailable when we can't decode the
+# repsonse. Remaining status codes treated as server_error.
+OAUTH_FETCH_UNAVAILABLE_STATUS_CODES = (429, 502, 503, 504)
+
 # Non-standard oauth errors and what standard errors to translate them to.
 OAUTH_FETCH_ERROR_TYPES = {'errorTransient': 'temporarily_unavailable'}
 

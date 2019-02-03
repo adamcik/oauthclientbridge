@@ -197,10 +197,16 @@ def _decode(resp):
     except ValueError as e:
         app.logger.warning(
             'Fetching %r (HTTP %s, %s) failed: %s', resp.url, resp.status_code,
-             resp.headers.get('Content-Type', 'text/plain'), e)
+             resp.headers.get('Content-Type', '-'), e)
 
-    description = 'Invalid JSON response from provider (%s)' % resp.status_code
-    return {'error': 'server_error', 'error_description': description}
+    if resp.status_code in app.config['OAUTH_FETCH_UNAVAILABLE_STATUS_CODES']:
+        error = 'temporarily_unavailable'
+        description = 'Provider is unavailable.'
+    else:
+        error = 'server_error'
+        description = 'Unhandled provider error (HTTP %s).' % resp.status_code
+
+    return {'error': error, 'error_description': description}
 
 
 def _parse_retry(value):
