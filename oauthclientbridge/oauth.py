@@ -120,6 +120,7 @@ def fetch(uri, username, password, endpoint=None, **data):
         app.logger.debug('Result %s [status %s] [retry after %s]',
                          prefix, status, retry)
 
+    # TODO: consider returning retry after time so it can be used.
     return result
 
 
@@ -161,6 +162,8 @@ def _fetch(prepared, timeout, endpoint):
                 status_label = 'connection_error'
 
         app.logger.warning('Fetching %r failed: %s', prepared.url, e)
+
+        # TODO: Should this be temporarily_unavailable?
 
         # Server error isn't allowed everywhere, but fixing this has been
         # brought up in https://www.rfc-editor.org/errata_search.php?eid=4745
