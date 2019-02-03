@@ -155,6 +155,8 @@ def token():
         if refresh_result['error'] == 'invalid_grant':
             db.update(client_id, None)
             app.logger.warning('Revoked: %s', client_id)
+        elif refresh_result['error'] == 'temporarily_unavailable':
+            app.logger.warning('Token refresh failed: %s', refresh_result)
         else:
             app.logger.error('Token refresh failed: %s', refresh_result)
 
