@@ -48,6 +48,10 @@ ServerLatencyHistogram = pyprometheus.Histogram(
     'oauth_server_latency_seconds', 'Overall request latency.',
     ['method', 'endpoint', 'status'], buckets=TIME_BUCKETS, registry=registry)
 
+ServerRequestSizeHistogram = pyprometheus.Histogram(
+    'oauth_server_response_bytes', 'Overall response size.',
+    ['method', 'endpoint', 'status'], buckets=BYTE_BUCKETS, registry=registry)
+
 ServerResponseSizeHistogram = pyprometheus.Histogram(
     'oauth_server_response_bytes', 'Overall response size.',
     ['method', 'endpoint', 'status'], buckets=BYTE_BUCKETS, registry=registry)
@@ -94,6 +98,9 @@ def after_request(response):
     ServerLatencyHistogram.labels(**labels).observe(request_latency)
     if content_length >= 0:
         ServerResponseSizeHistogram.labels(**labels).observe(content_length)
+    if request.content_length >= 0:
+        ServerRequestSizeHistogram.labels(**labels).observe(
+            request.content_length)
     return response
 
 
