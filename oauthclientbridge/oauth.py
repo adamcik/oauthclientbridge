@@ -69,6 +69,16 @@ def nocache(response):
     return response
 
 
+def normalize_error(error):
+    """Translate any "bad" error types to something more usable."""
+    error = app.config.get['OAUTH_FETCH_ERROR_TYPES'].get(error, error)
+
+    if error not in ERROR_TYPES:
+        return 'invalid_error'
+    else:
+        return error
+
+
 def fetch(uri, username, password, endpoint=None, **data):
     """Perform post given URI with auth and provided data."""
     req = requests.Request('POST', uri, auth=(username, password), data=data)
@@ -101,13 +111,9 @@ def fetch(uri, username, password, endpoint=None, **data):
         stats.ClientRetryHistogram.labels(**labels).observe(i)
 
         if status is not None and 'error' in result:
-            if result['error'] in ERROR_TYPES:
-                error = result['error']
-            elif result['error'] in app.config['OAUTH_FETCH_ERROR_TYPES']:
-                error = app.config['OAUTH_FETCH_ERROR_TYPES'][error]
-            else:
+            error = normalize_error(result['error'])
+            if error == 'invalid_error':
                 app.logger.error('Invalid error: %s', result['error'])
-                error = 'invalid_error'
             stats.ClientErrorCounter.labels(error=error, **labels).inc()
 
         if status is None:
