@@ -25,11 +25,13 @@ def initialize():
 def get():
     """Get singleton SQLite database connection."""
     if getattr(g, '_oauth_database', None) is None:
-        g._oauth_database = sqlite3.connect(
-            app.config['OAUTH_DATABASE'],
-            timeout=app.config['OAUTH_DATABASE_TIMEOUT'])
+        with stats.DBLatencyHistorgram.labels(query='connect').time():
+            g._oauth_database = sqlite3.connect(
+                app.config['OAUTH_DATABASE'],
+                timeout=app.config['OAUTH_DATABASE_TIMEOUT'])
         if app.config['OAUTH_DATABASE_PRAGMA']:
-            g._oauth_database.execute(app.config['OAUTH_DATABASE_PRAGMA'])
+            with stats.DBLatencyHistorgram.labels(query='pragma').time():
+                g._oauth_database.execute(app.config['OAUTH_DATABASE_PRAGMA'])
     return g._oauth_database
 
 
@@ -42,9 +44,11 @@ def vacuum():
 def cursor(name):
     """Get SQLite cursor with automatic commit if no exceptions are raised."""
     try:
-        with stats.DBLatencyHistorgram.labels(query=name).time():
-            with get() as connection:
-                yield contextlib.closing(connection.cursor())
+        with get() as connection:
+            with stats.DBLatencyHistorgram.labels(query='cursor').time():
+                c = connection.cursor()
+            with stats.DBLatencyHistorgram.labels(query=name).time():
+                yield contextlib.closing(c)
     except sqlite3.Error as e:
         # https://www.python.org/dev/peps/pep-0249/#exceptions for values.
         error = re.sub(r'(?!^)([A-Z])', r'_\1', e.__class__.__name__).lower()
@@ -57,7 +61,7 @@ def insert(token):
     client_id = generate_id()
 
     with cursor(name='insert_token') as c:
-        # TODO: Retry creating client_id?
+        # TODO: Retry creating client_id if it already exists?
         c.execute('INSERT INTO tokens (client_id, token) VALUES (?, ?)',
                   (client_id, token))
     return client_id
@@ -92,4 +96,5 @@ def close(exception):
     if getattr(g, '_oauth_database', None) is None:
         return
     connection, g._oauth_database = g._oauth_database, None
-    connection.close()
+    with stats.DBLatencyHistorgram.labels(query='close').time():
+        connection.close()
