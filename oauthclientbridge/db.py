@@ -48,7 +48,8 @@ def cursor(name):
             with stats.DBLatencyHistorgram.labels(query='cursor').time():
                 c = connection.cursor()
             with stats.DBLatencyHistorgram.labels(query=name).time():
-                yield contextlib.closing(c)
+                with contextlib.closing(c):
+                    yield c
     except sqlite3.Error as e:
         # https://www.python.org/dev/peps/pep-0249/#exceptions for values.
         error = re.sub(r'(?!^)([A-Z])', r'_\1', e.__class__.__name__).lower()

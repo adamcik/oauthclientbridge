@@ -71,7 +71,7 @@ def nocache(response):
 
 def normalize_error(error):
     """Translate any "bad" error types to something more usable."""
-    error = app.config.get['OAUTH_FETCH_ERROR_TYPES'].get(error, error)
+    error = app.config['OAUTH_FETCH_ERROR_TYPES'].get(error, error)
 
     if error not in ERROR_TYPES:
         return 'invalid_error'

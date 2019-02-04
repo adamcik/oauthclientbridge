@@ -49,7 +49,7 @@ ServerLatencyHistogram = pyprometheus.Histogram(
     ['method', 'endpoint', 'status'], buckets=TIME_BUCKETS, registry=registry)
 
 ServerRequestSizeHistogram = pyprometheus.Histogram(
-    'oauth_server_response_bytes', 'Overall response size.',
+    'oauth_server_request_bytes', 'Overall request size.',
     ['method', 'endpoint', 'status'], buckets=BYTE_BUCKETS, registry=registry)
 
 ServerResponseSizeHistogram = pyprometheus.Histogram(
