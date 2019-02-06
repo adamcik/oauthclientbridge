@@ -70,7 +70,8 @@ def callback():
     if 'error' in result:
         app.logger.warning('Retrieving token failed: %s', result)
         # TODO: Add human readable error to pass to the template?
-        return _error(result['error'], result['error'], 400)
+        error = oauth.normalize_error(result['error'])
+        return _error(error, error, 400)
 
     client_secret = crypto.generate_key()
     token = crypto.dumps(client_secret, result)
