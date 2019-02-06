@@ -13,8 +13,9 @@ from oauthclientbridge import __version__, app, stats
 
 
 ERROR_TYPES = {'invalid_request', 'unauthorized_client', 'access_denied',
-               'unsupported_response_type', 'invalid_scope', 'server_error',
-               'temporarily_unavailable', 'invalid_client', 'invalid_grant'}
+               'unsupported_grant_type', 'unsupported_response_type',
+               'invalid_scope', 'server_error', 'temporarily_unavailable',
+               'invalid_client', 'invalid_grant'}
 
 
 class Error(Exception):
