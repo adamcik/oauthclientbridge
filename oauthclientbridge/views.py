@@ -73,6 +73,10 @@ def callback():
         error = oauth.normalize_error(result['error'])
         return _error(error, error, 400)
 
+    if not result.get('access_token') or not result.get('token_type'):
+        description = 'Provider response missing required entries.'
+        return _error(description, 'server_error', 400)
+
     client_secret = crypto.generate_key()
     token = crypto.dumps(client_secret, result)
 
