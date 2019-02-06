@@ -53,6 +53,8 @@ def callback():
         else:
             # TODO: Reduce this to warning for temporarily_unavailable?
             app.logger.error('Callback failed: %s', error)
+    elif not request.args.get('code'):
+        error = 'invalid_request'
 
     if error is not None:
         # TODO: Add human readable error to pass to the template?
