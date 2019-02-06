@@ -37,7 +37,7 @@ def callback():
     error = None
 
     # TODO: switch to pop for getting state so it always gets cleared?
-    if session.get('state', object()) != request.args.get('state'):
+    if session.pop('state', object()) != request.args.get('state'):
         error = 'invalid_state'
     elif 'error' in request.args:
         error = oauth.normalize_error(request.args['error'])
@@ -57,8 +57,6 @@ def callback():
     if error is not None:
         # TODO: Add human readable error to pass to the template?
         return _error(error, error, 400)
-
-    del session['state']  # Delete the state in case of replay.
 
     result = oauth.fetch(app.config['OAUTH_TOKEN_URI'],
                          app.config['OAUTH_CLIENT_ID'],
