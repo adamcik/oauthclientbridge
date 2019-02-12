@@ -6,40 +6,13 @@ import pytest
 from oauthclientbridge import app, crypto, db
 
 
-@pytest.fixture
-def client():
-    app.config.update({
-        'TESTING': True,
-        'SECRET_KEY': 's3cret',
-        'OAUTH_DATABASE': ':memory:',
-        'OAUTH_CLIENT_ID': 'client',
-        'OAUTH_CLIENT_SECRET': 's3cret',
-        'OAUTH_AUTHORIZATION_URI': 'https://example.com/auth',
-        'OAUTH_TOKEN_URI': 'https://example.com/token',
-        'OAUTH_REDIRECT_URI': 'https://example.com/callback',
-    })
-
-    client = app.test_client()
-
-    with app.app_context():
-        db.initialize()
-        yield client
-
-
-@pytest.fixture
-def state(client):
-    with client.session_transaction() as session:
-        session['state'] = 'abcdef'
-    return 'abcdef'
-
-
 def test_authorize_redirects(client):
     resp = client.get('/')
     location = urlparse.urlparse(resp.location)
     params = urlparse.parse_qs(location.query)
 
     assert resp.status_code == 302
-    assert location.netloc == 'example.com'
+    assert location.netloc == 'provider.example.com'
     assert location.path == '/auth'
 
     with client.session_transaction() as session:
