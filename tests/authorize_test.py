@@ -58,6 +58,8 @@ def test_callback_error_handling(query, expected_error, client, state):
     ({'error': 'unsupported_grant_type'}, 'unsupported_grant_type'),
     ({'error': 'invalid_scope'}, 'invalid_scope'),
     ({'error': 'server_error'}, 'server_error'),
+    ({'error': 'temporarily_unavailable'}, 'temporarily_unavailable'),
+    ({'error': 'errorTransient'}, 'temporarily_unavailable'),
     ({'error': 'badErrorCode'}, 'invalid_error'),
 ])
 def test_callback_authorization_code_error_handling(
@@ -94,3 +96,6 @@ def test_callback_authorization_code_store_token(client, state, requests_mock):
 
     # Peek inside internals to check that our token got stored.
     assert data == crypto.loads(client_secret, db.lookup(client_id))
+
+
+# TODO: Duplicate client-id handling?
