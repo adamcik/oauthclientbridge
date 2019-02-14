@@ -97,7 +97,7 @@ def token():
     if request.form.get('grant_type') != 'client_credentials':
         raise oauth.Error('unsupported_grant_type',
                           'Only "client_credentials" is supported.')
-    elif request.form.get('scope'):
+    elif 'scope' in request.form:
         raise oauth.Error('invalid_scope', 'Setting scope is not supported.')
     elif request.authorization and request.authorization.type != 'basic':
         raise oauth.Error('invalid_client', 'Only Basic Auth is supported.')
@@ -145,10 +145,11 @@ def token():
         refresh_token=result['refresh_token'], endpoint='refresh')
 
     if 'error' in refresh_result:
-        if refresh_result['error'] == 'invalid_grant':
+        error = oauth.normalize_error(refresh_result['error'])
+        if error == 'invalid_grant':
             db.update(client_id, None)
             app.logger.warning('Revoked: %s', client_id)
-        elif refresh_result['error'] == 'temporarily_unavailable':
+        elif error == 'temporarily_unavailable':
             app.logger.warning('Token refresh failed: %s', refresh_result)
         else:
             app.logger.error('Token refresh failed: %s', refresh_result)
@@ -157,7 +158,7 @@ def token():
         # as Authorization Code Grant access token responses. As such, just
         # raise the error we got.
         # TODO: Retry after header for error case?
-        raise oauth.Error(refresh_result['error'],
+        raise oauth.Error(error,
                           refresh_result.get('error_description'),
                           refresh_result.get('error_uri'))
 
@@ -172,6 +173,7 @@ def token():
     return jsonify(result)
 
 
+# TODO: https://tools.ietf.org/html/rfc7009
 @app.route('/revoke', methods=['POST'])
 def revoke():
     """Sets the clients token to null."""
