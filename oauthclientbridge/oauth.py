@@ -112,9 +112,10 @@ def fetch(uri, username, password, endpoint=None, **data):
         stats.ClientRetryHistogram.labels(**labels).observe(i)
 
         if status is not None and 'error' in result:
-            error = normalize_error(result['error'])
-            if error == 'invalid_error':
-                app.logger.error('Invalid error: %s', result['error'])
+            error = result['error']
+            error = app.config['OAUTH_FETCH_ERROR_TYPES'].get(error, error)
+            if error not in ERROR_TYPES:
+                error = 'invalid_error'
             stats.ClientErrorCounter.labels(error=error, **labels).inc()
 
         if status is None:

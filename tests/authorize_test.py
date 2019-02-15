@@ -44,32 +44,32 @@ def test_callback_error_handling(query, expected_error, client, state):
     assert resp.data == expected_error
 
 
-@pytest.mark.parametrize('data,expected_error', [
-    ({}, 'server_error'),
-    ({'token_type': 'foobar'}, 'server_error'),
-    ({'access_token': 'foobar'}, 'server_error'),
-    ({'access_token': '', 'token_type': ''}, 'server_error'),
-    ({'access_token': 'foobar', 'token_type': ''}, 'server_error'),
-    ({'access_token': '', 'token_type': 'foobar'}, 'server_error'),
-    ({'error': 'invalid_request'}, 'invalid_request'),
-    ({'error': 'invalid_client'}, 'invalid_client'),
-    ({'error': 'invalid_grant'}, 'invalid_grant'),
-    ({'error': 'unauthorized_client'}, 'unauthorized_client'),
-    ({'error': 'unsupported_grant_type'}, 'unsupported_grant_type'),
-    ({'error': 'invalid_scope'}, 'invalid_scope'),
-    ({'error': 'server_error'}, 'server_error'),
-    ({'error': 'temporarily_unavailable'}, 'temporarily_unavailable'),
-    ({'error': 'errorTransient'}, 'temporarily_unavailable'),
-    ({'error': 'badErrorCode'}, 'server_error'),
+@pytest.mark.parametrize('data,expected_error,expected_status', [
+    ({}, 'server_error', 400),
+    ({'token_type': 'foobar'}, 'server_error', 400),
+    ({'access_token': 'foobar'}, 'server_error', 400),
+    ({'access_token': '', 'token_type': ''}, 'server_error', 400),
+    ({'access_token': 'foobar', 'token_type': ''}, 'server_error', 400),
+    ({'access_token': '', 'token_type': 'foobar'}, 'server_error', 400),
+    ({'error': 'invalid_request'}, 'invalid_request', 400),
+    ({'error': 'invalid_client'}, 'invalid_client', 401),
+    ({'error': 'invalid_grant'}, 'invalid_grant', 400),
+    ({'error': 'unauthorized_client'}, 'unauthorized_client', 400),
+    ({'error': 'unsupported_grant_type'}, 'unsupported_grant_type', 400),
+    ({'error': 'invalid_scope'}, 'invalid_scope', 400),
+    ({'error': 'server_error'}, 'server_error', 400),
+    ({'error': 'temporarily_unavailable'}, 'temporarily_unavailable', 400),
+    ({'error': 'errorTransient'}, 'temporarily_unavailable', 400),
+    ({'error': 'badErrorCode'}, 'server_error', 400),
 ])
 def test_callback_authorization_code_error_handling(
-        data, expected_error, client, state, requests_mock):
+        data, expected_error, expected_status, client, state, requests_mock):
     app.config['OAUTH_CALLBACK_TEMPLATE'] = '{{error}}'
 
     requests_mock.post(app.config['OAUTH_TOKEN_URI'], json=data)
 
     resp = client.get('/callback?code=1234&state=' + state)
-    assert resp.status_code == 400
+    assert resp.status_code == expected_status
     assert resp.data == expected_error
 
 

@@ -40,17 +40,14 @@ def callback():
     if session.pop('state', object()) != request.args.get('state'):
         error = 'invalid_state'
     elif 'error' in request.args:
+        # TODO: Limit to https://tools.ietf.org/html/rfc6749#section-4.1.2.1
         error = oauth.normalize_error(request.args['error'])
-
-        # TODO: Probably not worth it sanity checking the error enum, the state
         # check would filter out anyone passing in random things trivially.
         if error == 'access_denied':
             app.logger.info('Resource owner denied the request.')
         elif error == 'invalid_scope':
             app.logger.warning('Invalid scope: %r', request.args.get('scope'))
-        elif error == 'invalid_error':
-            app.logger.error('Invalid error: %s', request.args['error'])
-        else:
+        elif error != 'temporarily_unavailable':
             # TODO: Reduce this to warning for temporarily_unavailable?
             app.logger.error('Callback failed: %s', error)
     elif not request.args.get('code'):
@@ -70,8 +67,9 @@ def callback():
     if 'error' in result:
         app.logger.warning('Retrieving token failed: %s', result)
         # TODO: Add human readable error to pass to the template?
+        # TODO: Limit to https://tools.ietf.org/html/rfc6749#section-5.2
         error = oauth.normalize_error(result['error'])
-        return _error(error, error, 400)
+        return _error(error, error, 401 if error == 'invalid_client' else 400)
 
     if not result.get('access_token') or not result.get('token_type'):
         description = 'Provider response missing required entries.'
@@ -145,6 +143,7 @@ def token():
         refresh_token=result['refresh_token'], endpoint='refresh')
 
     if 'error' in refresh_result:
+        # TODO: Limit to https://tools.ietf.org/html/rfc6749#section-5.2
         error = oauth.normalize_error(refresh_result['error'])
         if error == 'invalid_grant':
             db.update(client_id, None)
