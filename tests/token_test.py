@@ -187,7 +187,7 @@ def test_token_removes_refresh_token(post, refresh_token, requests_mock):
     ('unsupported_grant_type', 'unsupported_grant_type', 400),
     ('invalid_scope', 'invalid_scope', 400),
     ('errorTransient', 'temporarily_unavailable', 400),
-    ('badError', 'invalid_error', 400),
+    ('badError', 'server_error', 400),
 ])
 def test_token_provider_errors(post, refresh_token, requests_mock,
                                error, expected_error, expected_status):

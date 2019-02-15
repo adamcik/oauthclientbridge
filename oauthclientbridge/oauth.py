@@ -75,7 +75,7 @@ def normalize_error(error):
     error = app.config['OAUTH_FETCH_ERROR_TYPES'].get(error, error)
 
     if error not in ERROR_TYPES:
-        return 'invalid_error'
+        return 'server_error'
     else:
         return error
 

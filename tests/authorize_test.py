@@ -34,7 +34,7 @@ def test_authorize_redirects(client):
     ('?state={state}&error=server_error', 'server_error'),
     ('?state={state}&error=temporarily_unavailable',
      'temporarily_unavailable'),
-    ('?state={state}&error=badErrorCode', 'invalid_error'),
+    ('?state={state}&error=badErrorCode', 'server_error'),
 ])
 def test_callback_error_handling(query, expected_error, client, state):
     app.config['OAUTH_CALLBACK_TEMPLATE'] = '{{error}}'
@@ -60,7 +60,7 @@ def test_callback_error_handling(query, expected_error, client, state):
     ({'error': 'server_error'}, 'server_error'),
     ({'error': 'temporarily_unavailable'}, 'temporarily_unavailable'),
     ({'error': 'errorTransient'}, 'temporarily_unavailable'),
-    ({'error': 'badErrorCode'}, 'invalid_error'),
+    ({'error': 'badErrorCode'}, 'server_error'),
 ])
 def test_callback_authorization_code_error_handling(
         data, expected_error, client, state, requests_mock):
