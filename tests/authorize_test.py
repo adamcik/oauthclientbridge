@@ -19,6 +19,11 @@ def test_authorize_redirects(client):
         assert 'state' in session
 
 
+def test_authorize_wrong_method(client):
+    resp = client.post('/')
+    assert resp.status_code == 405
+
+
 @pytest.mark.parametrize('query,expected_error', [
     ('', 'invalid_state'),
     ('?code', 'invalid_state'),
@@ -98,6 +103,11 @@ def test_callback_authorization_code_store_token(client, state, requests_mock):
 
     # Peek inside internals to check that our token got stored.
     assert data == crypto.loads(client_secret, db.lookup(client_id))
+
+
+def test_callack_wrong_method(client, state):
+    resp = client.post('/callback?code=1234&state=' + state)
+    assert resp.status_code == 405
 
 
 # TODO: Duplicate client-id handling?

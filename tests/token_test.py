@@ -87,6 +87,11 @@ def test_token_basic_auth(post, access_token):
     assert access_token.value == result
 
 
+def test_token_wrong_method(client):
+    resp = client.get('/token')
+    assert resp.status_code == 405
+
+
 def test_token_revoked(post, access_token):
     db.update(access_token.client_id, None)  # Revoke directly in the db.
 
