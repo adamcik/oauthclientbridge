@@ -113,14 +113,14 @@ def error_handler(e):
 
 
 def fallback_error_handler(e):
-    result = {'error': 'server_error',
-              'error_description': 'Unhandled error.'}
-
     stats.ServerErrorCounter.labels(
         method=request.method, endpoint=stats.endpoint(),
         status=stats.status(500), error='server_error').inc()
 
-    return jsonify(result), 500
+    return jsonify({
+        'error': 'server_error',
+        'error_description': ERROR_DESCRIPTIONS['server_error'],
+    }), 500
 
 
 def nocache(response):
