@@ -152,9 +152,18 @@ def test_token_refresh_post_data(post, refresh_token, requests_mock):
     })
 
 
-def test_token_with_refresh_token(post, refresh_token, requests_mock):
+@pytest.mark.parametrize('field,value', [
+    ('refresh_token', None),
+    ('refresh_token', 'def'),
+    ('private', '123')
+])
+def test_token_with_refresh_token(post, refresh_token, requests_mock,
+                                  field, value):
     new_token = refresh_token.value.copy()
-    new_token['refresh_token'] = 'def'
+    if value is None:
+        del new_token[field]
+    else:
+        new_token[field] = value
 
     requests_mock.post(app.config['OAUTH_TOKEN_URI'], json=new_token)
 
@@ -167,6 +176,9 @@ def test_token_with_refresh_token(post, refresh_token, requests_mock):
     # Check that the token we fetched got stored directly in db.
     encrypted_token = db.lookup(refresh_token.client_id)
     stored_token = crypto.loads(refresh_token.client_secret, encrypted_token)
+
+    if value is None:
+        new_token[field] = refresh_token.value[field]
 
     assert new_token == stored_token
 
