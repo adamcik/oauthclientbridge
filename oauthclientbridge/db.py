@@ -16,7 +16,7 @@ def generate_id():
 
 
 def initialize():
-    with app.open_resource('../schema.sql', mode='r') as f:
+    with app.open_resource('schema.sql', mode='r') as f:
         schema = f.read()
     with get() as c:
         c.executescript(schema)
