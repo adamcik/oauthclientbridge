@@ -69,8 +69,8 @@ def callback():
         desc = oauth.ERROR_DESCRIPTIONS[error]
         return _error(error, desc, 401 if error == 'invalid_client' else 400)
 
-    if not result.get('access_token') or not result.get('token_type'):
-        desc = 'Provider response missing required entries.'
+    if not oauth.validate_token(result):
+        desc = 'Invalid response from provider.'
         return _error('invalid_response', desc, 400)
 
     client_secret = crypto.generate_key()
@@ -160,12 +160,8 @@ def token():
                           refresh_result.get('error_description'),
                           refresh_result.get('error_uri'))
 
-    if 'access_token' not in refresh_result: 
-        raise oauth.Error(
-            'invalid_request', 'Provider did not set access_token.')
-    elif 'token_type' not in refresh_result:
-        raise oauth.Error(
-            'invalid_request', 'Provider did not set token_type.')
+    if not oauth.validate_token(refresh_result):
+        raise oauth.Error('invalid_request', 'Invalid response from provider.')
 
     # TODO: Only update if refresh has new values (excluding access_token)?
     # TODO: Don't store access_token in DB?

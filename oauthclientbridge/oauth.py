@@ -141,6 +141,10 @@ def normalize_error(error, error_types):
         return error
 
 
+def validate_token(token):
+    return token.get('access_token') and token.get('token_type')
+
+
 def fetch(uri, username, password, endpoint=None, **data):
     """Perform post given URI with auth and provided data."""
     req = requests.Request('POST', uri, auth=(username, password), data=data)
