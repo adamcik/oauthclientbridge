@@ -174,19 +174,13 @@ def token():
 def metrics():
     try:
         with db.cursor(name='metrics') as cursor:
-            cursor.execute('SELECT COUNT(*), token IS NULL FROM tokens GROUP BY 2')
-            rows = cursor.fetchall()
+            cursor.execute('SELECT token IS NULL, COUNT(*) FROM tokens GROUP BY 1')
+            results = dict(cursor.fetchall())
     except db.Error:
         pass
     else:
-        active, revoked = 0, 0
-        for row in rows:
-            if row[1]:
-                revoked = row[0]
-            else:
-                active = row[0]
-        stats.TokenGauge.labels(state='revoked').set(active)
-        stats.TokenGauge.labels(state='active').set(revoked)
+        stats.TokenGauge.labels(state='revoked').set(results.get(True, 0))
+        stats.TokenGauge.labels(state='active').set(results.get(False, 0))
 
     return stats.export_metrics()
 
