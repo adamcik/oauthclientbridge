@@ -33,16 +33,18 @@ def authorize():
 @app.route('/callback')
 def callback():
     """Validate callback and trade in code for a token."""
+    error, desc = None, None
 
     if session.pop('state', object()) != request.args.get('state'):
         error = 'invalid_state'
+        desc = 'Client state does not match callback state, possible replay.'
     elif 'error' in request.args:
         error = request.args['error']
         error = oauth.normalize_error(error, oauth.AUTHORIZATION_ERRORS)
+        desc = oauth.ERROR_DESCRIPTIONS[error]
     elif not request.args.get('code'):
         error = 'invalid_request'
-    else:
-        error = None
+        desc = 'Authorization code missing from provider callback.'
 
     if error is not None:
         if error == 'access_denied':
@@ -50,11 +52,9 @@ def callback():
         elif error == 'invalid_scope':
             app.logger.warning('Invalid scope: %r', request.args.get('scope'))
         elif error != 'temporarily_unavailable':
-            # TODO: Reduce this to warning for temporarily_unavailable?
-            app.logger.error('Callback failed: %s', error)
+            app.logger.error('Callback failed: %s: %s', error, desc)
 
-        # TODO: Add human readable error to pass to the template?
-        return _error(error, error, 401 if error == 'invalid_client' else 400)
+        return _error(error, desc, 401 if error == 'invalid_client' else 400)
 
     result = oauth.fetch(app.config['OAUTH_TOKEN_URI'],
                          app.config['OAUTH_CLIENT_ID'],
@@ -65,13 +65,13 @@ def callback():
 
     if 'error' in result:
         app.logger.warning('Retrieving token failed: %s', result)
-        # TODO: Add human readable error to pass to the template?
         error = oauth.normalize_error(result['error'], oauth.TOKEN_ERRORS)
-        return _error(error, error, 401 if error == 'invalid_client' else 400)
+        desc = oauth.ERROR_DESCRIPTIONS[error]
+        return _error(error, desc, 401 if error == 'invalid_client' else 400)
 
     if not result.get('access_token') or not result.get('token_type'):
-        description = 'Provider response missing required entries.'
-        return _error(description, 'server_error', 400)
+        desc = 'Provider response missing required entries.'
+        return _error('invalid_response', desc, 400)
 
     client_secret = crypto.generate_key()
     token = crypto.dumps(client_secret, result)
@@ -172,6 +172,7 @@ def token():
 
 
 # TODO: https://tools.ietf.org/html/rfc7009
+# TODO: Remove in favor of revoking directly on the provider?
 @app.route('/revoke', methods=['POST'])
 def revoke():
     """Sets the clients token to null."""
@@ -208,10 +209,10 @@ def _error(error_code, error, status):
     stats.ServerErrorCounter.labels(
         method=request.method, endpoint=stats.endpoint(),
         status=stats.status(status), error=error_code).inc()
-    return _render(error=error), status
+    return _render(error=error_code, description=error), status
 
 
-def _render(client_id=None, client_secret=None, error=None):
+def _render(client_id=None, client_secret=None, error=None, description=None):
     return render_template_string(
-        app.config['OAUTH_CALLBACK_TEMPLATE'],
-        client_id=client_id, client_secret=client_secret, error=error)
+        app.config['OAUTH_CALLBACK_TEMPLATE'], client_id=client_id,
+        client_secret=client_secret, error=error, description=description)

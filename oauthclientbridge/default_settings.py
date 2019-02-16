@@ -67,14 +67,14 @@ OAUTH_FETCH_BACKOFF_FACTOR = 0.1
 OAUTH_REDIRECT_URI = 'http://localhost:5000/callback'
 
 # Jinja2 template to use for the callback page. Possible context values are:
-#  error, client_id, client_secret
+#  error, description, client_id, client_secret
 #
 # Should be setup to give the client_id and client_secret to the user. Either
 # directly or passing the value back to the parent window if this is being run
 # in a pop-up window.
 OAUTH_CALLBACK_TEMPLATE = """
 {% if error %}
-  {{ error }}
+  {{ error }}{% if description %}: {{ description }}{% endif %}
 {% else %}
   <form action="token" method="POST">
     Client ID: <input name="client_id" value="{{ client_id }}" />

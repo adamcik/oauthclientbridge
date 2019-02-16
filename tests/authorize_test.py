@@ -44,13 +44,15 @@ def test_callback_error_handling(query, expected_error, client, state):
     assert resp.data == expected_error
 
 
+# TODO: Revisit all of the status codes returned, since this is not an API
+# endpoint but a callback we can be well behaved with respect to HTTP.
 @pytest.mark.parametrize('data,expected_error,expected_status', [
-    ({}, 'server_error', 400),
-    ({'token_type': 'foobar'}, 'server_error', 400),
-    ({'access_token': 'foobar'}, 'server_error', 400),
-    ({'access_token': '', 'token_type': ''}, 'server_error', 400),
-    ({'access_token': 'foobar', 'token_type': ''}, 'server_error', 400),
-    ({'access_token': '', 'token_type': 'foobar'}, 'server_error', 400),
+    ({}, 'invalid_response', 400),
+    ({'token_type': 'foobar'}, 'invalid_response', 400),
+    ({'access_token': 'foobar'}, 'invalid_response', 400),
+    ({'access_token': '', 'token_type': ''}, 'invalid_response', 400),
+    ({'access_token': 'foobar', 'token_type': ''}, 'invalid_response', 400),
+    ({'access_token': '', 'token_type': 'foobar'}, 'invalid_response', 400),
     ({'error': 'invalid_request'}, 'invalid_request', 400),
     ({'error': 'invalid_client'}, 'invalid_client', 401),
     ({'error': 'invalid_grant'}, 'invalid_grant', 400),
