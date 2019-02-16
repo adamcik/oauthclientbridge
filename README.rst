@@ -150,10 +150,8 @@ been made.
 
 - Access to the endpoints should be rate limited in e.g. nginx.
 
-- The ``/revoke`` endpoint allows for deletion of the grants we've stored,
-  invalidating a ``client_id``. This was added as we don't ever want to have to
-  revoke the upstream secrets to reset access.
+- There is no endpoint for revoking credentials, it's expected the upstream
+  provider will provide this for end-users.
 
-- If someone steals the client credentials all bets are off. Users can either
-  login to the upstream provider and revoke access. Or use our ``/revoke``
-  endpoint.
+- If someone steals the user's client credentials all bets are off. Users can
+  login to the upstream provider and revoke access.

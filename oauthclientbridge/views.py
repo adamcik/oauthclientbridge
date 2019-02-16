@@ -171,22 +171,6 @@ def token():
     return jsonify(result)
 
 
-# TODO: https://tools.ietf.org/html/rfc7009
-# TODO: Remove in favor of revoking directly on the provider?
-@app.route('/revoke', methods=['POST'])
-def revoke():
-    """Sets the clients token to null."""
-
-    if 'client_id' not in request.form:
-        return _error('invalid_request', 'Missing client_id.', 400)
-
-    db.update(request.form['client_id'], None)
-    app.logger.warning('Revoked: %s', request.form['client_id'])
-
-    # We always report success as to not leak info.
-    return _render(error='Revoked client_id.'), 200
-
-
 @app.route('/metrics', methods=['GET'])
 def metrics():
     try:
