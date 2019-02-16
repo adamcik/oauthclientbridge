@@ -170,7 +170,6 @@ def token():
     del result['refresh_token']
     return jsonify(result)
 
-
 @app.route('/metrics', methods=['GET'])
 def metrics():
     try:
@@ -180,11 +179,14 @@ def metrics():
     except db.Error:
         pass
     else:
+        active, revoked = 0, 0
         for row in rows:
             if row[1]:
-                stats.TokenGauge.labels(state='revoked').set(row[0])
+                revoked = row[0]
             else:
-                stats.TokenGauge.labels(state='active').set(row[0])
+                active = row[0]
+        stats.TokenGauge.labels(state='revoked').set(active)
+        stats.TokenGauge.labels(state='active').set(revoked)
 
     return stats.export_metrics()
 
