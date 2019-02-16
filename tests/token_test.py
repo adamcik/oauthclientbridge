@@ -36,6 +36,7 @@ def test_token_input_validation(post, data, expected_error, expected_status):
 
     assert status == expected_status
     assert result['error'] == expected_error
+    assert result['error_description']
 
 
 def test_token_invalid_credentials(post, access_token):
@@ -47,6 +48,7 @@ def test_token_invalid_credentials(post, access_token):
 
     assert status == 401
     assert result['error'] == 'invalid_client'
+    assert result['error_description']
 
 
 def test_token_multiple_auth_fails(post, access_token):
@@ -60,6 +62,7 @@ def test_token_multiple_auth_fails(post, access_token):
 
     assert status == 400
     assert result['error'] == 'invalid_request'
+    assert result['error_description']
 
 
 def test_token(post, access_token):
@@ -95,6 +98,7 @@ def test_token_revoked(post, access_token):
 
     assert status == 400
     assert result['error'] == 'invalid_grant'
+    assert result['error_description']
 
 
 def test_token_wrong_secret_and_not_found_identical(post, access_token):
@@ -202,6 +206,7 @@ def test_token_provider_errors(post, refresh_token, requests_mock,
 
     assert status == expected_status
     assert result['error'] == expected_error
+    assert result['error_description']
 
 
 def test_token_provider_unavailable(post, refresh_token, requests_mock):
@@ -216,6 +221,7 @@ def test_token_provider_unavailable(post, refresh_token, requests_mock):
 
     assert status == 400  # TODO: Make this a 503?
     assert result['error'] == 'temporarily_unavailable'
+    assert result['error_description']
 
 
 # TODO: Test other than basic auth...

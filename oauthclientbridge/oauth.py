@@ -35,9 +35,46 @@ TOKEN_ERRORS = {
     'temporarily_unavailable': 400,
 }
 
-ERRORS = set()
-ERRORS.update(AUTHORIZATION_ERRORS)
-ERRORS.update(TOKEN_ERRORS)
+ERROR_DESCRIPTIONS = {
+    'invalid_request': (
+        'The request is missing a required parameter, includes an invalid '
+        'parameter value, includes a parameter more than once, or is '
+        'otherwise malformed.'
+    ),
+    'invalid_client': (
+        'Client authentication failed (e.g., unknown client, no client '
+        'authentication included, or unsupported authentication method).'
+    ),
+    'invalid_grant': (
+        'The provided authorization grant or refresh token is invalid, '
+        'expired or revoked.'
+    ),
+    'unauthorized_client': (
+        'The client is not authorized to perform this action.'
+    ),
+    'access_denied': (
+        'The resource owner or authorization server denied the request.'
+    ),
+    'unsupported_response_type': (
+        'The authorization server does not support obtaining an authorization '
+        'code using this method.'
+    ),
+    'unsupported_grant_type': (
+        'The authorization grant type is not supported by the authorization '
+        'server.'
+    ),
+    'invalid_scope': (
+        'The requested scope is invalid, unknown, or malformed.'
+    ),
+    'server_error': (
+        'The server encountered an unexpected condition that prevented it '
+        'from fulfilling the request.'
+    ),
+    'temporarily_unavailable': (
+        'The server is currently unable to handle the request due to a '
+        'temporary overloading or maintenance of the server.'
+    ),
+}
 
 
 class Error(Exception):
@@ -53,6 +90,8 @@ def error_handler(e):
     result = {'error': e.error}
     if e.description is not None:
         result['error_description'] = e.description
+    elif e.error in ERROR_DESCRIPTIONS:
+        result['error_description'] = ERROR_DESCRIPTIONS[e.error]
     if e.uri is not None:
         result['error_uri'] = e.uri
 
@@ -136,7 +175,7 @@ def fetch(uri, username, password, endpoint=None, **data):
         if status is not None and 'error' in result:
             error = result['error']
             error = app.config['OAUTH_FETCH_ERROR_TYPES'].get(error, error)
-            if error not in ERRORS:
+            if error not in ERROR_DESCRIPTIONS:
                 error = 'invalid_error'
             stats.ClientErrorCounter.labels(error=error, **labels).inc()
 
