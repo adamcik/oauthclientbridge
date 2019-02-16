@@ -160,8 +160,16 @@ def token():
                           refresh_result.get('error_description'),
                           refresh_result.get('error_uri'))
 
+    if 'access_token' not in refresh_result: 
+        raise oauth.Error(
+            'invalid_request', 'Provider did not set access_token.')
+    elif 'token_type' not in refresh_result:
+        raise oauth.Error(
+            'invalid_request', 'Provider did not set token_type.')
+
     # TODO: Only update if refresh has new values (excluding access_token)?
     # TODO: Don't store access_token in DB?
+
     result.update(refresh_result)
     token = crypto.dumps(client_secret, result)
 

@@ -214,6 +214,25 @@ def test_token_provider_errors(post, refresh_token, requests_mock,
     assert result['error_description']
 
 
+@pytest.mark.parametrize('field', ['access_token', 'token_type'])
+def test_token_provider_invalid_response(post, refresh_token, requests_mock,
+                                         field):
+    token = refresh_token.value.copy()
+    del token[field]
+
+    requests_mock.post(app.config['OAUTH_TOKEN_URI'], json=token)
+
+    result, status = post('/token', data={
+        'client_id': refresh_token.client_id,
+        'client_secret': refresh_token.client_secret,
+        'grant_type': 'client_credentials',
+    })
+
+    assert status == 400
+    assert result['error'] == 'invalid_request'
+    assert result['error_description']
+
+
 def test_token_provider_unavailable(post, refresh_token, requests_mock):
     requests_mock.post(
         app.config['OAUTH_TOKEN_URI'], status_code=503, text='Unavailable.')
