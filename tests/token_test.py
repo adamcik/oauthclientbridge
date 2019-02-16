@@ -214,7 +214,7 @@ def test_token_provider_unavailable(post, refresh_token, requests_mock):
         'grant_type': 'client_credentials',
     })
 
-    assert status == 400
+    assert status == 400  # TODO: Make this a 503?
     assert result['error'] == 'temporarily_unavailable'
 
 

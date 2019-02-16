@@ -34,15 +34,17 @@ def authorize():
 def callback():
     """Validate callback and trade in code for a token."""
 
-    error = None
-
-    # TODO: switch to pop for getting state so it always gets cleared?
     if session.pop('state', object()) != request.args.get('state'):
         error = 'invalid_state'
     elif 'error' in request.args:
-        # TODO: Limit to https://tools.ietf.org/html/rfc6749#section-4.1.2.1
-        error = oauth.normalize_error(request.args['error'])
-        # check would filter out anyone passing in random things trivially.
+        error = request.args['error']
+        error = oauth.normalize_error(error, oauth.AUTHORIZATION_ERRORS)
+    elif not request.args.get('code'):
+        error = 'invalid_request'
+    else:
+        error = None
+
+    if error is not None:
         if error == 'access_denied':
             app.logger.info('Resource owner denied the request.')
         elif error == 'invalid_scope':
@@ -50,12 +52,9 @@ def callback():
         elif error != 'temporarily_unavailable':
             # TODO: Reduce this to warning for temporarily_unavailable?
             app.logger.error('Callback failed: %s', error)
-    elif not request.args.get('code'):
-        error = 'invalid_request'
 
-    if error is not None:
         # TODO: Add human readable error to pass to the template?
-        return _error(error, error, 400)
+        return _error(error, error, 401 if error == 'invalid_client' else 400)
 
     result = oauth.fetch(app.config['OAUTH_TOKEN_URI'],
                          app.config['OAUTH_CLIENT_ID'],
@@ -67,8 +66,7 @@ def callback():
     if 'error' in result:
         app.logger.warning('Retrieving token failed: %s', result)
         # TODO: Add human readable error to pass to the template?
-        # TODO: Limit to https://tools.ietf.org/html/rfc6749#section-5.2
-        error = oauth.normalize_error(result['error'])
+        error = oauth.normalize_error(result['error'], oauth.TOKEN_ERRORS)
         return _error(error, error, 401 if error == 'invalid_client' else 400)
 
     if not result.get('access_token') or not result.get('token_type'):
@@ -82,7 +80,7 @@ def callback():
         client_id = db.insert(token)
     except db.IntegrityError:
         app.log.warning('Could not get unique client id: %s', client_id)
-        return _error('integrity_error', 'Database integrity error.', 500)
+        return _error('integrity_error', 'Database integrity error.', 400)
 
     return _render(client_id=client_id, client_secret=client_secret)
 
@@ -143,8 +141,9 @@ def token():
         refresh_token=result['refresh_token'], endpoint='refresh')
 
     if 'error' in refresh_result:
-        # TODO: Limit to https://tools.ietf.org/html/rfc6749#section-5.2
-        error = oauth.normalize_error(refresh_result['error'])
+        error = refresh_result['error']
+        error = oauth.normalize_error(error, oauth.TOKEN_ERRORS)
+
         if error == 'invalid_grant':
             db.update(client_id, None)
             app.logger.warning('Revoked: %s', client_id)
