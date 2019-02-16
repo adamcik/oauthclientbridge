@@ -13,26 +13,26 @@ from oauthclientbridge import __version__, app, stats
 
 # https://tools.ietf.org/html/rfc6749#section-4.1.2.1
 AUTHORIZATION_ERRORS = {
-    'invalid_request': 400,
-    'unauthorized_client': 400,
-    'access_denied': 400,
-    'unsupported_response_type': 400,
-    'invalid_scope': 400,
-    'server_error': 400,
-    'temporarily_unavailable': 400,
+    'invalid_request',
+    'unauthorized_client',
+    'access_denied',
+    'unsupported_response_type',
+    'invalid_scope',
+    'server_error',
+    'temporarily_unavailable',
 }
 
 # https://tools.ietf.org/html/rfc6749#section-5.2
 TOKEN_ERRORS = {
-    'invalid_request': 400,
-    'invalid_client': 401,
-    'invalid_grant': 400,
-    'unauthorized_client': 400,
-    'unsupported_grant_type': 400,
-    'invalid_scope': 400,
+    'invalid_request',
+    'invalid_client',
+    'invalid_grant',
+    'unauthorized_client',
+    'unsupported_grant_type',
+    'invalid_scope',
     # These are not really supported by RFC:
-    'server_error': 400,
-    'temporarily_unavailable': 400,
+    'server_error',
+    'temporarily_unavailable',
 }
 
 ERROR_DESCRIPTIONS = {
