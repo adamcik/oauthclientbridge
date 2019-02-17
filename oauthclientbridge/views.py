@@ -1,3 +1,7 @@
+from __future__ import absolute_import
+
+import logging
+
 from flask import jsonify, render_template_string, request, session
 
 from oauthclientbridge import app, crypto, db, oauth, stats
@@ -47,13 +51,10 @@ def callback():
         desc = 'Authorization code missing from provider callback.'
 
     if error is not None:
-        if error == 'access_denied':
-            app.logger.info('Resource owner denied the request.')
-        elif error == 'invalid_scope':
-            app.logger.warning('Invalid scope: %r', request.args.get('scope'))
-        elif error != 'temporarily_unavailable':
-            app.logger.error('Callback failed: %s: %s', error, desc)
-
+        msg = 'Callback failed %s: %s' % (error, desc)
+        if error == 'invalid_scope':
+            msg += ' - %s' % request.args.get('scope')
+        _log(error, msg)
         return _error(error, desc, 401 if error == 'invalid_client' else 400)
 
     result = oauth.fetch(app.config['OAUTH_TOKEN_URI'],
@@ -187,6 +188,12 @@ def metrics():
         stats.TokenGauge.labels(state='active').set(results.get(False, 0))
 
     return stats.export_metrics()
+
+
+def _log(error, msg, *args, **kwargs):
+    level = app.config['OAUTH_ERROR_LOG_LEVELS'].get(error, 'ERROR')
+    level = logging.getLevelName(level)
+    app.logger.log(level, msg, *args, **kwargs)
 
 
 def _error(error_code, error, status):

@@ -135,3 +135,10 @@ OAUTH_LOG_EMAIL_FROM = 'oauthclientbridge@localhost'
 
 # Subject line to use for email logging.
 OAUTH_LOG_EMAIL_SUBJECT = 'oauthclientbridge: %(request_base_url)s'
+
+# Log levels to use for errors in callback flow.
+OAUTH_ERROR_LOG_LEVELS = {
+    'access_denied': 'INFO',
+    'invalid_state': 'WARNING',
+    'temporarily_unavailable': 'INFO',
+}
