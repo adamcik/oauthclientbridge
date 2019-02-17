@@ -312,6 +312,7 @@ def _session():
 
 
 def _rewrite_query(original, params):
+    # TODO: test this...
     parts = []
     query = urlparse.parse_qs(original, keep_blank_values=True)
     for key, value in params.items():
@@ -325,6 +326,7 @@ def _rewrite_query(original, params):
 
 
 def _rewrite_uri(uri, params):
+    # TODO: test this and move to utils.py?
     scheme, netloc, path, query, fragment = urlparse.urlsplit(uri)
     query = _rewrite_query(query, params)
     return urlparse.urlunsplit((scheme, netloc, path, query, fragment))
