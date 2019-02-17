@@ -51,10 +51,11 @@ def callback():
         desc = 'Authorization code missing from provider callback.'
 
     if error is not None:
-        msg = 'Callback failed %s: %s' % (error, desc)
         if error == 'invalid_scope':
-            msg += ' - %s' % request.args.get('scope')
-        _log(error, msg)
+            scope = request.args.get('scope')
+            _log(error, 'Callback failed %s: %s - %r', error, desc, scope)
+        else:
+            _log(error, 'Callback failed %s: %s', error, desc)
         return _error(error, desc, 401 if error == 'invalid_client' else 400)
 
     result = oauth.fetch(app.config['OAUTH_TOKEN_URI'],
@@ -65,14 +66,15 @@ def callback():
                          code=request.args.get('code'), endpoint='token')
 
     if 'error' in result:
-        app.logger.warning('Retrieving token failed: %s', result)
         error = oauth.normalize_error(result['error'], oauth.TOKEN_ERRORS)
         desc = oauth.ERROR_DESCRIPTIONS[error]
-        return _error(error, desc, 401 if error == 'invalid_client' else 400)
-
-    if not oauth.validate_token(result):
+    elif not oauth.validate_token(result):
+        error = 'invalid_response'
         desc = 'Invalid response from provider.'
-        return _error('invalid_response', desc, 400)
+
+    if error is not None:
+        app.logger.warning('Retrieving token failed: %s', result)
+        return _error(error, desc, 401 if error == 'invalid_client' else 400)
 
     client_secret = crypto.generate_key()
     token = crypto.dumps(client_secret, result)
