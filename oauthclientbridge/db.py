@@ -31,8 +31,7 @@ def get():
                 timeout=app.config['OAUTH_DATABASE_TIMEOUT'],
                 isolation_level=None)
         if app.config['OAUTH_DATABASE_PRAGMA']:
-            with stats.DBLatencyHistorgram.labels(query='pragma').time():
-                g._oauth_database.execute(app.config['OAUTH_DATABASE_PRAGMA'])
+            g._oauth_database.execute(app.config['OAUTH_DATABASE_PRAGMA'])
     return g._oauth_database
 
 
@@ -46,8 +45,7 @@ def cursor(name, transaction=False):
     """Get SQLite cursor with automatic commit if no exceptions are raised."""
     try:
         with get() as connection:
-            with stats.DBLatencyHistorgram.labels(query='cursor').time():
-                c = connection.cursor()
+            c = connection.cursor()
             with contextlib.closing(c):
                 with stats.DBLatencyHistorgram.labels(query=name).time():
                     try:
@@ -56,11 +54,11 @@ def cursor(name, transaction=False):
                         yield c
                     except:
                         if transaction:
-                            c.execute('ROLLBACK')
+                            connection.rollback()
                         raise
                     else:
                         if transaction:
-                            c.execute('COMMIT')
+                            connection.commit()
     except sqlite3.Error as e:
         # https://www.python.org/dev/peps/pep-0249/#exceptions for values.
         error = re.sub(r'(?!^)([A-Z])', r'_\1', e.__class__.__name__).lower()
