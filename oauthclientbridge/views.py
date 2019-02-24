@@ -200,8 +200,8 @@ def _log(error, msg, *args, **kwargs):
 
 def _error(error_code, error, status):
     stats.ServerErrorCounter.labels(
-        method=request.method, endpoint=stats.endpoint(),
-        status=stats.status(status), error=error_code).inc()
+        endpoint=stats.endpoint(), status=stats.status(status),
+        error=error_code).inc()
     return _render(error=error_code, description=error), status
 
 

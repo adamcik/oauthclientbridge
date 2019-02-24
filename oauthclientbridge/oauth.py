@@ -105,17 +105,16 @@ def error_handler(e):
     else:
         response.status_code = 400
 
+    status = status=stats.status(response.status_code)
     stats.ServerErrorCounter.labels(
-        method=request.method, endpoint=stats.endpoint(),
-        status=stats.status(response.status_code), error=e.error).inc()
-
+        endpoint=stats.endpoint(), status=status, error=e.error).inc()
     return response
 
 
 def fallback_error_handler(e):
     stats.ServerErrorCounter.labels(
-        method=request.method, endpoint=stats.endpoint(),
-        status=stats.status(500), error='server_error').inc()
+        endpoint=stats.endpoint(), status=stats.status(500),
+        error='server_error').inc()
 
     return jsonify({
         'error': 'server_error',
@@ -172,8 +171,7 @@ def fetch(uri, username, password, endpoint=None, **data):
 
         result, status, retry = _fetch(prepared, remaining_timeout, endpoint)
 
-        labels = {'method': prepared.method, 'endpoint': endpoint,
-                  'status': stats.status(status)}
+        labels = {'endpoint': endpoint, 'status': stats.status(status)}
         stats.ClientRetryHistogram.labels(**labels).observe(i)
 
         if status is not None and 'error' in result:
@@ -253,9 +251,7 @@ def _fetch(prepared, timeout, endpoint):
         length = len(resp.content)
         retry_after = _parse_retry(resp.headers.get('retry-after'))
 
-    labels = {'method': prepared.method,
-              'endpoint': endpoint,
-              'status': status_label}
+    labels = {'endpoint': endpoint, 'status': status_label}
     if length is not None:
         stats.ClientResponseSizeHistogram.labels(**labels).observe(length)
     stats.ClientLatencyHistogram.labels(**labels).observe(request_latency)
