@@ -100,6 +100,7 @@ def update(client_id, token):
     with cursor(name='update_token', transaction=True) as c:
         c.execute('UPDATE tokens SET token = ? WHERE client_id = ?',
                   (token, client_id))
+        return c.rowcount
 
 
 @app.teardown_appcontext
