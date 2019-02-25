@@ -181,7 +181,8 @@ def test_token_with_extra_values(
     assert expected == actuall
 
 
-def test_token_removes_refresh_token(post, refresh_token, requests_mock):
+def test_token_refresh_token_is_not_returned_from_provider(
+        post, refresh_token, requests_mock):
     requests_mock.post(app.config['OAUTH_TOKEN_URI'], json={
         'access_token': 'abc',
         'token_type': 'test',
@@ -198,6 +199,59 @@ def test_token_removes_refresh_token(post, refresh_token, requests_mock):
 
     assert status == 200
     assert result == expected
+
+
+def test_token_only_returns_values_from_provider(
+        post, refresh_token, requests_mock):
+    token = crypto.dumps(refresh_token.client_secret, {
+        'refresh_token': 'abc', 'token_type': 'test', 'private': 'foobar',
+    })
+    db.update(refresh_token.client_id, token)
+
+    requests_mock.post(app.config['OAUTH_TOKEN_URI'], json={
+        'access_token': 'abc', 'token_type': 'test',
+    })
+
+    result, status = post('/token', data={
+        'client_id': refresh_token.client_id,
+        'client_secret': refresh_token.client_secret,
+        'grant_type': 'client_credentials',
+    })
+
+    expected = {'access_token': 'abc', 'token_type': 'test'}
+
+    assert status == 200
+    assert result == expected
+
+
+
+def test_token_cleans_uneeded_data_from_db(
+        post, refresh_token, requests_mock):
+    token = crypto.dumps(refresh_token.client_secret, {
+        'access_token': 'abc',
+        'token_type': 'test',
+        'refresh_token': 'abc',
+        'expires_in': 3600,
+    })
+    db.update(refresh_token.client_id, token)
+
+    requests_mock.post(app.config['OAUTH_TOKEN_URI'], json={
+        'access_token': 'abc', 'token_type': 'test',
+    })
+
+    post('/token', data={
+        'client_id': refresh_token.client_id,
+        'client_secret': refresh_token.client_secret,
+        'grant_type': 'client_credentials',
+    })
+
+    expected = {'token_type': 'test', 'refresh_token': 'abc'}
+
+    # Check that the token we fetched got stored directly in db.
+    encrypted = db.lookup(refresh_token.client_id)
+    actuall = crypto.loads(refresh_token.client_secret, encrypted)
+
+    assert expected == actuall
 
 
 # TODO: fix expected_error and expected_status

@@ -169,17 +169,26 @@ def token():
     if not oauth.validate_token(refresh_result):
         raise oauth.Error('invalid_request', 'Invalid response from provider.')
 
-    # TODO: Only update if refresh has new values (excluding access_token)?
-    # TODO: Don't store access_token in DB?
+    modified = result.copy()
 
+    # Cleanup any values we never need or give out to anyone.
+    modified.pop('access_token', None)
+    modified.pop('expires_in', None)
+
+    # Remove any new refresh_token and update DB with new value.
     if 'refresh_token' in refresh_result:
-        result['refresh_token'] = refresh_result['refresh_token']
-        token = crypto.dumps(client_secret, result)
+        modified['refresh_token'] = refresh_result.pop('refresh_token')
+
+    # Reduce write pressure by only issuing update on changes.
+    if result != modified:
+        token = crypto.dumps(client_secret, modified)
         db.update(client_id, token)
 
-    result.update(refresh_result)
-    del result['refresh_token']
-    return jsonify(result)
+    # TODO: Copy scope from db?
+
+    # Only return what we got from the API (minus refresh_token).
+    return jsonify(refresh_result)
+
 
 @app.route('/metrics', methods=['GET'])
 def metrics():
