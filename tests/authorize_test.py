@@ -109,15 +109,16 @@ def test_callback_authorization_code_store_refresh_token(
         client, state, requests_mock):
     app.config['OAUTH_CALLBACK_TEMPLATE'] = '{{client_id}}:{{client_secret}}'
 
-    data = {'token_type': 'Bearer', 'access_token': '123',
-            'refresh_token': 'abc', 'expires_in': 3600}
-    requests_mock.post(app.config['OAUTH_TOKEN_URI'], json=data)
+    token = {'token_type': 'test', 'refresh_token': 'abc','scope': 'foo',
+             'access_token': '123', 'expires_in': 3600}
+    requests_mock.post(app.config['OAUTH_TOKEN_URI'], json=token)
 
     resp = client.get('/callback?code=1234&state=' + state)
     client_id, client_secret = resp.data.split(':')
 
     # Peek inside internals to check that our token got stored.
-    assert data == crypto.loads(client_secret, db.lookup(client_id))
+    expected = {'token_type': 'test', 'refresh_token': 'abc', 'scope': 'foo'}
+    assert expected == crypto.loads(client_secret, db.lookup(client_id))
 
 
 def test_callback_authorization_code_store_unknown(

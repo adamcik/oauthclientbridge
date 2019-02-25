@@ -76,6 +76,10 @@ def callback():
         app.logger.warning('Retrieving token failed: %s', result)
         return _error(error, desc, 401 if error == 'invalid_client' else 400)
 
+    if 'refresh_token' in result:
+        result.pop('access_token', None)
+        result.pop('expires_in', None)
+
     client_secret = crypto.generate_key()
     token = crypto.dumps(client_secret, result)
 
