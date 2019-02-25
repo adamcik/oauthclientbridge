@@ -166,18 +166,18 @@ def token():
         raise oauth.Error(error,
                           refresh_result.get('error_description'),
                           refresh_result.get('error_uri'))
-
     if not oauth.validate_token(refresh_result):
         raise oauth.Error('invalid_request', 'Invalid response from provider.')
 
     # TODO: Only update if refresh has new values (excluding access_token)?
     # TODO: Don't store access_token in DB?
 
+    if 'refresh_token' in refresh_result:
+        result['refresh_token'] = refresh_result['refresh_token']
+        token = crypto.dumps(client_secret, result)
+        db.update(client_id, token)
+
     result.update(refresh_result)
-    token = crypto.dumps(client_secret, result)
-
-    db.update(client_id, token)
-
     del result['refresh_token']
     return jsonify(result)
 

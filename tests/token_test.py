@@ -152,19 +152,16 @@ def test_token_refresh_post_data(post, refresh_token, requests_mock):
     })
 
 
-@pytest.mark.parametrize('reply,stored', [
-    ({}, {'access_token': 'abc', 'expires_in': 3600}),
-    ({'scope': 'foo'},
-     {'scope': 'foo', 'access_token': 'abc', 'expires_in': 3600}),
-    ({'refresh_token': 'def'},
-     {'refresh_token': 'def', 'access_token': 'abc', 'expires_in': 3600}),
-    ({'private': '123'},
-     {'private': '123', 'access_token': 'abc', 'expires_in': 3600}),
+@pytest.mark.parametrize('response,updated', [
+    ({}, {}),
+    ({'scope': 'foo'}, {}),
+    ({'refresh_token': 'def'}, {'refresh_token': 'def'}),
+    ({'private': '123'}, {}),
 ])
-def test_token_with_refresh_token(
-        post, refresh_token, requests_mock, reply, stored):
+def test_token_with_extra_values(
+        post, refresh_token, requests_mock, response, updated):
     token = {'access_token': 'abc', 'token_type': 'test', 'expires_in': 3600}
-    token.update(reply)
+    token.update(response)
 
     requests_mock.post(app.config['OAUTH_TOKEN_URI'], json=token)
 
@@ -175,7 +172,7 @@ def test_token_with_refresh_token(
     })
 
     expected = refresh_token.value.copy()
-    expected.update(stored)
+    expected.update(updated)
 
     # Check that the token we fetched got stored directly in db.
     encrypted = db.lookup(refresh_token.client_id)
