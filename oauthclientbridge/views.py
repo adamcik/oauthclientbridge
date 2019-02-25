@@ -192,14 +192,12 @@ def token():
 @app.route('/metrics', methods=['GET'])
 def metrics():
     try:
-        with db.cursor(name='metrics') as cursor:
-            cursor.execute('SELECT token IS NULL, COUNT(*) FROM tokens GROUP BY 1')
-            results = dict(cursor.fetchall())
+        active, revoked = db.tokens()
     except db.Error:
         pass
     else:
-        stats.TokenGauge.labels(state='revoked').set(results.get(True, 0))
-        stats.TokenGauge.labels(state='active').set(results.get(False, 0))
+        stats.TokenGauge.labels(state='revoked').set(revoked)
+        stats.TokenGauge.labels(state='active').set(active)
 
     return stats.export_metrics()
 
