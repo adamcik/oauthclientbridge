@@ -245,7 +245,7 @@ def test_token_cleans_uneeded_data_from_db(
         'grant_type': 'client_credentials',
     })
 
-    expected = {'token_type': 'test', 'refresh_token': 'abc'}
+    expected = {'refresh_token': 'abc'}
 
     # Check that the token we fetched got stored directly in db.
     encrypted = db.lookup(refresh_token.client_id)

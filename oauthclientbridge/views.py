@@ -77,8 +77,7 @@ def callback():
         return _error(error, desc, 401 if error == 'invalid_client' else 400)
 
     if 'refresh_token' in result:
-        result.pop('access_token', None)
-        result.pop('expires_in', None)
+        result = oauth.scrub_refresh_token(result)
 
     client_secret = crypto.generate_key()
     token = crypto.dumps(client_secret, result)
@@ -166,27 +165,25 @@ def token():
         raise oauth.Error(error,
                           refresh_result.get('error_description'),
                           refresh_result.get('error_uri'))
+
     if not oauth.validate_token(refresh_result):
         raise oauth.Error('invalid_request', 'Invalid response from provider.')
-
-    modified = result.copy()
-
-    # Cleanup any values we never need or give out to anyone.
-    modified.pop('access_token', None)
-    modified.pop('expires_in', None)
-
-    # Remove any new refresh_token and update DB with new value.
-    if 'refresh_token' in refresh_result:
-        modified['refresh_token'] = refresh_result.pop('refresh_token')
-
-    # Reduce write pressure by only issuing update on changes.
-    if result != modified:
-        token = crypto.dumps(client_secret, modified)
-        db.update(client_id, token)
 
     # Copy over original scope if not set in refresh.
     if 'scope' not in refresh_result and 'scope' in result:
         refresh_result['scope'] = result['scope']
+
+    # Copy of stored db token to track if we need to update anything.
+    modified = oauth.scrub_refresh_token(result)
+
+    # Remove any new refresh_token and update DB with new value.
+    if 'refresh_token' in refresh_result:
+        modified['refresh_token'] = refresh_result['refresh_token']
+        del refresh_result['refresh_token']
+
+    # Reduce write pressure by only issuing update on changes.
+    if result != modified:
+        db.update(client_id, crypto.dumps(client_secret, modified))
 
     # Only return what we got from the API (minus refresh_token).
     return jsonify(refresh_result)

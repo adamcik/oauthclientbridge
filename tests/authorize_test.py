@@ -117,7 +117,7 @@ def test_callback_authorization_code_store_refresh_token(
     client_id, client_secret = resp.data.split(':')
 
     # Peek inside internals to check that our token got stored.
-    expected = {'token_type': 'test', 'refresh_token': 'abc', 'scope': 'foo'}
+    expected = {'refresh_token': 'abc', 'scope': 'foo'}
     assert expected == crypto.loads(client_secret, db.lookup(client_id))
 
 

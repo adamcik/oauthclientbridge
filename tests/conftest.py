@@ -66,4 +66,4 @@ def access_token():
 
 @pytest.fixture
 def refresh_token():
-    return _test_token(token_type='test', refresh_token='abc')
+    return _test_token(refresh_token='abc')

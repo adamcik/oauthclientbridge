@@ -144,6 +144,11 @@ def validate_token(token):
     return token.get('access_token') and token.get('token_type')
 
 
+def scrub_refresh_token(token):
+    remove = ('access_token', 'expires_in', 'token_type')
+    return {k: v for k, v in token.items() if k not in remove}
+
+
 def fetch(uri, username, password, endpoint=None, **data):
     """Perform post given URI with auth and provided data."""
     req = requests.Request('POST', uri, auth=(username, password), data=data)
