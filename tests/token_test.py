@@ -142,7 +142,7 @@ def test_token_refresh_post_data(post, refresh_token, requests_mock):
         return True
 
     requests_mock.post(app.config['OAUTH_TOKEN_URI'],
-                       json=refresh_token.value,
+                       json={'access_token': 'abc', 'grant_type': 'test'},
                        additional_matcher=match)
 
     post('/token', data={
@@ -152,20 +152,21 @@ def test_token_refresh_post_data(post, refresh_token, requests_mock):
     })
 
 
-@pytest.mark.parametrize('field,value', [
-    ('refresh_token', None),
-    ('refresh_token', 'def'),
-    ('private', '123')
+@pytest.mark.parametrize('reply,stored', [
+    ({}, {'access_token': 'abc', 'expires_in': 3600}),
+    ({'scope': 'foo'},
+     {'scope': 'foo', 'access_token': 'abc', 'expires_in': 3600}),
+    ({'refresh_token': 'def'},
+     {'refresh_token': 'def', 'access_token': 'abc', 'expires_in': 3600}),
+    ({'private': '123'},
+     {'private': '123', 'access_token': 'abc', 'expires_in': 3600}),
 ])
-def test_token_with_refresh_token(post, refresh_token, requests_mock,
-                                  field, value):
-    new_token = refresh_token.value.copy()
-    if value is None:
-        del new_token[field]
-    else:
-        new_token[field] = value
+def test_token_with_refresh_token(
+        post, refresh_token, requests_mock, reply, stored):
+    token = {'access_token': 'abc', 'token_type': 'test', 'expires_in': 3600}
+    token.update(reply)
 
-    requests_mock.post(app.config['OAUTH_TOKEN_URI'], json=new_token)
+    requests_mock.post(app.config['OAUTH_TOKEN_URI'], json=token)
 
     post('/token', data={
         'client_id': refresh_token.client_id,
@@ -173,21 +174,22 @@ def test_token_with_refresh_token(post, refresh_token, requests_mock,
         'grant_type': 'client_credentials',
     })
 
+    expected = refresh_token.value.copy()
+    expected.update(stored)
+
     # Check that the token we fetched got stored directly in db.
-    encrypted_token = db.lookup(refresh_token.client_id)
-    stored_token = crypto.loads(refresh_token.client_secret, encrypted_token)
+    encrypted = db.lookup(refresh_token.client_id)
+    actuall = crypto.loads(refresh_token.client_secret, encrypted)
 
-    if value is None:
-        new_token[field] = refresh_token.value[field]
-
-    assert new_token == stored_token
+    assert expected == actuall
 
 
 def test_token_removes_refresh_token(post, refresh_token, requests_mock):
-    expected_token = refresh_token.value.copy()
-    del expected_token['refresh_token']
-
-    requests_mock.post(app.config['OAUTH_TOKEN_URI'], json=refresh_token.value)
+    requests_mock.post(app.config['OAUTH_TOKEN_URI'], json={
+        'access_token': 'abc',
+        'token_type': 'test',
+        'refresh_token': 'def',
+    })
 
     result, status = post('/token', data={
         'client_id': refresh_token.client_id,
@@ -195,8 +197,10 @@ def test_token_removes_refresh_token(post, refresh_token, requests_mock):
         'grant_type': 'client_credentials',
     })
 
+    expected = {'access_token': 'abc', 'token_type': 'test'}
+
     assert status == 200
-    assert result == expected_token
+    assert result == expected
 
 
 # TODO: fix expected_error and expected_status
@@ -226,12 +230,11 @@ def test_token_provider_errors(post, refresh_token, requests_mock,
     assert result['error_description']
 
 
-@pytest.mark.parametrize('field', ['access_token', 'token_type'])
-def test_token_provider_invalid_response(post, refresh_token, requests_mock,
-                                         field):
-    token = refresh_token.value.copy()
-    del token[field]
-
+@pytest.mark.parametrize('token', [
+    {}, {'access_token': 'abc'}, {'token_type': 'test'},
+])
+def test_token_provider_invalid_response(
+        post, refresh_token, requests_mock, token):
     requests_mock.post(app.config['OAUTH_TOKEN_URI'], json=token)
 
     result, status = post('/token', data={
