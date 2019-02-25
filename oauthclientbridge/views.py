@@ -184,7 +184,9 @@ def token():
         token = crypto.dumps(client_secret, modified)
         db.update(client_id, token)
 
-    # TODO: Copy scope from db?
+    # Copy over original scope if not set in refresh.
+    if 'scope' not in refresh_result and 'scope' in result:
+        refresh_result['scope'] = result['scope']
 
     # Only return what we got from the API (minus refresh_token).
     return jsonify(refresh_result)

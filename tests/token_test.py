@@ -254,6 +254,29 @@ def test_token_cleans_uneeded_data_from_db(
     assert expected == actuall
 
 
+def test_token_only_returns_scope_from_db(
+        post, refresh_token, requests_mock):
+    token = crypto.dumps(refresh_token.client_secret, {
+        'refresh_token': 'abc', 'token_type': 'test', 'scope': 'foobar',
+    })
+    db.update(refresh_token.client_id, token)
+
+    requests_mock.post(app.config['OAUTH_TOKEN_URI'], json={
+        'access_token': 'abc', 'token_type': 'test',
+    })
+
+    result, status = post('/token', data={
+        'client_id': refresh_token.client_id,
+        'client_secret': refresh_token.client_secret,
+        'grant_type': 'client_credentials',
+    })
+
+    expected = {'access_token': 'abc', 'token_type': 'test', 'scope': 'foobar'}
+
+    assert status == 200
+    assert result == expected
+
+
 # TODO: fix expected_error and expected_status
 @pytest.mark.parametrize('error,expected_error,expected_status', [
     ('invalid_request', 'invalid_request', 400),
