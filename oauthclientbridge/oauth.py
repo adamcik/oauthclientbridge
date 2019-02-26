@@ -11,66 +11,79 @@ from flask import g, jsonify, redirect as flask_redirect, request
 
 from oauthclientbridge import __version__, app, stats
 
+ACCESS_DENIED = 'access_denied'
+INVALID_CLIENT = 'invalid_client'
+INVALID_GRANT = 'invalid_grant'
+INVALID_REQUEST = 'invalid_request'
+INVALID_SCOPE = 'invalid_scope'
+INVALID_STATE = 'invalid_scope'
+INVALID_RESPONSE = 'invalid_response'
+SERVER_ERROR = 'server_error'
+TEMPORARILY_UNAVAILABLE = 'temporarily_unavailable'
+UNAUTHORIZED_CLIENT = 'unauthorized_client'
+UNSUPPORTED_GRANT_TYPE = 'unsupported_grant_type'
+UNSUPPORTED_RESPONSE_TYPE = 'unsupported_response_type'
+
 # https://tools.ietf.org/html/rfc6749#section-4.1.2.1
 AUTHORIZATION_ERRORS = {
-    'invalid_request',
-    'unauthorized_client',
-    'access_denied',
-    'unsupported_response_type',
-    'invalid_scope',
-    'server_error',
-    'temporarily_unavailable',
+    INVALID_REQUEST,
+    UNAUTHORIZED_CLIENT,
+    ACCESS_DENIED,
+    UNSUPPORTED_RESPONSE_TYPE,
+    INVALID_SCOPE,
+    SERVER_ERROR,
+    TEMPORARILY_UNAVAILABLE,
 }
 
 # https://tools.ietf.org/html/rfc6749#section-5.2
 TOKEN_ERRORS = {
-    'invalid_request',
-    'invalid_client',
-    'invalid_grant',
-    'unauthorized_client',
-    'unsupported_grant_type',
-    'invalid_scope',
+    INVALID_REQUEST,
+    INVALID_CLIENT,
+    INVALID_GRANT,
+    UNAUTHORIZED_CLIENT,
+    UNSUPPORTED_GRANT_TYPE,
+    INVALID_SCOPE,
     # These are not really supported by RFC:
-    'server_error',
-    'temporarily_unavailable',
+    SERVER_ERROR,
+    TEMPORARILY_UNAVAILABLE,
 }
 
 ERROR_DESCRIPTIONS = {
-    'invalid_request': (
+    INVALID_REQUEST: (
         'The request is missing a required parameter, includes an invalid '
         'parameter value, includes a parameter more than once, or is '
         'otherwise malformed.'
     ),
-    'invalid_client': (
+    INVALID_CLIENT: (
         'Client authentication failed (e.g., unknown client, no client '
         'authentication included, or unsupported authentication method).'
     ),
-    'invalid_grant': (
+    INVALID_GRANT: (
         'The provided authorization grant or refresh token is invalid, '
         'expired or revoked.'
     ),
-    'unauthorized_client': (
+    UNAUTHORIZED_CLIENT: (
         'The client is not authorized to perform this action.'
     ),
-    'access_denied': (
+    ACCESS_DENIED: (
         'The resource owner or authorization server denied the request.'
     ),
-    'unsupported_response_type': (
+    UNSUPPORTED_RESPONSE_TYPE: (
         'The authorization server does not support obtaining an authorization '
         'code using this method.'
     ),
-    'unsupported_grant_type': (
+    UNSUPPORTED_GRANT_TYPE: (
         'The authorization grant type is not supported by the authorization '
         'server.'
     ),
-    'invalid_scope': (
+    INVALID_SCOPE: (
         'The requested scope is invalid, unknown, or malformed.'
     ),
-    'server_error': (
+    SERVER_ERROR: (
         'The server encountered an unexpected condition that prevented it '
         'from fulfilling the request.'
     ),
-    'temporarily_unavailable': (
+    TEMPORARILY_UNAVAILABLE: (
         'The server is currently unable to handle the request due to a '
         'temporary overloading or maintenance of the server.'
     ),
@@ -96,7 +109,7 @@ def error_handler(e):
         result['error_uri'] = e.uri
 
     response = jsonify(result)
-    if e.error == 'invalid_client':
+    if e.error == INVALID_CLIENT:
         response.status_code = 401
         response.www_authenticate.set_basic()
     elif e.retry_after:
@@ -114,11 +127,11 @@ def error_handler(e):
 def fallback_error_handler(e):
     stats.ServerErrorCounter.labels(
         endpoint=stats.endpoint(), status=stats.status(500),
-        error='server_error').inc()
+        error=SERVER_ERROR).inc()
 
     return jsonify({
-        'error': 'server_error',
-        'error_description': ERROR_DESCRIPTIONS['server_error'],
+        'error': SERVER_ERROR,
+        'error_description': ERROR_DESCRIPTIONS[SERVER_ERROR],
     }), 500
 
 
@@ -135,7 +148,7 @@ def normalize_error(error, error_types):
     error = app.config['OAUTH_FETCH_ERROR_TYPES'].get(error, error)
 
     if error not in error_types:
-        return 'server_error'
+        return SERVER_ERROR
     else:
         return error
 
@@ -158,7 +171,7 @@ def fetch(uri, username, password, endpoint=None, **data):
     retry = 0
 
     error_description = 'An unknown error occurred talking to provider.'
-    result = {'error': 'server_error', 'error_description': error_description}
+    result = {'error': SERVER_ERROR, 'error_description': error_description}
 
     for i in range(app.config['OAUTH_FETCH_TOTAL_RETRIES']):
         prefix = 'attempt #%d %s' % (i + 1, uri)
@@ -243,7 +256,7 @@ def _fetch(prepared, timeout, endpoint):
 
         # Server error isn't allowed everywhere, but fixing this has been
         # brought up in https://www.rfc-editor.org/errata_search.php?eid=4745
-        result = {'error': 'server_error', 'error_description': description}
+        result = {'error': SERVER_ERROR, 'error_description': description}
         status_code = None
         length = None
         retry_after = 0
@@ -277,10 +290,10 @@ def _decode(resp):
              resp.headers.get('Content-Type', '-'), e)
 
     if resp.status_code in app.config['OAUTH_FETCH_UNAVAILABLE_STATUS_CODES']:
-        error = 'temporarily_unavailable'
+        error = TEMPORARILY_UNAVAILABLE
         description = 'Provider is unavailable.'
     else:
-        error = 'server_error'
+        error = SERVER_ERROR
         description = 'Unhandled provider error (HTTP %s).' % resp.status_code
 
     return {'error': error, 'error_description': description}
