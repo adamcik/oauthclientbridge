@@ -19,7 +19,7 @@ class ContextualFilter(Filter):
 
 class CustomSMTPHandler(SMTPHandler):
     def getSubject(self, record):  # noqa: N802
-        return self.subject.format(record)
+        return self.subject.format(record).replace('\n', '')
 
 
 context_provider = ContextualFilter()
