@@ -4,7 +4,7 @@ import logging
 
 from flask import jsonify, render_template_string, request, session
 
-from oauthclientbridge import app, crypto, db, oauth, stats
+from oauthclientbridge import app, crypto, db, errors, oauth, stats
 
 # Disable caching across the board.
 app.after_request(oauth.nocache)
@@ -40,23 +40,23 @@ def callback():
     error, desc = None, None
 
     if session.pop('state', object()) != request.args.get('state'):
-        error = 'invalid_state'
+        error = errors.INVALID_STATE
         desc = 'Client state does not match callback state, possible replay.'
     elif 'error' in request.args:
         error = request.args['error']
         error = oauth.normalize_error(error, oauth.AUTHORIZATION_ERRORS)
-        desc = oauth.ERROR_DESCRIPTIONS[error]
+        desc = errors.ERROR_DESCRIPTIONS[error]
     elif not request.args.get('code'):
-        error = 'invalid_request'
+        error = errors.INVALID_REQUEST
         desc = 'Authorization code missing from provider callback.'
 
     if error is not None:
-        if error == 'invalid_scope':
+        if error == errors.INVALID_SCOPE:
             scope = request.args.get('scope')
             _log(error, 'Callback failed %s: %s - %r', error, desc, scope)
         else:
             _log(error, 'Callback failed %s: %s', error, desc)
-        return _error(error, desc, 401 if error == 'invalid_client' else 400)
+        return _error(error, desc)
 
     result = oauth.fetch(app.config['OAUTH_TOKEN_URI'],
                          app.config['OAUTH_CLIENT_ID'],
@@ -67,14 +67,14 @@ def callback():
 
     if 'error' in result:
         error = oauth.normalize_error(result['error'], oauth.TOKEN_ERRORS)
-        desc = oauth.ERROR_DESCRIPTIONS[error]
+        desc = errors.ERROR_DESCRIPTIONS[error]
     elif not oauth.validate_token(result):
         error = 'invalid_response'
         desc = 'Invalid response from provider.'
 
     if error is not None:
         app.logger.warning('Retrieving token failed: %s', result)
-        return _error(error, desc, 401 if error == 'invalid_client' else 400)
+        return _error(error, desc)
 
     if 'refresh_token' in result:
         result = oauth.scrub_refresh_token(result)
@@ -86,7 +86,7 @@ def callback():
         client_id = db.insert(token)
     except db.IntegrityError:
         app.log.warning('Could not get unique client id: %s', client_id)
-        return _error('integrity_error', 'Database integrity error.', 400)
+        return _error('integrity_error', 'Database integrity error.')
 
     return _render(client_id=client_id, client_secret=client_secret)
 
@@ -97,44 +97,46 @@ def token():
     # TODO: allow all methods and raise invalid_request for !POST?
 
     if request.form.get('grant_type') != 'client_credentials':
-        raise oauth.Error('unsupported_grant_type',
+        raise oauth.Error(errors.UNSUPPORTED_GRANT_TYPE,
                           'Only "client_credentials" is supported.')
     elif 'scope' in request.form:
-        raise oauth.Error('invalid_scope', 'Setting scope is not supported.')
+        raise oauth.Error(errors.INVALID_SCOPE,
+                          'Setting scope is not supported.')
     elif request.authorization and request.authorization.type != 'basic':
-        raise oauth.Error('invalid_client', 'Only Basic Auth is supported.')
+        raise oauth.Error(errors.INVALID_CLIENT,
+                          'Only Basic Auth is supported.')
 
     client_id = request.form.get('client_id')
     client_secret = request.form.get('client_secret')
     if (client_id or client_secret) and request.authorization:
-        raise oauth.Error('invalid_request',
+        raise oauth.Error(errors.INVALID_REQUEST,
                           'More than one mechanism for authenticating set.')
     elif request.authorization:
         client_id = request.authorization.username
         client_secret = request.authorization.password
 
     if not client_id or not client_secret:
-        raise oauth.Error('invalid_client',
+        raise oauth.Error(errors.INVALID_CLIENT,
                           'Both client_id and client_secret must be set.')
     elif client_id == client_secret:
-        raise oauth.Error('invalid_client',
+        raise oauth.Error(errors.INVALID_CLIENT,
                           'client_id and client_secret set to same value.')
 
     try:
         token = db.lookup(client_id)
     except LookupError:
-        raise oauth.Error('invalid_client', 'Client not known.')
+        raise oauth.Error(errors.INVALID_CLIENT, 'Client not known.')
 
     if token is None:
         # TODO: How do we avoid client retries here?
-        raise oauth.Error('invalid_grant', 'Grant has been revoked.')
+        raise oauth.Error(errors.INVALID_GRANT, 'Grant has been revoked.')
 
     try:
         result = crypto.loads(client_secret, token)
     except (crypto.InvalidToken, TypeError, ValueError):
         # Always return same message as for client not found to avoid leaking
         # valid clients directly, timing attacks could of course still work.
-        raise oauth.Error('invalid_client', 'Client not known.')
+        raise oauth.Error(errors.INVALID_CLIENT, 'Client not known.')
 
     if 'refresh_token' not in result:
         return jsonify(result)
@@ -150,10 +152,10 @@ def token():
         error = refresh_result['error']
         error = oauth.normalize_error(error, oauth.TOKEN_ERRORS)
 
-        if error == 'invalid_grant':
+        if error == errors.INVALID_GRANT:
             db.update(client_id, None)
             app.logger.warning('Revoked: %s', client_id)
-        elif error == 'temporarily_unavailable':
+        elif error == errors.TEMPORARILY_UNAVAILABLE:
             app.logger.warning('Token refresh failed: %s', refresh_result)
         else:
             app.logger.error('Token refresh failed: %s', refresh_result)
@@ -167,7 +169,8 @@ def token():
                           refresh_result.get('error_uri'))
 
     if not oauth.validate_token(refresh_result):
-        raise oauth.Error('invalid_request', 'Invalid response from provider.')
+        raise oauth.Error(errors.INVALID_REQUEST,
+                          'Invalid response from provider.')
 
     # Copy over original scope if not set in refresh.
     if 'scope' not in refresh_result and 'scope' in result:
@@ -208,10 +211,16 @@ def _log(error, msg, *args, **kwargs):
     app.logger.log(level, msg, *args, **kwargs)
 
 
-def _error(error_code, error, status):
+def _error(error_code, error):
+    if error_code == errors.INVALID_CLIENT:
+        status = 401
+    else:
+        status = 400
+
     stats.ServerErrorCounter.labels(
         endpoint=stats.endpoint(), status=stats.status(status),
         error=error_code).inc()
+
     return _render(error=error_code, description=error), status
 
 
