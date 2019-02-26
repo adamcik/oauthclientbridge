@@ -14,7 +14,7 @@ applications against OAuth providers that only allow for long term grants via
 Authorization Code Grants without giving the secrets to the native application.
 
 After quite some back an forth this solution was devised as it felt the least
-hackish, and somewhat cleanly combines to existing flows instead of creating
+hackish, and somewhat cleanly combines two existing flows instead of creating
 a strange hybrid flow.
 
 Installation
