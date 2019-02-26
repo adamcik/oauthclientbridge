@@ -45,12 +45,11 @@ def test_authorize_wrong_method(client):
     ('?state={state}&error=temporarily_unavailable', TEMPORARILY_UNAVAILABLE),
     ('?state={state}&error=badErrorCode', SERVER_ERROR),
 ])
-def test_callback_error_handling(query, expected_error, client, state):
-    app.config['OAUTH_CALLBACK_TEMPLATE'] = '{{error}}'
+def test_callback_error_handling(query, expected_error, get, state):
+    result, status = get('/callback' + query.format(state=state))
 
-    resp = client.get('/callback' + query.format(state=state))
-    assert resp.status_code == 400
-    assert resp.data == expected_error
+    assert status == 400
+    assert result['error'] == expected_error
 
 
 # TODO: Revisit all of the status codes returned, since this is not an API
@@ -74,69 +73,61 @@ def test_callback_error_handling(query, expected_error, client, state):
     ({'error': 'badErrorCode'}, SERVER_ERROR, 400),
 ])
 def test_callback_authorization_code_error_handling(
-        data, expected_error, expected_status, client, state, requests_mock):
-    app.config['OAUTH_CALLBACK_TEMPLATE'] = '{{error}}'
-
+        data, expected_error, expected_status, get, state, requests_mock):
     requests_mock.post(app.config['OAUTH_TOKEN_URI'], json=data)
 
-    resp = client.get('/callback?code=1234&state=' + state)
-    assert resp.status_code == expected_status
-    assert resp.data == expected_error
+    result, status = get('/callback?code=1234&state=' + state)
+    assert status == expected_status
+    assert result['error'] == expected_error
 
 
 # TODO: Test with more status codes from callback...
 def test_callback_authorization_code_invalid_response(
-        client, state, requests_mock):
-    app.config['OAUTH_CALLBACK_TEMPLATE'] = '{{error}}'
-
+        get, state, requests_mock):
     requests_mock.post(app.config['OAUTH_TOKEN_URI'], text='Not a JSON value')
 
-    resp = client.get('/callback?code=1234&state=' + state)
-    assert resp.status_code == 400
-    assert resp.data == SERVER_ERROR
+    result, status = get('/callback?code=1234&state=' + state)
+    assert status == 400
+    assert result['error'] == SERVER_ERROR
 
 
-def test_callback_authorization_code_stores_token(client, state, requests_mock):
-    app.config['OAUTH_CALLBACK_TEMPLATE'] = '{{client_id}}:{{client_secret}}'
-
+def test_callback_authorization_code_stores_token(get, state, requests_mock):
     data = {'token_type': 'Bearer', 'access_token': '1234567890'}
     requests_mock.post(app.config['OAUTH_TOKEN_URI'], json=data)
 
-    resp = client.get('/callback?code=1234&state=' + state)
-    client_id, client_secret = resp.data.split(':')
+    result, _ = get('/callback?code=1234&state=' + state)
 
     # Peek inside internals to check that our token got stored.
-    assert data == crypto.loads(client_secret, db.lookup(client_id))
+    encrypted = db.lookup(result['client_id'])
+    assert data == crypto.loads(result['client_secret'], encrypted)
 
 
 def test_callback_authorization_code_store_refresh_token(
-        client, state, requests_mock):
-    app.config['OAUTH_CALLBACK_TEMPLATE'] = '{{client_id}}:{{client_secret}}'
+        get, state, requests_mock):
 
     token = {'token_type': 'test', 'refresh_token': 'abc','scope': 'foo',
              'access_token': '123', 'expires_in': 3600}
     requests_mock.post(app.config['OAUTH_TOKEN_URI'], json=token)
 
-    resp = client.get('/callback?code=1234&state=' + state)
-    client_id, client_secret = resp.data.split(':')
+    result, _ = get('/callback?code=1234&state=' + state)
+
+    expected = {'refresh_token': 'abc', 'scope': 'foo'}
 
     # Peek inside internals to check that our token got stored.
-    expected = {'refresh_token': 'abc', 'scope': 'foo'}
-    assert expected == crypto.loads(client_secret, db.lookup(client_id))
+    encrypted = db.lookup(result['client_id'])
+    assert expected == crypto.loads(result['client_secret'], encrypted)
 
 
 def test_callback_authorization_code_store_unknown(
-        client, state, requests_mock):
-    app.config['OAUTH_CALLBACK_TEMPLATE'] = '{{client_id}}:{{client_secret}}'
-
+        get, state, requests_mock):
     data = {'token_type': 'Bearer', 'access_token': '123', 'private': 'foobar'}
     requests_mock.post(app.config['OAUTH_TOKEN_URI'], json=data)
 
-    resp = client.get('/callback?code=1234&state=' + state)
-    client_id, client_secret = resp.data.split(':')
+    result, _ = get('/callback?code=1234&state=' + state)
 
     # Peek inside internals to check that our token got stored.
-    assert data == crypto.loads(client_secret, db.lookup(client_id))
+    encrypted = db.lookup(result['client_id'])
+    assert data == crypto.loads(result['client_secret'], encrypted)
 
 
 def test_callack_wrong_method(client, state):

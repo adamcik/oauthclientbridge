@@ -21,6 +21,7 @@ def client():
         'OAUTH_AUTHORIZATION_URI': 'https://provider.example.com/auth',
         'OAUTH_TOKEN_URI': 'https://provider.example.com/token',
         'OAUTH_REDIRECT_URI': 'https://client.example.com/callback',
+        'OAUTH_CALLBACK_TEMPLATE': '{{ variables|tojson }}'
     })
 
     client = app.test_client()
@@ -28,6 +29,15 @@ def client():
     with app.app_context():
         db.initialize()
         yield client
+
+
+@pytest.fixture
+def get(client):
+    def _get(path):
+        resp = client.get(path)
+        return json.loads(resp.data), resp.status_code
+
+    return _get
 
 
 @pytest.fixture
