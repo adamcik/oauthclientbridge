@@ -25,11 +25,10 @@ def initialize():
 def get():
     """Get singleton SQLite database connection."""
     if getattr(g, '_oauth_database', None) is None:
-        with stats.DBLatencyHistorgram.labels(query='connect').time():
-            g._oauth_database = sqlite3.connect(
-                app.config['OAUTH_DATABASE'],
-                timeout=app.config['OAUTH_DATABASE_TIMEOUT'],
-                isolation_level=None)
+        g._oauth_database = sqlite3.connect(
+            app.config['OAUTH_DATABASE'],
+            timeout=app.config['OAUTH_DATABASE_TIMEOUT'],
+            isolation_level=None)
         if app.config['OAUTH_DATABASE_PRAGMA']:
             g._oauth_database.execute(app.config['OAUTH_DATABASE_PRAGMA'])
     return g._oauth_database
