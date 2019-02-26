@@ -29,6 +29,7 @@ def get():
             app.config['OAUTH_DATABASE'],
             timeout=app.config['OAUTH_DATABASE_TIMEOUT'],
             isolation_level=None)
+        g._oauth_database.text_factory = lambda v: v
         if app.config['OAUTH_DATABASE_PRAGMA']:
             g._oauth_database.execute(app.config['OAUTH_DATABASE_PRAGMA'])
     return g._oauth_database

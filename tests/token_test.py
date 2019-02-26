@@ -133,10 +133,11 @@ def test_token_refresh_post_data(post, refresh_token, requests_mock):
     """Test that expected data gets POSTed to provider."""
 
     def match(request):
-        auth_header = request.headers.get('Authorization', '')
-        assert auth_header.startswith('Basic ')
+        parts = request.headers['Authorization'].split(' ')
+        assert parts[0] == 'Basic'
 
-        user, password = auth_header[6:].decode('base64').split(':')
+        user, password = base64.b64decode(parts[1]).decode('utf-8').split(':')
+
         assert user == app.config['OAUTH_CLIENT_ID']
         assert password == app.config['OAUTH_CLIENT_SECRET']
 

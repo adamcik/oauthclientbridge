@@ -35,7 +35,7 @@ def client():
 def get(client):
     def _get(path):
         resp = client.get(path)
-        return json.loads(resp.data), resp.status_code
+        return json.loads(resp.data.decode('utf-8')), resp.status_code
 
     return _get
 
@@ -44,13 +44,13 @@ def get(client):
 def post(client):
     def _post(path, data, auth=None):
         if auth:
-            encoded = base64.b64encode('%s:%s' % auth)
-            headers = {'Authorization': 'Basic %s' % encoded}
+            encoded = base64.b64encode(('%s:%s' % auth).encode('ascii'))
+            headers = {'Authorization': b'Basic %s' % encoded}
         else:
             headers = {}
 
         resp = client.post(path, headers=headers, data=data)
-        return json.loads(resp.data), resp.status_code
+        return json.loads(resp.data.decode('utf-8')), resp.status_code
 
     return _post
 
