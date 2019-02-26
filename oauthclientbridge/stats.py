@@ -1,7 +1,11 @@
-import httplib
 import os
 import re
 import time
+
+try:
+    from http import client as httplib
+except ImportError:
+    import httplib
 
 import pyprometheus
 import pyprometheus.contrib.uwsgi_features

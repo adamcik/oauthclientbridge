@@ -1,7 +1,12 @@
 import re
 import time
-import urllib
-import urlparse
+
+try:
+    from urllib import parse as urlparse
+    from urllib import parse as urllib
+except ImportError:
+    import urllib
+    import urlparse
 
 import requests
 

@@ -1,7 +1,11 @@
 import json
-import urlparse
 
 import pytest
+
+try:
+    from urllib import parse as urlparse
+except ImportError:
+    import urlparse
 
 from oauthclientbridge import app, crypto, db
 from oauthclientbridge.errors import *

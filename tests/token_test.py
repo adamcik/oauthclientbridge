@@ -1,4 +1,9 @@
-import urlparse
+import base64
+
+try:
+    from urllib import parse as urlparse
+except ImportError:
+    import urlparse
 
 import pytest
 
