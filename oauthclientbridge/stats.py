@@ -103,10 +103,10 @@ def after_request(response):
     labels = {'endpoint': endpoint(), 'status': status(response.status_code)}
 
     ServerLatencyHistogram.labels(**labels).observe(request_latency)
-    if response.content_length >= 0:
+    if response.content_length is not None:
         ServerResponseSizeHistogram.labels(**labels).observe(
             response.content_length)
-    if request.content_length >= 0:
+    if request.content_length is not None:
         ServerRequestSizeHistogram.labels(**labels).observe(
             request.content_length)
     return response
