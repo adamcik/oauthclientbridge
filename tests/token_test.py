@@ -3,21 +3,22 @@ import urlparse
 import pytest
 
 from oauthclientbridge import app, crypto, db
+from oauthclientbridge.errors import *
 
 
 @pytest.mark.parametrize('data,expected_error,expected_status', [
-    ({}, 'invalid_client', 401),
-    ({'grant_type': None}, 'unsupported_grant_type', 400),
-    ({'grant_type': ''}, 'unsupported_grant_type', 400),
-    ({'grant_type': 'authorization_code'}, 'unsupported_grant_type', 400),
-    ({'client_id': None}, 'invalid_client', 401),
-    ({'client_id': ''}, 'invalid_client', 401),
-    ({'client_id': ''}, 'invalid_client', 401),
-    ({'client_secret': None}, 'invalid_client', 401),
-    ({'client_secret': ''}, 'invalid_client', 401),
-    ({'client_secret': 'does-not-exist'}, 'invalid_client', 401),
-    ({'scope': 'foo'}, 'invalid_scope', 400),
-    ({'scope': ''}, 'invalid_scope', 400),
+    ({}, INVALID_CLIENT, 401),
+    ({'grant_type': None}, UNSUPPORTED_GRANT_TYPE, 400),
+    ({'grant_type': ''}, UNSUPPORTED_GRANT_TYPE, 400),
+    ({'grant_type': 'authorization_code'}, UNSUPPORTED_GRANT_TYPE, 400),
+    ({'client_id': None}, INVALID_CLIENT, 401),
+    ({'client_id': ''}, INVALID_CLIENT, 401),
+    ({'client_id': ''}, INVALID_CLIENT, 401),
+    ({'client_secret': None}, INVALID_CLIENT, 401),
+    ({'client_secret': ''}, INVALID_CLIENT, 401),
+    ({'client_secret': 'does-not-exist'}, INVALID_CLIENT, 401),
+    ({'scope': 'foo'}, INVALID_SCOPE, 400),
+    ({'scope': ''}, INVALID_SCOPE, 400),
 ])
 def test_token_input_validation(post, data, expected_error, expected_status):
     initial = {
@@ -47,7 +48,7 @@ def test_token_invalid_credentials(post, access_token):
     })
 
     assert status == 401
-    assert result['error'] == 'invalid_client'
+    assert result['error'] == INVALID_CLIENT
     assert result['error_description']
 
 
@@ -61,7 +62,7 @@ def test_token_multiple_auth_fails(post, access_token):
     })
 
     assert status == 400
-    assert result['error'] == 'invalid_request'
+    assert result['error'] == INVALID_REQUEST
     assert result['error_description']
 
 
@@ -102,7 +103,7 @@ def test_token_revoked(post, access_token):
     })
 
     assert status == 400
-    assert result['error'] == 'invalid_grant'
+    assert result['error'] == INVALID_GRANT
     assert result['error_description']
 
 
@@ -279,14 +280,14 @@ def test_token_only_returns_scope_from_db(
 
 # TODO: fix expected_error and expected_status
 @pytest.mark.parametrize('error,expected_error,expected_status', [
-    ('invalid_request', 'invalid_request', 400),
-    ('invalid_client', 'invalid_client', 401),
-    ('invalid_grant', 'invalid_grant', 400),
-    ('unauthorized_client', 'unauthorized_client', 400),
-    ('unsupported_grant_type', 'unsupported_grant_type', 400),
-    ('invalid_scope', 'invalid_scope', 400),
-    ('errorTransient', 'temporarily_unavailable', 400),
-    ('badError', 'server_error', 400),
+    (INVALID_REQUEST, INVALID_REQUEST, 400),
+    (INVALID_CLIENT, INVALID_CLIENT, 401),
+    (INVALID_GRANT, INVALID_GRANT, 400),
+    (UNAUTHORIZED_CLIENT, UNAUTHORIZED_CLIENT, 400),
+    (UNSUPPORTED_GRANT_TYPE, UNSUPPORTED_GRANT_TYPE, 400),
+    (INVALID_SCOPE, INVALID_SCOPE, 400),
+    ('errorTransient', TEMPORARILY_UNAVAILABLE, 400),
+    ('badError', SERVER_ERROR, 400),
 ])
 def test_token_provider_errors(post, refresh_token, requests_mock,
                                error, expected_error, expected_status):
@@ -318,7 +319,7 @@ def test_token_provider_invalid_response(
     })
 
     assert status == 400
-    assert result['error'] == 'invalid_request'
+    assert result['error'] == INVALID_REQUEST
     assert result['error_description']
 
 
@@ -333,7 +334,7 @@ def test_token_provider_unavailable(post, refresh_token, requests_mock):
     })
 
     assert status == 400  # TODO: Make this a 503?
-    assert result['error'] == 'temporarily_unavailable'
+    assert result['error'] == TEMPORARILY_UNAVAILABLE
     assert result['error_description']
 
 

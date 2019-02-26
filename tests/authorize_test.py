@@ -4,6 +4,7 @@ import urlparse
 import pytest
 
 from oauthclientbridge import app, crypto, db
+from oauthclientbridge.errors import *
 
 
 def test_authorize_redirects(client):
@@ -25,21 +26,20 @@ def test_authorize_wrong_method(client):
 
 
 @pytest.mark.parametrize('query,expected_error', [
-    ('', 'invalid_state'),
-    ('?code', 'invalid_state'),
-    ('?code=1234', 'invalid_state'),
-    ('?state={state}', 'invalid_request'),
-    ('?state={state}&code', 'invalid_request'),
-    ('?state={state}&error=invalid_request', 'invalid_request'),
-    ('?state={state}&error=unauthorized_client', 'unauthorized_client'),
-    ('?state={state}&error=access_denied', 'access_denied'),
+    ('', INVALID_STATE),
+    ('?code', INVALID_STATE),
+    ('?code=1234', INVALID_STATE),
+    ('?state={state}', INVALID_REQUEST),
+    ('?state={state}&code', INVALID_REQUEST),
+    ('?state={state}&error=invalid_request', INVALID_REQUEST),
+    ('?state={state}&error=unauthorized_client', UNAUTHORIZED_CLIENT),
+    ('?state={state}&error=access_denied', ACCESS_DENIED),
     ('?state={state}&error=unsupported_response_type',
-     'unsupported_response_type'),
-    ('?state={state}&error=invalid_scope', 'invalid_scope'),
-    ('?state={state}&error=server_error', 'server_error'),
-    ('?state={state}&error=temporarily_unavailable',
-     'temporarily_unavailable'),
-    ('?state={state}&error=badErrorCode', 'server_error'),
+     UNSUPPORTED_RESPONSE_TYPE),
+    ('?state={state}&error=invalid_scope', INVALID_SCOPE),
+    ('?state={state}&error=server_error', SERVER_ERROR),
+    ('?state={state}&error=temporarily_unavailable', TEMPORARILY_UNAVAILABLE),
+    ('?state={state}&error=badErrorCode', SERVER_ERROR),
 ])
 def test_callback_error_handling(query, expected_error, client, state):
     app.config['OAUTH_CALLBACK_TEMPLATE'] = '{{error}}'
@@ -52,22 +52,22 @@ def test_callback_error_handling(query, expected_error, client, state):
 # TODO: Revisit all of the status codes returned, since this is not an API
 # endpoint but a callback we can be well behaved with respect to HTTP.
 @pytest.mark.parametrize('data,expected_error,expected_status', [
-    ({}, 'invalid_response', 400),
-    ({'token_type': 'foobar'}, 'invalid_response', 400),
-    ({'access_token': 'foobar'}, 'invalid_response', 400),
-    ({'access_token': '', 'token_type': ''}, 'invalid_response', 400),
-    ({'access_token': 'foobar', 'token_type': ''}, 'invalid_response', 400),
-    ({'access_token': '', 'token_type': 'foobar'}, 'invalid_response', 400),
-    ({'error': 'invalid_request'}, 'invalid_request', 400),
-    ({'error': 'invalid_client'}, 'invalid_client', 401),
-    ({'error': 'invalid_grant'}, 'invalid_grant', 400),
-    ({'error': 'unauthorized_client'}, 'unauthorized_client', 400),
-    ({'error': 'unsupported_grant_type'}, 'unsupported_grant_type', 400),
-    ({'error': 'invalid_scope'}, 'invalid_scope', 400),
-    ({'error': 'server_error'}, 'server_error', 400),
-    ({'error': 'temporarily_unavailable'}, 'temporarily_unavailable', 400),
-    ({'error': 'errorTransient'}, 'temporarily_unavailable', 400),
-    ({'error': 'badErrorCode'}, 'server_error', 400),
+    ({}, INVALID_RESPONSE, 400),
+    ({'token_type': 'foobar'}, INVALID_RESPONSE, 400),
+    ({'access_token': 'foobar'}, INVALID_RESPONSE, 400),
+    ({'access_token': '', 'token_type': ''}, INVALID_RESPONSE, 400),
+    ({'access_token': 'foobar', 'token_type': ''}, INVALID_RESPONSE, 400),
+    ({'access_token': '', 'token_type': 'foobar'}, INVALID_RESPONSE, 400),
+    ({'error': INVALID_REQUEST}, INVALID_REQUEST, 400),
+    ({'error': INVALID_CLIENT}, INVALID_CLIENT, 401),
+    ({'error': INVALID_GRANT}, INVALID_GRANT, 400),
+    ({'error': UNAUTHORIZED_CLIENT}, UNAUTHORIZED_CLIENT, 400),
+    ({'error': UNSUPPORTED_GRANT_TYPE}, UNSUPPORTED_GRANT_TYPE, 400),
+    ({'error': INVALID_SCOPE}, INVALID_SCOPE, 400),
+    ({'error': SERVER_ERROR}, SERVER_ERROR, 400),
+    ({'error': TEMPORARILY_UNAVAILABLE}, TEMPORARILY_UNAVAILABLE, 400),
+    ({'error': 'errorTransient'}, TEMPORARILY_UNAVAILABLE, 400),
+    ({'error': 'badErrorCode'}, SERVER_ERROR, 400),
 ])
 def test_callback_authorization_code_error_handling(
         data, expected_error, expected_status, client, state, requests_mock):
@@ -89,7 +89,7 @@ def test_callback_authorization_code_invalid_response(
 
     resp = client.get('/callback?code=1234&state=' + state)
     assert resp.status_code == 400
-    assert resp.data == 'server_error'
+    assert resp.data == SERVER_ERROR
 
 
 def test_callback_authorization_code_stores_token(client, state, requests_mock):
