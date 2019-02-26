@@ -225,6 +225,8 @@ def _error(error_code, error):
 
 
 def _render(client_id=None, client_secret=None, error=None, description=None):
-    return render_template_string(
-        app.config['OAUTH_CALLBACK_TEMPLATE'], client_id=client_id,
-        client_secret=client_secret, error=error, description=description)
+    # Keep all the vars in something we can dump for tests with tojson.
+    variables = {'client_id': client_id, 'client_secret': client_secret,
+                 'error': error, 'description': description}
+    return render_template_string(app.config['OAUTH_CALLBACK_TEMPLATE'],
+                                  variables=variables, **variables)
