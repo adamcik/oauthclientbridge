@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 
 setup(
     name='OAuth-Client-Bridge',
-    version='1.2.0',
+    version='1.3.0',
     url='https://github.com/adamcik/oauthclientbridge',
     license='Apache License, Version 2.0',
     author='Thomas Adamcik',
@@ -23,5 +23,6 @@ setup(
         'License :: OSI Approved :: Apache Software License',
         'Operating System :: OS Independent',
         'Programming Language :: Python :: 2',
+        'Programming Language :: Python :: 3',
     ],
 )
