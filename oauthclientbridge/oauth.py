@@ -1,13 +1,6 @@
 import re
-import sys
 import time
 
-try:
-    from urllib import parse as urlparse
-    from urllib import parse as urllib
-except ImportError:
-    import urllib
-    import urlparse
 
 import requests
 
@@ -15,13 +8,9 @@ from requests.packages import urllib3
 
 from flask import g, jsonify, redirect as flask_redirect, request
 
-from oauthclientbridge import __version__, app, stats
+from oauthclientbridge import __version__, app, compat, stats
 from oauthclientbridge.errors import *
 
-if sys.version_info[0] == 3:
-    _text_type = str
-else:
-    _text_type = unicode
 
 # https://tools.ietf.org/html/rfc6749#section-4.1.2.1
 AUTHORIZATION_ERRORS = {
@@ -286,19 +275,19 @@ def _session():
 def _rewrite_query(original, params):
     # TODO: test this...
     parts = []
-    query = urlparse.parse_qs(original, keep_blank_values=True)
+    query = compat.parse_qs(original, keep_blank_values=True)
     for key, value in params.items():
         query[key] = [value]  # Override with new params.
     for key, values in query.items():
         for value in values:  # Turn query into list of tuples.
-            if isinstance(value, _text_type):
+            if isinstance(value, compat.text_type):
                 value = value.encode('utf-8')
             parts.append((key, value))
-    return urllib.urlencode(parts)
+    return compat.urlencode(parts)
 
 
 def _rewrite_uri(uri, params):
     # TODO: test this and move to utils.py?
-    scheme, netloc, path, query, fragment = urlparse.urlsplit(uri)
+    scheme, netloc, path, query, fragment = compat.urlsplit(uri)
     query = _rewrite_query(query, params)
-    return urlparse.urlunsplit((scheme, netloc, path, query, fragment))
+    return compat.urlunsplit((scheme, netloc, path, query, fragment))

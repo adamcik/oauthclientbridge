@@ -1,13 +1,8 @@
 import base64
 
-try:
-    from urllib import parse as urlparse
-except ImportError:
-    import urlparse
-
 import pytest
 
-from oauthclientbridge import app, crypto, db
+from oauthclientbridge import app, compat, crypto, db
 from oauthclientbridge.errors import *
 
 
@@ -145,7 +140,7 @@ def test_token_refresh_post_data(post, refresh_token, requests_mock):
             'grant_type': ['refresh_token'],
             'refresh_token': [refresh_token.value['refresh_token']],
         }
-        assert expected == urlparse.parse_qs(request.body)
+        assert expected == compat.parse_qs(request.body)
         return True
 
     requests_mock.post(app.config['OAUTH_TOKEN_URI'],

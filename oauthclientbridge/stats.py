@@ -2,11 +2,6 @@ import os
 import re
 import time
 
-try:
-    from http import client as httplib
-except ImportError:
-    import httplib
-
 import pyprometheus
 import pyprometheus.contrib.uwsgi_features
 import pyprometheus.registry
@@ -14,6 +9,8 @@ import pyprometheus.registry
 from flask import request, Response
 
 from pyprometheus.utils.exposition import registry_to_text
+
+from oauthclientbridge import compat
 
 if 'PROMETHEUS_UWSGI_SHAREDAREA' in os.environ:
     storage = pyprometheus.contrib.uwsgi_features.UWSGIStorage()
@@ -89,7 +86,7 @@ ClientResponseSizeHistogram = pyprometheus.Histogram(
 
 def status(code):
     if code not in HTTP_STATUS:
-        text = httplib.responses.get(code, str(code)).lower()
+        text = compat.responses.get(code, str(code)).lower()
         HTTP_STATUS[code] = 'http_%s' % re.sub(r'[ -]', '_', text)
     return HTTP_STATUS[code]
 

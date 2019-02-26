@@ -2,19 +2,14 @@ import json
 
 import pytest
 
-try:
-    from urllib import parse as urlparse
-except ImportError:
-    import urlparse
-
-from oauthclientbridge import app, crypto, db
+from oauthclientbridge import app, compat, crypto, db
 from oauthclientbridge.errors import *
 
 
 def test_authorize_redirects(client):
     resp = client.get('/')
-    location = urlparse.urlparse(resp.location)
-    params = urlparse.parse_qs(location.query)
+    location = compat.urlsplit(resp.location)
+    params = compat.parse_qs(location.query)
 
     assert resp.status_code == 302
     assert location.netloc == 'provider.example.com'
