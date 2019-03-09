@@ -186,6 +186,7 @@ def token():
 
     # Reduce write pressure by only issuing update on changes.
     if result != modified:
+        app.logger.warning('Updating token for: %s', client_id)
         db.update(client_id, crypto.dumps(client_secret, modified))
 
     # Only return what we got from the API (minus refresh_token).
