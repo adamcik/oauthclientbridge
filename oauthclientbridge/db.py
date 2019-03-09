@@ -101,13 +101,6 @@ def update(client_id, token):
         return c.rowcount
 
 
-def tokens():
-    with cursor(name='metrics') as c:
-        c.execute('SELECT token IS NOT NULL, COUNT(*) FROM tokens GROUP BY 1')
-        results = dict(c.fetchall())
-        return results.get(True, 0), results.get(False, 0)
-
-
 @app.teardown_appcontext
 def close(exception):
     """Ensure that connection gets closed when app teardown happens."""

@@ -195,14 +195,6 @@ def token():
 
 @app.route('/metrics', methods=['GET'])
 def metrics():
-    try:
-        active, revoked = db.tokens()
-    except db.Error:
-        pass
-    else:
-        stats.TokenGauge.labels(state='revoked').set(revoked)
-        stats.TokenGauge.labels(state='active').set(active)
-
     return stats.export_metrics()
 
 
