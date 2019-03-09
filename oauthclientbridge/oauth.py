@@ -36,6 +36,9 @@ TOKEN_ERRORS = {
     TEMPORARILY_UNAVAILABLE,
 }
 
+_session = requests.Session()
+_session.headers['user-agent'] = ('oauthclientbridge %s' % __version__)
+
 
 class Error(Exception):
     def __init__(self, error, description=None, uri=None, retry_after=None):
@@ -164,18 +167,15 @@ def _fetch(prepared, timeout, endpoint):
     # Make sure we always have at least a minimal timeout.
     timeout = max(1.0, min(app.config['OAUTH_FETCH_TIMEOUT'], timeout))
 
-    # TODO: switch to a context for the session? close on exception?
-    s = _session()
-
     try:
         # TODO: switch to a context for tracking time.
         start_time = time.time()
-        resp = s.send(prepared, timeout=timeout)
+        resp = _session.send(prepared, timeout=timeout)
     except requests.exceptions.RequestException as e:
         request_latency = time.time() - start_time
 
         # Increase chances that we get connected to a different instance.
-        s.close()
+        _session.close()
 
         # Fallback values in case we can't say anything better.
         status_label = 'unknown_exception'
@@ -262,14 +262,6 @@ def _parse_retry(value):
 
 def redirect(uri, **params):
     return flask_redirect(_rewrite_uri(uri, params))
-
-
-def _session():
-    if getattr(g, '_oauth_session', None) is None:
-        g._oauth_session = requests.Session()
-        g._oauth_session.headers['user-agent'] = (
-            'oauthclientbridge %s' % __version__)
-    return g._oauth_session
 
 
 def _rewrite_query(original, params):
