@@ -1,15 +1,11 @@
-import json
-
 import pytest
 
-from oauthclientbridge import app, compat, crypto, db
-from oauthclientbridge.errors import *
+from oauthclientbridge import app, compat, errors, crypto, db
 
 
 def test_authorize_redirects(client):
     resp = client.get('/')
     location = compat.urlsplit(resp.location)
-    params = compat.parse_qs(location.query)
 
     assert resp.status_code == 302
     assert location.netloc == 'provider.example.com'
@@ -27,25 +23,28 @@ def test_authorize_wrong_method(client):
 @pytest.mark.parametrize(
     'query,expected_error',
     [
-        ('', INVALID_STATE),
-        ('?code', INVALID_STATE),
-        ('?code=1234', INVALID_STATE),
-        ('?state={state}', INVALID_REQUEST),
-        ('?state={state}&code', INVALID_REQUEST),
-        ('?state={state}&error=invalid_request', INVALID_REQUEST),
-        ('?state={state}&error=unauthorized_client', UNAUTHORIZED_CLIENT),
-        ('?state={state}&error=access_denied', ACCESS_DENIED),
+        ('', errors.INVALID_STATE),
+        ('?code', errors.INVALID_STATE),
+        ('?code=1234', errors.INVALID_STATE),
+        ('?state={state}', errors.INVALID_REQUEST),
+        ('?state={state}&code', errors.INVALID_REQUEST),
+        ('?state={state}&error=invalid_request', errors.INVALID_REQUEST),
+        (
+            '?state={state}&error=unauthorized_client',
+            errors.UNAUTHORIZED_CLIENT,
+        ),
+        ('?state={state}&error=access_denied', errors.ACCESS_DENIED),
         (
             '?state={state}&error=unsupported_response_type',
-            UNSUPPORTED_RESPONSE_TYPE,
+            errors.UNSUPPORTED_RESPONSE_TYPE,
         ),
-        ('?state={state}&error=invalid_scope', INVALID_SCOPE),
-        ('?state={state}&error=server_error', SERVER_ERROR),
+        ('?state={state}&error=invalid_scope', errors.INVALID_SCOPE),
+        ('?state={state}&error=server_error', errors.SERVER_ERROR),
         (
             '?state={state}&error=temporarily_unavailable',
-            TEMPORARILY_UNAVAILABLE,
+            errors.TEMPORARILY_UNAVAILABLE,
         ),
-        ('?state={state}&error=badErrorCode', SERVER_ERROR),
+        ('?state={state}&error=badErrorCode', errors.SERVER_ERROR),
     ],
 )
 def test_callback_error_handling(query, expected_error, get, state):
@@ -60,22 +59,42 @@ def test_callback_error_handling(query, expected_error, get, state):
 @pytest.mark.parametrize(
     'data,expected_error,expected_status',
     [
-        ({}, INVALID_RESPONSE, 400),
-        ({'token_type': 'foobar'}, INVALID_RESPONSE, 400),
-        ({'access_token': 'foobar'}, INVALID_RESPONSE, 400),
-        ({'access_token': '', 'token_type': ''}, INVALID_RESPONSE, 400),
-        ({'access_token': 'foobar', 'token_type': ''}, INVALID_RESPONSE, 400),
-        ({'access_token': '', 'token_type': 'foobar'}, INVALID_RESPONSE, 400),
-        ({'error': INVALID_REQUEST}, INVALID_REQUEST, 400),
-        ({'error': INVALID_CLIENT}, INVALID_CLIENT, 401),
-        ({'error': INVALID_GRANT}, INVALID_GRANT, 400),
-        ({'error': UNAUTHORIZED_CLIENT}, UNAUTHORIZED_CLIENT, 400),
-        ({'error': UNSUPPORTED_GRANT_TYPE}, UNSUPPORTED_GRANT_TYPE, 400),
-        ({'error': INVALID_SCOPE}, INVALID_SCOPE, 400),
-        ({'error': SERVER_ERROR}, SERVER_ERROR, 400),
-        ({'error': TEMPORARILY_UNAVAILABLE}, TEMPORARILY_UNAVAILABLE, 400),
-        ({'error': 'errorTransient'}, TEMPORARILY_UNAVAILABLE, 400),
-        ({'error': 'badErrorCode'}, SERVER_ERROR, 400),
+        ({}, errors.INVALID_RESPONSE, 400),
+        ({'token_type': 'foobar'}, errors.INVALID_RESPONSE, 400),
+        ({'access_token': 'foobar'}, errors.INVALID_RESPONSE, 400),
+        ({'access_token': '', 'token_type': ''}, errors.INVALID_RESPONSE, 400),
+        (
+            {'access_token': 'foobar', 'token_type': ''},
+            errors.INVALID_RESPONSE,
+            400,
+        ),
+        (
+            {'access_token': '', 'token_type': 'foobar'},
+            errors.INVALID_RESPONSE,
+            400,
+        ),
+        ({'error': errors.INVALID_REQUEST}, errors.INVALID_REQUEST, 400),
+        ({'error': errors.INVALID_CLIENT}, errors.INVALID_CLIENT, 401),
+        ({'error': errors.INVALID_GRANT}, errors.INVALID_GRANT, 400),
+        (
+            {'error': errors.UNAUTHORIZED_CLIENT},
+            errors.UNAUTHORIZED_CLIENT,
+            400,
+        ),
+        (
+            {'error': errors.UNSUPPORTED_GRANT_TYPE},
+            errors.UNSUPPORTED_GRANT_TYPE,
+            400,
+        ),
+        ({'error': errors.INVALID_SCOPE}, errors.INVALID_SCOPE, 400),
+        ({'error': errors.SERVER_ERROR}, errors.SERVER_ERROR, 400),
+        (
+            {'error': errors.TEMPORARILY_UNAVAILABLE},
+            errors.TEMPORARILY_UNAVAILABLE,
+            400,
+        ),
+        ({'error': 'errorTransient'}, errors.TEMPORARILY_UNAVAILABLE, 400),
+        ({'error': 'badErrorCode'}, errors.SERVER_ERROR, 400),
     ],
 )
 def test_callback_authorization_code_error_handling(
@@ -96,7 +115,7 @@ def test_callback_authorization_code_invalid_response(
 
     result, status = get('/callback?code=1234&state=' + state)
     assert status == 400
-    assert result['error'] == SERVER_ERROR
+    assert result['error'] == errors.SERVER_ERROR
 
 
 def test_callback_authorization_code_stores_token(get, state, requests_mock):

@@ -2,25 +2,28 @@ import base64
 
 import pytest
 
-from oauthclientbridge import app, compat, crypto, db
-from oauthclientbridge.errors import *
+from oauthclientbridge import app, compat, errors, crypto, db
 
 
 @pytest.mark.parametrize(
     'data,expected_error,expected_status',
     [
-        ({}, INVALID_CLIENT, 401),
-        ({'grant_type': None}, UNSUPPORTED_GRANT_TYPE, 400),
-        ({'grant_type': ''}, UNSUPPORTED_GRANT_TYPE, 400),
-        ({'grant_type': 'authorization_code'}, UNSUPPORTED_GRANT_TYPE, 400),
-        ({'client_id': None}, INVALID_CLIENT, 401),
-        ({'client_id': ''}, INVALID_CLIENT, 401),
-        ({'client_id': ''}, INVALID_CLIENT, 401),
-        ({'client_secret': None}, INVALID_CLIENT, 401),
-        ({'client_secret': ''}, INVALID_CLIENT, 401),
-        ({'client_secret': 'does-not-exist'}, INVALID_CLIENT, 401),
-        ({'scope': 'foo'}, INVALID_SCOPE, 400),
-        ({'scope': ''}, INVALID_SCOPE, 400),
+        ({}, errors.INVALID_CLIENT, 401),
+        ({'grant_type': None}, errors.UNSUPPORTED_GRANT_TYPE, 400),
+        ({'grant_type': ''}, errors.UNSUPPORTED_GRANT_TYPE, 400),
+        (
+            {'grant_type': 'authorization_code'},
+            errors.UNSUPPORTED_GRANT_TYPE,
+            400,
+        ),
+        ({'client_id': None}, errors.INVALID_CLIENT, 401),
+        ({'client_id': ''}, errors.INVALID_CLIENT, 401),
+        ({'client_id': ''}, errors.INVALID_CLIENT, 401),
+        ({'client_secret': None}, errors.INVALID_CLIENT, 401),
+        ({'client_secret': ''}, errors.INVALID_CLIENT, 401),
+        ({'client_secret': 'does-not-exist'}, errors.INVALID_CLIENT, 401),
+        ({'scope': 'foo'}, errors.INVALID_SCOPE, 400),
+        ({'scope': ''}, errors.INVALID_SCOPE, 400),
     ],
 )
 def test_token_input_validation(post, data, expected_error, expected_status):
@@ -53,7 +56,7 @@ def test_token_invalid_credentials(post, access_token):
     result, status = post('/token', data)
 
     assert status == 401
-    assert result['error'] == INVALID_CLIENT
+    assert result['error'] == errors.INVALID_CLIENT
     assert result['error_description']
 
 
@@ -69,7 +72,7 @@ def test_token_multiple_auth_fails(post, access_token):
     result, status = post('/token', data, auth=auth)
 
     assert status == 400
-    assert result['error'] == INVALID_REQUEST
+    assert result['error'] == errors.INVALID_REQUEST
     assert result['error_description']
 
 
@@ -114,7 +117,7 @@ def test_token_revoked(post, access_token):
     result, status = post('/token', data)
 
     assert status == 400
-    assert result['error'] == INVALID_GRANT
+    assert result['error'] == errors.INVALID_GRANT
     assert result['error_description']
 
 
@@ -324,14 +327,14 @@ def test_token_only_returns_scope_from_db(post, refresh_token, requests_mock):
 @pytest.mark.parametrize(
     'error,expected_error,expected_status',
     [
-        (INVALID_REQUEST, INVALID_REQUEST, 400),
-        (INVALID_CLIENT, INVALID_CLIENT, 401),
-        (INVALID_GRANT, INVALID_GRANT, 400),
-        (UNAUTHORIZED_CLIENT, UNAUTHORIZED_CLIENT, 400),
-        (UNSUPPORTED_GRANT_TYPE, UNSUPPORTED_GRANT_TYPE, 400),
-        (INVALID_SCOPE, INVALID_SCOPE, 400),
-        ('errorTransient', TEMPORARILY_UNAVAILABLE, 400),
-        ('badError', SERVER_ERROR, 400),
+        (errors.INVALID_REQUEST, errors.INVALID_REQUEST, 400),
+        (errors.INVALID_CLIENT, errors.INVALID_CLIENT, 401),
+        (errors.INVALID_GRANT, errors.INVALID_GRANT, 400),
+        (errors.UNAUTHORIZED_CLIENT, errors.UNAUTHORIZED_CLIENT, 400),
+        (errors.UNSUPPORTED_GRANT_TYPE, errors.UNSUPPORTED_GRANT_TYPE, 400),
+        (errors.INVALID_SCOPE, errors.INVALID_SCOPE, 400),
+        ('errorTransient', errors.TEMPORARILY_UNAVAILABLE, 400),
+        ('badError', errors.SERVER_ERROR, 400),
     ],
 )
 def test_token_provider_errors(
@@ -371,7 +374,7 @@ def test_token_provider_invalid_response(
     result, status = post('/token', data)
 
     assert status == 400
-    assert result['error'] == INVALID_REQUEST
+    assert result['error'] == errors.INVALID_REQUEST
     assert result['error_description']
 
 
@@ -389,7 +392,7 @@ def test_token_provider_unavailable(post, refresh_token, requests_mock):
     result, status = post('/token', data)
 
     assert status == 400  # TODO: Make this a 503?
-    assert result['error'] == TEMPORARILY_UNAVAILABLE
+    assert result['error'] == errors.TEMPORARILY_UNAVAILABLE
     assert result['error_description']
 
 
