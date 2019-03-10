@@ -10,6 +10,8 @@ workflows:
       - py27
       - py35
       - py37
+      - black
+      - flake8
 
 jobs:
   py37: &test-template
@@ -51,3 +53,7 @@ jobs:
     <<: *test-template
     docker:
       - image: circleci/python:3.5
+
+  flake8: *test-template
+
+  black: *test-template
