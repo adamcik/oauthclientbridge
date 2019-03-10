@@ -11,7 +11,7 @@ UNAUTHORIZED_CLIENT = 'unauthorized_client'
 UNSUPPORTED_GRANT_TYPE = 'unsupported_grant_type'
 UNSUPPORTED_RESPONSE_TYPE = 'unsupported_response_type'
 
-ERROR_DESCRIPTIONS = {
+DESCRIPTIONS = {
     INVALID_REQUEST: (
         'The request is missing a required parameter, includes an invalid '
         'parameter value, includes a parameter more than once, or is '

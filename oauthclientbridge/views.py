@@ -46,7 +46,7 @@ def callback():
     elif 'error' in request.args:
         error = request.args['error']
         error = oauth.normalize_error(error, oauth.AUTHORIZATION_ERRORS)
-        desc = errors.ERROR_DESCRIPTIONS[error]
+        desc = errors.DESCRIPTIONS[error]
     elif not request.args.get('code'):
         error = errors.INVALID_REQUEST
         desc = 'Authorization code missing from provider callback.'
@@ -71,7 +71,7 @@ def callback():
 
     if 'error' in result:
         error = oauth.normalize_error(result['error'], oauth.TOKEN_ERRORS)
-        desc = errors.ERROR_DESCRIPTIONS[error]
+        desc = errors.DESCRIPTIONS[error]
     elif not oauth.validate_token(result):
         error = 'invalid_response'
         desc = 'Invalid response from provider.'

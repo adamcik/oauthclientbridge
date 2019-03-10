@@ -1,39 +1,37 @@
+import email.utils
 import re
 import time
 
 
 import requests
 
-from requests.packages import urllib3
+from flask import jsonify, redirect as flask_redirect
 
-from flask import g, jsonify, redirect as flask_redirect, request
-
-from oauthclientbridge import __version__, app, compat, stats
-from oauthclientbridge.errors import *
+from oauthclientbridge import __version__, app, compat, errors, stats
 
 
 # https://tools.ietf.org/html/rfc6749#section-4.1.2.1
 AUTHORIZATION_ERRORS = {
-    INVALID_REQUEST,
-    UNAUTHORIZED_CLIENT,
-    ACCESS_DENIED,
-    UNSUPPORTED_RESPONSE_TYPE,
-    INVALID_SCOPE,
-    SERVER_ERROR,
-    TEMPORARILY_UNAVAILABLE,
+    errors.INVALID_REQUEST,
+    errors.UNAUTHORIZED_CLIENT,
+    errors.ACCESS_DENIED,
+    errors.UNSUPPORTED_RESPONSE_TYPE,
+    errors.INVALID_SCOPE,
+    errors.SERVER_ERROR,
+    errors.TEMPORARILY_UNAVAILABLE,
 }
 
 # https://tools.ietf.org/html/rfc6749#section-5.2
 TOKEN_ERRORS = {
-    INVALID_REQUEST,
-    INVALID_CLIENT,
-    INVALID_GRANT,
-    UNAUTHORIZED_CLIENT,
-    UNSUPPORTED_GRANT_TYPE,
-    INVALID_SCOPE,
+    errors.INVALID_REQUEST,
+    errors.INVALID_CLIENT,
+    errors.INVALID_GRANT,
+    errors.UNAUTHORIZED_CLIENT,
+    errors.UNSUPPORTED_GRANT_TYPE,
+    errors.INVALID_SCOPE,
     # These are not really supported by RFC:
-    SERVER_ERROR,
-    TEMPORARILY_UNAVAILABLE,
+    errors.SERVER_ERROR,
+    errors.TEMPORARILY_UNAVAILABLE,
 }
 
 _session = requests.Session()
@@ -53,13 +51,13 @@ def error_handler(e):
     result = {'error': e.error}
     if e.description is not None:
         result['error_description'] = e.description
-    elif e.error in ERROR_DESCRIPTIONS:
-        result['error_description'] = ERROR_DESCRIPTIONS[e.error]
+    elif e.error in errors.DESCRIPTIONS:
+        result['error_description'] = errors.DESCRIPTIONS[e.error]
     if e.uri is not None:
         result['error_uri'] = e.uri
 
     response = jsonify(result)
-    if e.error == INVALID_CLIENT:
+    if e.error == errors.INVALID_CLIENT:
         response.status_code = 401
         response.www_authenticate.set_basic()
     elif e.retry_after:
@@ -77,15 +75,17 @@ def error_handler(e):
 
 def fallback_error_handler(e):
     stats.ServerErrorCounter.labels(
-        endpoint=stats.endpoint(), status=stats.status(500), error=SERVER_ERROR
+        endpoint=stats.endpoint(),
+        status=stats.status(500),
+        error=errors.SERVER_ERROR,
     ).inc()
 
     error = {
-        'error': SERVER_ERROR,
-        'error_description': ERROR_DESCRIPTIONS[SERVER_ERROR],
+        'error': errors.SERVER_ERROR,
+        'error_description': errors.DESCRIPTIONS[errors.SERVER_ERROR],
     }
 
-    return jsonify(data), 500
+    return jsonify(error), 500
 
 
 def nocache(response):
@@ -101,7 +101,7 @@ def normalize_error(error, error_types):
     error = app.config['OAUTH_FETCH_ERROR_TYPES'].get(error, error)
 
     if error not in error_types:
-        return SERVER_ERROR
+        return errors.SERVER_ERROR
     else:
         return error
 
@@ -124,7 +124,10 @@ def fetch(uri, username, password, endpoint=None, **data):
     retry = 0
 
     error_description = 'An unknown error occurred talking to provider.'
-    result = {'error': SERVER_ERROR, 'error_description': error_description}
+    result = {
+        'error': errors.SERVER_ERROR,
+        'error_description': error_description,
+    }
 
     for i in range(app.config['OAUTH_FETCH_TOTAL_RETRIES']):
         prefix = 'attempt #%d %s' % (i + 1, uri)
@@ -148,7 +151,7 @@ def fetch(uri, username, password, endpoint=None, **data):
         if status is not None and 'error' in result:
             error = result['error']
             error = app.config['OAUTH_FETCH_ERROR_TYPES'].get(error, error)
-            if error not in ERROR_DESCRIPTIONS:
+            if error not in errors.DESCRIPTIONS:
                 error = 'invalid_error'
             stats.ClientErrorCounter.labels(error=error, **labels).inc()
 
@@ -207,7 +210,10 @@ def _fetch(prepared, timeout, endpoint):
 
         # Server error isn't allowed everywhere, but fixing this has been
         # brought up in https://www.rfc-editor.org/errata_search.php?eid=4745
-        result = {'error': SERVER_ERROR, 'error_description': description}
+        result = {
+            'error': errors.SERVER_ERROR,
+            'error_description': description,
+        }
         status_code = None
         length = None
         retry_after = 0
@@ -245,10 +251,10 @@ def _decode(resp):
         )
 
     if resp.status_code in app.config['OAUTH_FETCH_UNAVAILABLE_STATUS_CODES']:
-        error = TEMPORARILY_UNAVAILABLE
+        error = errors.TEMPORARILY_UNAVAILABLE
         description = 'Provider is unavailable.'
     else:
-        error = SERVER_ERROR
+        error = errors.SERVER_ERROR
         description = 'Unhandled provider error (HTTP %s).' % resp.status_code
 
     return {'error': error, 'error_description': description}

@@ -53,7 +53,7 @@ def cursor(name, transaction=False):
                         if transaction:
                             c.execute('BEGIN')
                         yield c
-                    except:
+                    except Exception:
                         if transaction:
                             connection.rollback()
                         raise
