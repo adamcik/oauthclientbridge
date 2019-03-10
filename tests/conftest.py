@@ -7,22 +7,25 @@ import pytest
 from oauthclientbridge import app, crypto, db
 
 TestToken = collections.namedtuple(
-    'TestToken', ('client_id', 'client_secret', 'value'))
+    'TestToken', ('client_id', 'client_secret', 'value')
+)
 
 
 @pytest.fixture
 def client():
-    app.config.update({
-        'TESTING': True,
-        'SECRET_KEY': 's3cret',
-        'OAUTH_DATABASE': ':memory:',
-        'OAUTH_CLIENT_ID': 'client',
-        'OAUTH_CLIENT_SECRET': 's3cret',
-        'OAUTH_AUTHORIZATION_URI': 'https://provider.example.com/auth',
-        'OAUTH_TOKEN_URI': 'https://provider.example.com/token',
-        'OAUTH_REDIRECT_URI': 'https://client.example.com/callback',
-        'OAUTH_CALLBACK_TEMPLATE': '{{ variables|tojson }}'
-    })
+    app.config.update(
+        {
+            'TESTING': True,
+            'SECRET_KEY': 's3cret',
+            'OAUTH_DATABASE': ':memory:',
+            'OAUTH_CLIENT_ID': 'client',
+            'OAUTH_CLIENT_SECRET': 's3cret',
+            'OAUTH_AUTHORIZATION_URI': 'https://provider.example.com/auth',
+            'OAUTH_TOKEN_URI': 'https://provider.example.com/token',
+            'OAUTH_REDIRECT_URI': 'https://client.example.com/callback',
+            'OAUTH_CALLBACK_TEMPLATE': '{{ variables|tojson }}',
+        }
+    )
 
     client = app.test_client()
 
