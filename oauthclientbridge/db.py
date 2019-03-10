@@ -107,5 +107,4 @@ def close(exception):
     if getattr(g, '_oauth_database', None) is None:
         return
     connection, g._oauth_database = g._oauth_database, None
-    with stats.DBLatencyHistorgram.labels(query='close').time():
-        connection.close()
+    connection.close()
