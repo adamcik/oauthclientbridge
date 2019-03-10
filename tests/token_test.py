@@ -36,7 +36,7 @@ def test_token_input_validation(post, data, expected_error, expected_status):
         else:
             initial[key] = value
 
-    result, status = post('/token', data=initial)
+    result, status = post('/token', initial)
 
     assert status == expected_status
     assert result['error'] == expected_error
@@ -44,14 +44,13 @@ def test_token_input_validation(post, data, expected_error, expected_status):
 
 
 def test_token_invalid_credentials(post, access_token):
-    result, status = post(
-        '/token',
-        data={
-            'client_id': access_token.client_id,
-            'client_secret': 'invalid',
-            'grant_type': 'client_credentials',
-        },
-    )
+    data = {
+        'client_id': access_token.client_id,
+        'client_secret': 'invalid',
+        'grant_type': 'client_credentials',
+    }
+
+    result, status = post('/token', data)
 
     assert status == 401
     assert result['error'] == INVALID_CLIENT
@@ -67,7 +66,7 @@ def test_token_multiple_auth_fails(post, access_token):
         'grant_type': 'client_credentials',
     }
 
-    result, status = post('/token', auth=auth, data=data)
+    result, status = post('/token', data, auth=auth)
 
     assert status == 400
     assert result['error'] == INVALID_REQUEST
@@ -81,7 +80,7 @@ def test_token(post, access_token):
         'grant_type': 'client_credentials',
     }
 
-    result, status = post('/token', data=data)
+    result, status = post('/token', data)
 
     assert status == 200
     assert access_token.value == result
@@ -92,7 +91,7 @@ def test_token_basic_auth(post, access_token):
 
     data = {'grant_type': 'client_credentials'}
 
-    result, status = post('/token', auth=auth, data=data)
+    result, status = post('/token', data, auth=auth)
 
     assert status == 200
     assert access_token.value == result
@@ -112,7 +111,7 @@ def test_token_revoked(post, access_token):
         'grant_type': 'client_credentials',
     }
 
-    result, status = post('/token', data=data)
+    result, status = post('/token', data)
 
     assert status == 400
     assert result['error'] == INVALID_GRANT
@@ -131,8 +130,8 @@ def test_token_wrong_secret_and_not_found_identical(post, access_token):
         'grant_type': 'client_credentials',
     }
 
-    result1, status1 = post('/token', data=data1)
-    result2, status2 = post('/token', data=data2)
+    result1, status1 = post('/token', data1)
+    result2, status2 = post('/token', data2)
 
     assert status1 == status2
     assert result1 == result2
@@ -169,7 +168,7 @@ def test_token_refresh_post_data(post, refresh_token, requests_mock):
         'grant_type': 'client_credentials',
     }
 
-    post('/token', data=data)
+    post('/token', data)
 
 
 @pytest.mark.parametrize(
@@ -195,7 +194,7 @@ def test_token_with_extra_values(
         'grant_type': 'client_credentials',
     }
 
-    post('/token', data=data)
+    post('/token', data)
 
     expected = refresh_token.value.copy()
     expected.update(updated)
@@ -225,7 +224,7 @@ def test_token_refresh_token_is_not_returned_from_provider(
         'grant_type': 'client_credentials',
     }
 
-    result, status = post('/token', data=data)
+    result, status = post('/token', data)
 
     expected = {'access_token': 'abc', 'token_type': 'test'}
 
@@ -253,7 +252,7 @@ def test_token_only_returns_values_from_provider(
         'grant_type': 'client_credentials',
     }
 
-    result, status = post('/token', data=data)
+    result, status = post('/token', data)
 
     expected = {'access_token': 'abc', 'token_type': 'test'}
 
@@ -284,7 +283,7 @@ def test_token_cleans_uneeded_data_from_db(post, refresh_token, requests_mock):
         'grant_type': 'client_credentials',
     }
 
-    post('/token', data=data)
+    post('/token', data)
 
     expected = {'refresh_token': 'abc'}
 
@@ -313,7 +312,7 @@ def test_token_only_returns_scope_from_db(post, refresh_token, requests_mock):
         'grant_type': 'client_credentials',
     }
 
-    result, status = post('/token', data=data)
+    result, status = post('/token', data)
 
     expected = {'access_token': 'abc', 'token_type': 'test', 'scope': 'foobar'}
 
@@ -348,7 +347,7 @@ def test_token_provider_errors(
         'grant_type': 'client_credentials',
     }
 
-    result, status = post('/token', data=data)
+    result, status = post('/token', data)
 
     assert status == expected_status
     assert result['error'] == expected_error
@@ -369,7 +368,7 @@ def test_token_provider_invalid_response(
         'grant_type': 'client_credentials',
     }
 
-    result, status = post('/token', data=data)
+    result, status = post('/token', data)
 
     assert status == 400
     assert result['error'] == INVALID_REQUEST
@@ -387,7 +386,7 @@ def test_token_provider_unavailable(post, refresh_token, requests_mock):
         'grant_type': 'client_credentials',
     }
 
-    result, status = post('/token', data=data)
+    result, status = post('/token', data)
 
     assert status == 400  # TODO: Make this a 503?
     assert result['error'] == TEMPORARILY_UNAVAILABLE
