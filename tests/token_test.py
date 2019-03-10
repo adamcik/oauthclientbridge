@@ -2,7 +2,7 @@ import base64
 
 import pytest
 
-from oauthclientbridge import app, compat, errors, crypto, db
+from oauthclientbridge import app, compat, crypto, db, errors
 
 
 @pytest.mark.parametrize(

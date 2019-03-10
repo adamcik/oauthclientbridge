@@ -1,6 +1,6 @@
 import pytest
 
-from oauthclientbridge import app, compat, errors, crypto, db
+from oauthclientbridge import app, compat, crypto, db, errors
 
 
 def test_authorize_redirects(client):

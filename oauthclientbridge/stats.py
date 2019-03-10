@@ -2,13 +2,12 @@ import os
 import re
 import time
 
+from flask import Response, request
+
 import pyprometheus
 import pyprometheus.contrib.uwsgi_features
 import pyprometheus.registry
-
-from flask import request, Response
-
-from pyprometheus.utils.exposition import registry_to_text
+import pyprometheus.utils.exposition
 
 from oauthclientbridge import compat
 
@@ -182,4 +181,5 @@ def after_request(response):
 
 
 def export_metrics():
-    return Response(registry_to_text(registry), mimetype='text/plain')
+    text = pyprometheus.utils.exposition.registry_to_text(registry)
+    return Response(text, mimetype='text/plain')

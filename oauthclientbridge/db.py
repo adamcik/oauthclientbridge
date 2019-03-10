@@ -1,6 +1,6 @@
 import contextlib
-import sqlite3
 import re
+import sqlite3
 import uuid
 
 from flask import g

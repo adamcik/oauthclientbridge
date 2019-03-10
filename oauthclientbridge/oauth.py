@@ -2,10 +2,9 @@ import email.utils
 import re
 import time
 
+from flask import jsonify, redirect as flask_redirect
 
 import requests
-
-from flask import jsonify, redirect as flask_redirect
 
 from oauthclientbridge import __version__, app, compat, errors, stats
 
