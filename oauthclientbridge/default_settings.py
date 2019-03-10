@@ -99,8 +99,9 @@ OAUTH_LOG_FILE = None
 OAUTH_LOG_FILE_LEVEL = 'INFO'
 
 # Log format for file logging.
-OAUTH_LOG_FILE_FORMAT = ('%(asctime)s %(levelname)s: %(message)s '
-                         '[in %(pathname)s:%(lineno)d]')
+OAUTH_LOG_FILE_FORMAT = (
+    '%(asctime)s %(levelname)s: %(message)s ' '[in %(pathname)s:%(lineno)d]'
+)
 
 # Max bytes to pass to the RotatingFileHandler logging handler.
 OAUTH_LOG_FILE_MAX_BYTES = 0

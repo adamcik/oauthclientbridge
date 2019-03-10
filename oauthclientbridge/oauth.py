@@ -37,7 +37,7 @@ TOKEN_ERRORS = {
 }
 
 _session = requests.Session()
-_session.headers['user-agent'] = ('oauthclientbridge %s' % __version__)
+_session.headers['user-agent'] = 'oauthclientbridge %s' % __version__
 
 
 class Error(Exception):
@@ -68,21 +68,24 @@ def error_handler(e):
     else:
         response.status_code = 400
 
-    status = status=stats.status(response.status_code)
+    status = status = stats.status(response.status_code)
     stats.ServerErrorCounter.labels(
-        endpoint=stats.endpoint(), status=status, error=e.error).inc()
+        endpoint=stats.endpoint(), status=status, error=e.error
+    ).inc()
     return response
 
 
 def fallback_error_handler(e):
     stats.ServerErrorCounter.labels(
-        endpoint=stats.endpoint(), status=stats.status(500),
-        error=SERVER_ERROR).inc()
+        endpoint=stats.endpoint(), status=stats.status(500), error=SERVER_ERROR
+    ).inc()
 
-    return jsonify({
+    error = {
         'error': SERVER_ERROR,
         'error_description': ERROR_DESCRIPTIONS[SERVER_ERROR],
-    }), 500
+    }
+
+    return jsonify(data), 500
 
 
 def nocache(response):
@@ -127,7 +130,7 @@ def fetch(uri, username, password, endpoint=None, **data):
         prefix = 'attempt #%d %s' % (i + 1, uri)
 
         # TODO: Add jitter to backoff and/or retry after?
-        backoff = (2**i - 1) * app.config['OAUTH_FETCH_BACKOFF_FACTOR']
+        backoff = (2 ** i - 1) * app.config['OAUTH_FETCH_BACKOFF_FACTOR']
         remaining_timeout = timeout - time.time()
 
         if (retry or backoff) > remaining_timeout:
@@ -156,8 +159,9 @@ def fetch(uri, username, password, endpoint=None, **data):
         elif 'error' not in result:
             break  # No error reported so might as well return it.
 
-        app.logger.debug('Result %s [status %s] [retry after %s]',
-                         prefix, status, retry)
+        app.logger.debug(
+            'Result %s [status %s] [retry after %s]', prefix, status, retry
+        )
 
     # TODO: consider returning retry after time so it can be used.
     return result
@@ -233,8 +237,12 @@ def _decode(resp):
         return resp.json()
     except ValueError as e:
         app.logger.warning(
-            'Fetching %r (HTTP %s, %s) failed: %s', resp.url, resp.status_code,
-             resp.headers.get('Content-Type', '-'), e)
+            'Fetching %r (HTTP %s, %s) failed: %s',
+            resp.url,
+            resp.status_code,
+            resp.headers.get('Content-Type', '-'),
+            e,
+        )
 
     if resp.status_code in app.config['OAUTH_FETCH_UNAVAILABLE_STATUS_CODES']:
         error = TEMPORARILY_UNAVAILABLE

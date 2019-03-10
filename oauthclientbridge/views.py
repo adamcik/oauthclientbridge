@@ -31,7 +31,8 @@ def authorize():
         response_type='code',
         redirect_uri=app.config['OAUTH_REDIRECT_URI'],
         scope=request.args.get('scope', default_scope),
-        state=session['state'])
+        state=session['state'],
+    )
 
 
 @app.route('/callback')
@@ -58,12 +59,15 @@ def callback():
             _log(error, 'Callback failed %s: %s', error, desc)
         return _error(error, desc)
 
-    result = oauth.fetch(app.config['OAUTH_TOKEN_URI'],
-                         app.config['OAUTH_CLIENT_ID'],
-                         app.config['OAUTH_CLIENT_SECRET'],
-                         grant_type='authorization_code',
-                         redirect_uri=app.config['OAUTH_REDIRECT_URI'],
-                         code=request.args.get('code'), endpoint='token')
+    result = oauth.fetch(
+        app.config['OAUTH_TOKEN_URI'],
+        app.config['OAUTH_CLIENT_ID'],
+        app.config['OAUTH_CLIENT_SECRET'],
+        grant_type='authorization_code',
+        redirect_uri=app.config['OAUTH_REDIRECT_URI'],
+        code=request.args.get('code'),
+        endpoint='token',
+    )
 
     if 'error' in result:
         error = oauth.normalize_error(result['error'], oauth.TOKEN_ERRORS)
@@ -97,30 +101,40 @@ def token():
     # TODO: allow all methods and raise invalid_request for !POST?
 
     if request.form.get('grant_type') != 'client_credentials':
-        raise oauth.Error(errors.UNSUPPORTED_GRANT_TYPE,
-                          'Only "client_credentials" is supported.')
+        raise oauth.Error(
+            errors.UNSUPPORTED_GRANT_TYPE,
+            'Only "client_credentials" is supported.',
+        )
     elif 'scope' in request.form:
-        raise oauth.Error(errors.INVALID_SCOPE,
-                          'Setting scope is not supported.')
+        raise oauth.Error(
+            errors.INVALID_SCOPE, 'Setting scope is not supported.'
+        )
     elif request.authorization and request.authorization.type != 'basic':
-        raise oauth.Error(errors.INVALID_CLIENT,
-                          'Only Basic Auth is supported.')
+        raise oauth.Error(
+            errors.INVALID_CLIENT, 'Only Basic Auth is supported.'
+        )
 
     client_id = request.form.get('client_id')
     client_secret = request.form.get('client_secret')
     if (client_id or client_secret) and request.authorization:
-        raise oauth.Error(errors.INVALID_REQUEST,
-                          'More than one mechanism for authenticating set.')
+        raise oauth.Error(
+            errors.INVALID_REQUEST,
+            'More than one mechanism for authenticating set.',
+        )
     elif request.authorization:
         client_id = request.authorization.username
         client_secret = request.authorization.password
 
     if not client_id or not client_secret:
-        raise oauth.Error(errors.INVALID_CLIENT,
-                          'Both client_id and client_secret must be set.')
+        raise oauth.Error(
+            errors.INVALID_CLIENT,
+            'Both client_id and client_secret must be set.',
+        )
     elif client_id == client_secret:
-        raise oauth.Error(errors.INVALID_CLIENT,
-                          'client_id and client_secret set to same value.')
+        raise oauth.Error(
+            errors.INVALID_CLIENT,
+            'client_id and client_secret set to same value.',
+        )
 
     try:
         token = db.lookup(client_id)
@@ -146,7 +160,9 @@ def token():
         app.config['OAUTH_CLIENT_ID'],
         app.config['OAUTH_CLIENT_SECRET'],
         grant_type=app.config['OAUTH_GRANT_TYPE'],
-        refresh_token=result['refresh_token'], endpoint='refresh')
+        refresh_token=result['refresh_token'],
+        endpoint='refresh',
+    )
 
     if 'error' in refresh_result:
         error = refresh_result['error']
@@ -164,13 +180,16 @@ def token():
         # as Authorization Code Grant access token responses. As such, just
         # raise the error we got.
         # TODO: Retry after header for error case?
-        raise oauth.Error(error,
-                          refresh_result.get('error_description'),
-                          refresh_result.get('error_uri'))
+        raise oauth.Error(
+            error,
+            refresh_result.get('error_description'),
+            refresh_result.get('error_uri'),
+        )
 
     if not oauth.validate_token(refresh_result):
-        raise oauth.Error(errors.INVALID_REQUEST,
-                          'Invalid response from provider.')
+        raise oauth.Error(
+            errors.INVALID_REQUEST, 'Invalid response from provider.'
+        )
 
     # Copy over original scope if not set in refresh.
     if 'scope' not in refresh_result and 'scope' in result:
@@ -211,15 +230,20 @@ def _error(error_code, error):
         status = 400
 
     stats.ServerErrorCounter.labels(
-        endpoint=stats.endpoint(), status=stats.status(status),
-        error=error_code).inc()
+        endpoint=stats.endpoint(), status=stats.status(status), error=error_code
+    ).inc()
 
     return _render(error=error_code, description=error), status
 
 
 def _render(client_id=None, client_secret=None, error=None, description=None):
     # Keep all the vars in something we can dump for tests with tojson.
-    variables = {'client_id': client_id, 'client_secret': client_secret,
-                 'error': error, 'description': description}
-    return render_template_string(app.config['OAUTH_CALLBACK_TEMPLATE'],
-                                  variables=variables, **variables)
+    variables = {
+        'client_id': client_id,
+        'client_secret': client_secret,
+        'error': error,
+        'description': description,
+    }
+    return render_template_string(
+        app.config['OAUTH_CALLBACK_TEMPLATE'], variables=variables, **variables
+    )

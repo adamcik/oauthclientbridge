@@ -39,9 +39,7 @@ ERROR_DESCRIPTIONS = {
         'The authorization grant type is not supported by the authorization '
         'server.'
     ),
-    INVALID_SCOPE: (
-        'The requested scope is invalid, unknown, or malformed.'
-    ),
+    INVALID_SCOPE: ('The requested scope is invalid, unknown, or malformed.'),
     SERVER_ERROR: (
         'The server encountered an unexpected condition that prevented it '
         'from fulfilling the request.'

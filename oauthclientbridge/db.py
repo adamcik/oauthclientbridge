@@ -28,7 +28,8 @@ def get():
         g._oauth_database = sqlite3.connect(
             app.config['OAUTH_DATABASE'],
             timeout=app.config['OAUTH_DATABASE_TIMEOUT'],
-            isolation_level=None)
+            isolation_level=None,
+        )
         g._oauth_database.text_factory = lambda v: v
         for pragma in app.config['OAUTH_DATABASE_PRAGMAS']:
             g._oauth_database.execute(pragma)
@@ -72,8 +73,10 @@ def insert(token):
 
     with cursor(name='insert_token', transaction=True) as c:
         # TODO: Retry creating client_id if it already exists?
-        c.execute('INSERT INTO tokens (client_id, token) VALUES (?, ?)',
-                  (client_id, token))
+        c.execute(
+            'INSERT INTO tokens (client_id, token) VALUES (?, ?)',
+            (client_id, token),
+        )
     return client_id
 
 
@@ -96,8 +99,10 @@ def lookup(client_id):
 def update(client_id, token):
     """Update a client_id with a new encrypted token."""
     with cursor(name='update_token', transaction=True) as c:
-        c.execute('UPDATE tokens SET token = ? WHERE client_id = ?',
-                  (token, client_id))
+        c.execute(
+            'UPDATE tokens SET token = ? WHERE client_id = ?',
+            (token, client_id),
+        )
         return c.rowcount
 
 
