@@ -230,7 +230,9 @@ def _error(error_code, error):
         status = 400
 
     stats.ServerErrorCounter.labels(
-        endpoint=stats.endpoint(), status=stats.status(status), error=error_code
+        endpoint=stats.endpoint(),
+        status=stats.status(status),
+        error=error_code,
     ).inc()
 
     return _render(error=error_code, description=error), status
