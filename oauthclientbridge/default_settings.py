@@ -141,5 +141,6 @@ OAUTH_LOG_EMAIL_SUBJECT = 'oauthclientbridge: %(request_base_url)s'
 OAUTH_ERROR_LOG_LEVELS = {
     'access_denied': 'INFO',
     'invalid_state': 'WARNING',
+    'invalid_request': 'WARNING',
     'temporarily_unavailable': 'INFO',
 }

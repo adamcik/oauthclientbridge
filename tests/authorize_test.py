@@ -23,11 +23,13 @@ def test_authorize_wrong_method(client):
 @pytest.mark.parametrize(
     'query,expected_error',
     [
-        ('', errors.INVALID_STATE),
+        ('', errors.INVALID_REQUEST),
         ('?code', errors.INVALID_STATE),
+        ('?state', errors.INVALID_STATE),
+        ('?state=&code=', errors.INVALID_STATE),
         ('?code=1234', errors.INVALID_STATE),
         ('?state={state}', errors.INVALID_REQUEST),
-        ('?state={state}&code', errors.INVALID_REQUEST),
+        ('?state={state}&code=', errors.INVALID_REQUEST),
         ('?state={state}&error=invalid_request', errors.INVALID_REQUEST),
         (
             '?state={state}&error=unauthorized_client',

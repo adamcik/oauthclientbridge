@@ -39,11 +39,15 @@ def authorize():
 def callback():
     """Validate callback and trade in code for a token."""
     error, desc = None, None
+    state = session.pop('state', None)
 
-    if 'state' not in session:
+    if not request.args:
+        error = errors.INVALID_REQUEST
+        desc = 'No arguments provided, request is invalid.'
+    elif state is None:
         error = errors.INVALID_STATE
         desc = 'Client state is not set, this page was probably refreshed.'
-    elif session.pop('state') != request.args.get('state'):
+    elif state != request.args.get('state'):
         error = errors.INVALID_STATE
         desc = 'Client state does not match callback state.'
     elif 'error' in request.args:
