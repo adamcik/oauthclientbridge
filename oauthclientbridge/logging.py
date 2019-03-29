@@ -18,8 +18,14 @@ class ContextualFilter(Filter):
 
 
 class CustomSMTPHandler(SMTPHandler):
+    def __init__(self, mailhost, fromaddr, toaddrs, subject):
+        super(CustomSMTPHandler, self).__init__(
+            mailhost, fromaddr, toaddrs, subject
+        )
+        self.subject_formatter = Formatter(subject)
+
     def getSubject(self, record):  # noqa: N802
-        return self.subject.format(record).replace('\n', '')
+        return self.subject_formatter.format(record).replace('\n', '')
 
 
 context_provider = ContextualFilter()
@@ -38,12 +44,11 @@ if app.config['OAUTH_LOG_FILE']:
 
 
 if not app.debug and app.config['OAUTH_LOG_EMAIL']:
-    subject_formatter = Formatter(app.config['OAUTH_LOG_EMAIL_SUBJECT'])
     mail_handler = CustomSMTPHandler(
         app.config['OAUTH_LOG_EMAIL_HOST'],
         app.config['OAUTH_LOG_EMAIL_FROM'],
         app.config['OAUTH_LOG_EMAIL'],
-        subject_formatter,
+        app.config['OAUTH_LOG_EMAIL_SUBJECT'],
     )
     mail_handler.setFormatter(Formatter(app.config['OAUTH_LOG_EMAIL_FORMAT']))
     mail_handler.setLevel(app.config['OAUTH_LOG_EMAIL_LEVEL'])

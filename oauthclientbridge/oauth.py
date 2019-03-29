@@ -172,10 +172,10 @@ def fetch(uri, username, password, endpoint=None, **data):
 def _fetch(prepared, timeout, endpoint):
     # Make sure we always have at least a minimal timeout.
     timeout = max(1.0, min(app.config['OAUTH_FETCH_TIMEOUT'], timeout))
+    start_time = time.time()
 
     try:
         # TODO: switch to a context for tracking time.
-        start_time = time.time()
         resp = _session.send(prepared, timeout=timeout)
     except requests.exceptions.RequestException as e:
         request_latency = time.time() - start_time
