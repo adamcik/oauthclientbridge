@@ -40,9 +40,12 @@ def callback():
     """Validate callback and trade in code for a token."""
     error, desc = None, None
 
-    if session.pop('state', object()) != request.args.get('state'):
+    if 'state' not in session:
         error = errors.INVALID_STATE
-        desc = 'Client state does not match callback state, possible replay.'
+        desc = 'Client state is not set, this page was probably refreshed.'
+    elif session.pop('state') != request.args.get('state'):
+        error = errors.INVALID_STATE
+        desc = 'Client state does not match callback state.'
     elif 'error' in request.args:
         error = request.args['error']
         error = oauth.normalize_error(error, oauth.AUTHORIZATION_ERRORS)
