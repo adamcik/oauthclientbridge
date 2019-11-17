@@ -25,7 +25,7 @@ class CustomSMTPHandler(SMTPHandler):
         self.subject_formatter = Formatter(subject)
 
     def getSubject(self, record):  # noqa: N802
-        return self.subject_formatter.format(record).replace('\n', '')
+        return self.subject_formatter.format(record).split('\n')[0]
 
 
 context_provider = ContextualFilter()
