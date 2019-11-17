@@ -109,7 +109,7 @@ def test_token_basic_auth(post, access_token):
         b'Basic Og==',  # ':'
         b'Basic ',  # ''
         b'Basic 4zpiYXI=',  # '\xe3o:bar'
-        b'Basic 6TpiYXI=',  #\xE9:bar'
+        b'Basic 6TpiYXI=',  # \xE9:bar'
         b'Basic ==',  # invalid
         b'Basic xyz',  # invalid
     ],
