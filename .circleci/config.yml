@@ -8,15 +8,15 @@ workflows:
   test:
     jobs:
       - py27
-      - py35
       - py37
+      - py38
       - black
       - flake8
 
 jobs:
-  py37: &test-template
+  py38: &test-template
     docker:
-      - image: circleci/python:3.7
+      - image: circleci/python:3.8
     steps:
       - checkout
       - run:
@@ -49,10 +49,10 @@ jobs:
     docker:
       - image: circleci/python:2.7
 
-  py35:
+  py37:
     <<: *test-template
     docker:
-      - image: circleci/python:3.5
+      - image: circleci/python:3.7
 
   flake8: *test-template
 
