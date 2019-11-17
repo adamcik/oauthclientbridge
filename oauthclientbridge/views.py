@@ -59,11 +59,14 @@ def callback():
         desc = 'Authorization code missing from provider callback.'
 
     if error is not None:
+        level = app.config['OAUTH_ERROR_LOG_LEVELS'].get(error, 'ERROR')
+        level = logging.getLevelName(level)
+
+        msg = 'Callback failed %s: %s' % (error, desc)
         if error == errors.INVALID_SCOPE:
-            scope = request.args.get('scope')
-            _log(error, 'Callback failed %s: %s - %r', error, desc, scope)
-        else:
-            _log(error, 'Callback failed %s: %s', error, desc)
+            msg += ' - %r' % request.args.get('scope')
+        app.logger.log(level, msg)
+
         return _error(error, desc)
 
     result = oauth.fetch(
@@ -229,12 +232,6 @@ def token():
 @app.route('/metrics', methods=['GET'])
 def metrics():
     return stats.export_metrics()
-
-
-def _log(error, msg, *args, **kwargs):
-    level = app.config['OAUTH_ERROR_LOG_LEVELS'].get(error, 'ERROR')
-    level = logging.getLevelName(level)
-    app.logger.log(level, msg, *args, **kwargs)
 
 
 def _error(error_code, error):
