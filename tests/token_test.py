@@ -100,6 +100,31 @@ def test_token_basic_auth(post, access_token):
     assert access_token.value == result
 
 
+@pytest.mark.parametrize(
+    'base64_basic_auth',
+    [
+        b'Basic Zm9vOmJhcg==',  # 'foo:bar'
+        b'Basic Zm9vOg==',  # 'foo:'
+        b'Basic OmJhcg==',  # ':bar'
+        b'Basic Og==',  # ':'
+        b'Basic ',  # ''
+        b'Basic 4zpiYXI=',  # '\xe3o:bar'
+        b'Basic 6TpiYXI=',  #\xE9:bar'
+        b'Basic ==',  # invalid
+        b'Basic xyz',  # invalid
+    ],
+)
+def test_token_bad_basic_auth(post, base64_basic_auth):
+    headers = {'Authorization': base64_basic_auth}
+
+    data = {'grant_type': 'client_credentials'}
+
+    result, status = post('/token', data, headers=headers)
+
+    assert status == 401
+    assert result['error'] == errors.INVALID_CLIENT
+
+
 def test_token_wrong_method(client):
     resp = client.get('/token')
     assert resp.status_code == 405

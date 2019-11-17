@@ -116,21 +116,28 @@ def token():
         raise oauth.Error(
             errors.INVALID_SCOPE, 'Setting scope is not supported.'
         )
-    elif request.authorization and request.authorization.type != 'basic':
+
+    try:
+        # Trigger decoding base64 value that might have bad Unicode data.
+        authorization = request.authorization
+    except ValueError:
+        authorization = None
+
+    if authorization and authorization.type != 'basic':
         raise oauth.Error(
             errors.INVALID_CLIENT, 'Only Basic Auth is supported.'
         )
 
     client_id = request.form.get('client_id')
     client_secret = request.form.get('client_secret')
-    if (client_id or client_secret) and request.authorization:
+    if (client_id or client_secret) and authorization:
         raise oauth.Error(
             errors.INVALID_REQUEST,
             'More than one mechanism for authenticating set.',
         )
-    elif request.authorization:
-        client_id = request.authorization.username
-        client_secret = request.authorization.password
+    elif authorization:
+        client_id = authorization.username
+        client_secret = authorization.password
 
     if not client_id or not client_secret:
         raise oauth.Error(

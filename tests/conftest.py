@@ -45,12 +45,13 @@ def get(client):
 
 @pytest.fixture
 def post(client):
-    def _post(path, data, auth=None):
+    def _post(path, data, auth=None, headers=None):
+        if not headers:
+            headers = {}
+
         if auth:
             encoded = base64.b64encode(('%s:%s' % auth).encode('ascii'))
-            headers = {'Authorization': b'Basic %s' % encoded}
-        else:
-            headers = {}
+            headers['Authorization'] = b'Basic %s' % encoded
 
         resp = client.post(path, headers=headers, data=data)
         return json.loads(resp.data.decode('utf-8')), resp.status_code
