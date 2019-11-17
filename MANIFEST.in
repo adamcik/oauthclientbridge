@@ -1,1 +1,19 @@
+exclude *.db
+exclude *.sqlite
+exclude config.py
+
+include *.rst
+include .mailmap
+include LICENSE
+include MANIFEST.in
+include pyproject.toml
+include tox.ini
+
+recursive-include .circleci *
+recursive-include .github *
+
+recursive-include tests *.py
+recursive-include tests/data *
+
 include oauthclientbridge/schema.sql
+
