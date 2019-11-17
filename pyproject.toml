@@ -3,6 +3,6 @@ requires = ["setuptools >= 30.3.0", "wheel"]
 
 
 [tool.black]
-target-version = ["py37", "py38"]
+target-version = ["py27", "py36", "py37", "py38"]
 line-length = 80
 skip-string-normalization = true
