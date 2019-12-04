@@ -66,6 +66,13 @@ def state(client):
     return 'abcdef'
 
 
+@pytest.fixture
+def client_state(client):
+    with client.session_transaction() as session:
+        session['client_state'] = 's3cret'
+    return 's3cret'
+
+
 def _test_token(**data):
     client_secret = crypto.generate_key()
     token = crypto.dumps(client_secret, data)

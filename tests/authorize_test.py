@@ -43,17 +43,16 @@ def test_authorize_client_state(client):
         assert session['client_state'] == 's3cret'
 
 
-def test_callback_authorization_client_state(client, get, state, requests_mock):
-    with client.session_transaction() as session:
-        session['client_state'] = 's3cret'
-
+def test_callback_authorization_client_state(
+    client, get, client_state, state, requests_mock
+):
     data = {'token_type': 'Bearer', 'access_token': '1234567890'}
     requests_mock.post(app.config['OAUTH_TOKEN_URI'], json=data)
 
     result, _ = get('/callback?code=1234&state=' + state)
 
     with client.session_transaction() as session:
-        assert result['state'] == 's3cret'
+        assert result['state'] == client_state
         assert 'client_state' not in session
 
 
@@ -86,15 +85,14 @@ def test_callback_authorization_client_state(client, get, state, requests_mock):
         ('?state={state}&error=badErrorCode', errors.SERVER_ERROR),
     ],
 )
-def test_callback_error_handling(query, expected_error, client, get, state):
-    with client.session_transaction() as session:
-        session['client_state'] = 's3cret'
-
+def test_callback_error_handling(
+    query, expected_error, client_state, get, state
+):
     result, status = get('/callback' + query.format(state=state))
 
     assert status == 400
     assert result['error'] == expected_error
-    assert result['state'] == 's3cret'
+    assert result['state'] == client_state
 
 
 # TODO: Revisit all of the status codes returned, since this is not an API
