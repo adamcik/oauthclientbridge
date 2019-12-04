@@ -45,6 +45,7 @@ def authorize():
 def callback():
     """Validate callback and trade in code for a token."""
     error, desc = None, None
+    client_state = session.pop('client_state', None)
     state = session.pop('state', None)
 
     if not request.args:
@@ -52,10 +53,10 @@ def callback():
         desc = 'No arguments provided, request is invalid.'
     elif state is None:
         error = errors.INVALID_STATE
-        desc = 'Client state is not set, this page was probably refreshed.'
+        desc = 'State is not set, this page was probably refreshed.'
     elif state != request.args.get('state'):
         error = errors.INVALID_STATE
-        desc = 'Client state does not match callback state.'
+        desc = 'State does not match callback state.'
     elif 'error' in request.args:
         error = request.args['error']
         error = oauth.normalize_error(error, oauth.AUTHORIZATION_ERRORS)
@@ -73,7 +74,7 @@ def callback():
             msg += ' - %r' % request.args.get('scope')
         app.logger.log(level, msg)
 
-        return _error(error, desc)
+        return _error(error, desc, client_state)
 
     result = oauth.fetch(
         app.config['OAUTH_TOKEN_URI'],
@@ -94,7 +95,7 @@ def callback():
 
     if error is not None:
         app.logger.warning('Retrieving token failed: %s', result)
-        return _error(error, desc)
+        return _error(error, desc, client_state)
 
     if 'refresh_token' in result:
         result = oauth.scrub_refresh_token(result)
@@ -106,12 +107,12 @@ def callback():
         client_id = db.insert(token)
     except db.IntegrityError:
         app.log.warning('Could not get unique client id.')
-        return _error('integrity_error', 'Database integrity error.')
+        return _error(
+            'integrity_error', 'Database integrity error.', client_state
+        )
 
     return _render(
-        client_id=client_id,
-        client_secret=client_secret,
-        state=session.pop('client_state', None),
+        client_id=client_id, client_secret=client_secret, state=client_state
     )
 
 
@@ -244,7 +245,7 @@ def metrics():
     return stats.export_metrics()
 
 
-def _error(error_code, error):
+def _error(error_code, error, state=None):
     if error_code == errors.INVALID_CLIENT:
         status = 401
     else:
@@ -254,7 +255,7 @@ def _error(error_code, error):
         endpoint=stats.endpoint(), status=stats.status(status), error=error_code
     ).inc()
 
-    return _render(error=error_code, description=error), status
+    return _render(error=error_code, description=error, state=state), status
 
 
 def _render(

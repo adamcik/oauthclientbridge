@@ -86,11 +86,15 @@ def test_callback_authorization_client_state(client, get, state, requests_mock):
         ('?state={state}&error=badErrorCode', errors.SERVER_ERROR),
     ],
 )
-def test_callback_error_handling(query, expected_error, get, state):
+def test_callback_error_handling(query, expected_error, client, get, state):
+    with client.session_transaction() as session:
+        session['client_state'] = 's3cret'
+
     result, status = get('/callback' + query.format(state=state))
 
     assert status == 400
     assert result['error'] == expected_error
+    assert result['state'] == 's3cret'
 
 
 # TODO: Revisit all of the status codes returned, since this is not an API
