@@ -22,6 +22,10 @@ app.after_request(stats.after_request)
 def authorize():
     """Store random state in session cookie and redirect to auth endpoint."""
 
+    redirect_uri = request.args.get('redirect_uri')
+    if redirect_uri and redirect_uri != app.config['OAUTH_REDIRECT_URI']:
+        return _error(errors.INVALID_REQUEST, 'Wrong redirect_uri.')
+
     default_scope = ' '.join(app.config['OAUTH_SCOPES'] or [])
     session['state'] = crypto.generate_key()
 
