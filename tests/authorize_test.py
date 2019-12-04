@@ -1,8 +1,3 @@
-try:
-    from urllib.parse import urlencode
-except ImportError:
-    from urllib import urlencode
-
 import pytest
 
 from oauthclientbridge import app, compat, crypto, db, errors
@@ -26,12 +21,14 @@ def test_authorize_wrong_method(client):
 
 def test_authorize_redirect_uri(client):
     redirect_uri = app.config['OAUTH_REDIRECT_URI']
-    resp = client.get('/?%s' % urlencode({'redirect_uri': redirect_uri}))
+    url = '/?%s' % compat.urlencode({'redirect_uri': redirect_uri})
+    resp = client.get(url)
     assert resp.status_code == 302
 
 
 def test_authorize_wrong_redirect_uri(client):
-    resp = client.get('/?%s' % urlencode({'redirect_uri': 'wrong-value'}))
+    url = '/?%s' % compat.urlencode({'redirect_uri': 'wrong-value'})
+    resp = client.get(url)
     assert resp.status_code == 400
 
 
