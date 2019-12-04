@@ -12,11 +12,10 @@ def test_authorize_redirects(client):
     resp = client.get('/')
     location = compat.urlsplit(resp.location)
 
-    assert resp.status_code == 302
-    assert location.netloc == 'provider.example.com'
-    assert location.path == '/auth'
-
     with client.session_transaction() as session:
+        assert resp.status_code == 302
+        assert location.netloc == 'provider.example.com'
+        assert location.path == '/auth'
         assert 'state' in session
 
 
@@ -34,6 +33,28 @@ def test_authorize_redirect_uri(client):
 def test_authorize_wrong_redirect_uri(client):
     resp = client.get('/?%s' % urlencode({'redirect_uri': 'wrong-value'}))
     assert resp.status_code == 400
+
+
+def test_authorize_client_state(client):
+    resp = client.get('/?state=s3cret')
+
+    with client.session_transaction() as session:
+        assert resp.status_code == 302
+        assert session['client_state'] == 's3cret'
+
+
+def test_callback_authorization_client_state(client, get, state, requests_mock):
+    with client.session_transaction() as session:
+        session['client_state'] = 's3cret'
+
+    data = {'token_type': 'Bearer', 'access_token': '1234567890'}
+    requests_mock.post(app.config['OAUTH_TOKEN_URI'], json=data)
+
+    result, _ = get('/callback?code=1234&state=' + state)
+
+    with client.session_transaction() as session:
+        assert result['state'] == 's3cret'
+        assert 'client_state' not in session
 
 
 @pytest.mark.parametrize(

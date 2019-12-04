@@ -27,6 +27,8 @@ def authorize():
         return _error(errors.INVALID_REQUEST, 'Wrong redirect_uri.')
 
     default_scope = ' '.join(app.config['OAUTH_SCOPES'] or [])
+
+    session['client_state'] = request.args.get('state')
     session['state'] = crypto.generate_key()
 
     return oauth.redirect(
@@ -106,7 +108,11 @@ def callback():
         app.log.warning('Could not get unique client id.')
         return _error('integrity_error', 'Database integrity error.')
 
-    return _render(client_id=client_id, client_secret=client_secret)
+    return _render(
+        client_id=client_id,
+        client_secret=client_secret,
+        state=session.pop('client_state', None),
+    )
 
 
 @app.route('/token', methods=['POST'])
@@ -251,11 +257,14 @@ def _error(error_code, error):
     return _render(error=error_code, description=error), status
 
 
-def _render(client_id=None, client_secret=None, error=None, description=None):
+def _render(
+    client_id=None, client_secret=None, state=None, error=None, description=None
+):
     # Keep all the vars in something we can dump for tests with tojson.
     variables = {
         'client_id': client_id,
         'client_secret': client_secret,
+        'state': state,
         'error': error,
         'description': description,
     }
