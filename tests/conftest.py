@@ -12,7 +12,7 @@ TestToken = collections.namedtuple(
 
 
 @pytest.fixture
-def client():
+def app_context():
     app.config.update(
         {
             'TESTING': True,
@@ -27,11 +27,14 @@ def client():
         }
     )
 
-    client = app.test_client()
-
-    with app.app_context():
+    with app.app_context() as ctx:
         db.initialize()
-        yield client
+        yield ctx
+
+
+@pytest.fixture
+def client(app_context):
+    yield app.test_client()
 
 
 @pytest.fixture
