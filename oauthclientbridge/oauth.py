@@ -2,12 +2,11 @@ import email.utils
 import re
 import time
 
-from flask import jsonify, redirect as flask_redirect
-
 import requests
+from flask import jsonify
+from flask import redirect as flask_redirect
 
 from oauthclientbridge import __version__, app, compat, errors, stats
-
 
 # https://tools.ietf.org/html/rfc6749#section-4.1.2.1
 AUTHORIZATION_ERRORS = {

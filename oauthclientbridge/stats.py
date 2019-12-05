@@ -2,12 +2,11 @@ import os
 import re
 import time
 
-from flask import Response, request
-
 import pyprometheus
 import pyprometheus.contrib.uwsgi_features
 import pyprometheus.registry
 import pyprometheus.utils.exposition
+from flask import Response, request
 
 from oauthclientbridge import compat
 
