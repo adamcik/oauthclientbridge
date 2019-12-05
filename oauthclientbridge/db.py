@@ -71,6 +71,9 @@ def insert(token):
     """Store encrypted token and return what client_id it was stored under."""
     client_id = generate_id()
 
+    if isinstance(token, bytes):
+        token = token.decode('ascii')
+
     with cursor(name='insert_token', transaction=True) as c:
         # TODO: Retry creating client_id if it already exists?
         c.execute(
@@ -92,12 +95,18 @@ def lookup(client_id):
 
     if row is None:
         raise LookupError('Client not found.')
+    elif row[0]:
+        return bytes(row[0])
     else:
-        return row[0]
+        return None
 
 
 def update(client_id, token):
     """Update a client_id with a new encrypted token."""
+
+    if isinstance(token, bytes):
+        token = token.decode('ascii')
+
     with cursor(name='update_token', transaction=True) as c:
         c.execute(
             'UPDATE tokens SET token = ? WHERE client_id = ?',

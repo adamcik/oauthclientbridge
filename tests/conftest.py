@@ -38,6 +38,12 @@ def client(app_context):
 
 
 @pytest.fixture
+def cursor(app_context):
+    with db.get() as connection:
+        yield connection.cursor()
+
+
+@pytest.fixture
 def get(client):
     def _get(path):
         resp = client.get(path)
