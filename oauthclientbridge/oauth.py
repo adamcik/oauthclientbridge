@@ -42,7 +42,7 @@ _session.headers['user-agent'] = 'oauthclientbridge %s' % __version__
 
 class Error(Exception):
     def __init__(self, error, description=None, uri=None, retry_after=None):
-        # type: (Text, Text, Text, int) -> None
+        # type: (Text, Optional[Text], Optional[Text], Optional[int]) -> None
         self.error = error
         self.description = description
         self.uri = uri
@@ -117,7 +117,7 @@ def scrub_refresh_token(token):  # type: (Dict[Text, Any]) -> Dict[Text, Any]
 
 
 def fetch(uri, username, password, endpoint=None, **data):
-    # type: (Text, Text, Text, Text, **Any) -> Dict[Text, Any]
+    # type: (Text, Text, Text, Optional[Text], **Any) -> Dict[Text, Any]
     """Perform post given URI with auth and provided data."""
     req = requests.Request('POST', uri, auth=(username, password), data=data)
     prepared = req.prepare()
@@ -173,7 +173,7 @@ def fetch(uri, username, password, endpoint=None, **data):
 def _fetch(
     prepared,  # type: requests.PreparedRequest
     timeout,  # type: float
-    endpoint=None,  # type: Text
+    endpoint=None,  # type: Optional[Text]
 ):  # type: (...) -> Tuple[Dict[Text, Any], Optional[int], int]
 
     # Make sure we always have at least a minimal timeout.

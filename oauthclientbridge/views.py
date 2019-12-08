@@ -253,7 +253,7 @@ def metrics():  # () -> flask.Response
 
 
 def _error(error_code, error=None, state=None):
-    # type: (Text, Text, Text) -> flask.Response
+    # type: (Text, Optional[Text], Optional[Text]) -> flask.Response
     if error_code == errors.INVALID_CLIENT:
         status = 401
     else:
@@ -269,9 +269,12 @@ def _error(error_code, error=None, state=None):
 
 
 def _render(
-    client_id=None, client_secret=None, state=None, error=None, description=None
-):
-    # type: (Text, Text, Text, Text, Text) -> flask.Response
+    client_id=None,  # type: Optional[Text]
+    client_secret=None,  # type: Optional[Text]
+    state=None,  # type: Optional[Text]
+    error=None,  # type: Optional[Text]
+    description=None,  # type: Optional[Text]
+):  # type: (...) -> flask.Response
     # Keep all the vars in something we can dump for tests with tojson.
     variables = {
         'client_id': client_id,
