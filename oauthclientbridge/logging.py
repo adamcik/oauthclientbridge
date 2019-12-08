@@ -9,7 +9,7 @@ from flask import request
 from oauthclientbridge import app
 
 if typing.TYPE_CHECKING:
-    from typing import Any, List, Text, Tuple, Union
+    from typing import Any, List, Text, Tuple, Union  # noqa: F401
 
 
 class ContextualFilter(logging.Filter):

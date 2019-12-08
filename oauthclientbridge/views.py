@@ -200,8 +200,9 @@ def token():  # type: () -> flask.Response
     )
 
     if 'error' in refresh_result:
-        error = refresh_result['error']
-        error = oauth.normalize_error(error, oauth.TOKEN_ERRORS)
+        error = oauth.normalize_error(
+            refresh_result['error'], oauth.TOKEN_ERRORS
+        )
 
         if error == errors.INVALID_GRANT:
             db.update(client_id, None)
