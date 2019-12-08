@@ -59,3 +59,7 @@ jobs:
   check-manifest: *test-template
 
   black: *test-template
+
+  mypy: *test-template
+
+  mypy2: *test-template

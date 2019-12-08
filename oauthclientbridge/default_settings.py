@@ -1,3 +1,5 @@
+from typing import List, Optional, Text  # noqa
+
 # Secret key used for encrypting session cookies used in initial OAuth flow,
 # MUST be set.
 #
@@ -10,10 +12,10 @@
 #
 # Also make sure you have secure access to this file _and_ the directory it's
 # in to keep it from leaking via .pyc files.
-SECRET_KEY = None
+SECRET_KEY = None  # type: Optional[bytes]
 
 # SQLite3 database to store tokens information in, MUST be set.
-OAUTH_DATABASE = None
+OAUTH_DATABASE = None  # type: Optional[Text]
 
 # SQlite3 database timeout to use at "connection" time.
 OAUTH_DATABASE_TIMEOUT = 5
@@ -22,25 +24,25 @@ OAUTH_DATABASE_TIMEOUT = 5
 OAUTH_DATABASE_PRAGMAS = ['PRAGMA journal_mode = WAL']
 
 # Client ID and secret provided by upstream OAuth provider, MUST be set.
-OAUTH_CLIENT_ID = None
-OAUTH_CLIENT_SECRET = None
+OAUTH_CLIENT_ID = None  # type: Optional[Text]
+OAUTH_CLIENT_SECRET = None  # type: Optional[Text]
 
 # Type of grant to request from upstream.
 OAUTH_GRANT_TYPE = 'refresh_token'
 
 # List of OAuth scopes to request from the upstream provider:
-OAUTH_SCOPES = []
+OAUTH_SCOPES = []  # type: List[Text]
 
 # Upstream authorization URI to redirect users to, MUST be set.
-OAUTH_AUTHORIZATION_URI = None
+OAUTH_AUTHORIZATION_URI = None  # type: Optional[Text]
 
 # Upstream token and refresh URIs. The token URI MUST be set, while the refresh
 # one will fallback to the token URI.
-OAUTH_TOKEN_URI = None
-OAUTH_REFRESH_URI = None
+OAUTH_TOKEN_URI = None  # type: Optional[Text]
+OAUTH_REFRESH_URI = None  # type: Optional[Text]
 
 # Overall allowed timeout across all retires, backoff and retry-after time.
-OAUTH_FETCH_TOTAL_TIMEOUT = 20
+OAUTH_FETCH_TOTAL_TIMEOUT = 20.0
 
 # Number of seconds to wait for initial connection and subsequent reads to
 # upstream OAuth endpoint for a single fetch attempt.
@@ -50,11 +52,11 @@ OAUTH_FETCH_TIMEOUT = 5.0
 OAUTH_FETCH_TOTAL_RETRIES = 3
 
 # Status codes that should be considered retryable for oauth.
-OAUTH_FETCH_RETRY_STATUS_CODES = (429, 500, 502, 503, 504)
+OAUTH_FETCH_RETRY_STATUS_CODES = [429, 500, 502, 503, 504]
 
 # Status codes to treat as temporarily_unavailable when we can't decode the
 # repsonse. Remaining status codes treated as server_error.
-OAUTH_FETCH_UNAVAILABLE_STATUS_CODES = (429, 502, 503, 504)
+OAUTH_FETCH_UNAVAILABLE_STATUS_CODES = [429, 502, 503, 504]
 
 # Non-standard oauth errors and what standard errors to translate them to.
 OAUTH_FETCH_ERROR_TYPES = {'errorTransient': 'temporarily_unavailable'}
@@ -93,7 +95,7 @@ OAUTH_CALLBACK_TEMPLATE = """
 OAUTH_NUM_PROXIES = 0
 
 # Additional log file for application level logging, set to None to disable.
-OAUTH_LOG_FILE = None
+OAUTH_LOG_FILE = None  # type: Optional[Text]
 
 # Log level for file logging.
 OAUTH_LOG_FILE_LEVEL = 'INFO'
@@ -110,7 +112,7 @@ OAUTH_LOG_FILE_MAX_BYTES = 0
 OAUTH_LOG_FILE_BACKUP_COUNT = 0
 
 # List of addresses to send logging emails to, leave empty to disable.
-OAUTH_LOG_EMAIL = []
+OAUTH_LOG_EMAIL = []  # type: List[Text]
 
 # Log level for email logging.
 OAUTH_LOG_EMAIL_LEVEL = 'ERROR'
