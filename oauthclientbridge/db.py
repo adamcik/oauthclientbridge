@@ -29,11 +29,12 @@ def initialize():  # type: () -> None
 def get():  # type: () -> sqlite3.Connection
     """Get singleton SQLite database connection."""
     if getattr(g, '_oauth_database', None) is None:
-        g._oauth_database = sqlite3.connect(
+        connection = sqlite3.connect(
             app.config['OAUTH_DATABASE'],
             timeout=app.config['OAUTH_DATABASE_TIMEOUT'],
             isolation_level=None,
         )
+        g._oauth_database = connection
         g._oauth_database.text_factory = lambda v: v
         for pragma in app.config['OAUTH_DATABASE_PRAGMAS']:
             g._oauth_database.execute(pragma)
@@ -118,11 +119,11 @@ def update(client_id, token):  # type: (Text, Union[bytes, Text, None]) -> int
             'UPDATE tokens SET token = ? WHERE client_id = ?',
             (token, client_id),
         )
-        return c.rowcount
+        return int(c.rowcount)
 
 
 @app.teardown_appcontext
-def close(exception):
+def close(exception):  # type: (Optional[Exception]) -> None
     """Ensure that connection gets closed when app teardown happens."""
     if getattr(g, '_oauth_database', None) is None:
         return
