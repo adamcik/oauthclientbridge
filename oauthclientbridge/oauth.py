@@ -18,7 +18,6 @@ if typing.TYPE_CHECKING:
         Text,
         Union,
     )
-    import werkzeug  # noqa: F401
 
 
 # https://tools.ietf.org/html/rfc6749#section-4.1.2.1
@@ -290,8 +289,10 @@ def _parse_retry(value):  # type: (Text) -> int
     return max(0, seconds)
 
 
-def redirect(uri, **params):  # type: (Text, **Text) -> werkzeug.Response
-    return flask.redirect(_rewrite_uri(uri, params))
+def redirect(uri, **params):  # type: (Text, **Text) -> flask.Response
+    return flask.Response(
+        status=302, headers={'Location': _rewrite_uri(uri, params)}
+    )
 
 
 def _rewrite_query(original, params):
