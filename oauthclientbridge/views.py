@@ -248,7 +248,7 @@ def token():  # type: () -> flask.Response
 
 
 @app.route('/metrics', methods=['GET'])
-def metrics():  # () -> flask.Response
+def metrics():  # type: () -> flask.Response
     return stats.export_metrics()
 
 

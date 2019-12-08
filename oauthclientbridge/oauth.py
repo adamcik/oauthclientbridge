@@ -120,7 +120,7 @@ def fetch(uri, username, password, endpoint=None, **data):
     # type: (Text, Text, Text, Optional[Text], **Any) -> Dict[Text, Any]
     """Perform post given URI with auth and provided data."""
     req = requests.Request('POST', uri, auth=(username, password), data=data)
-    prepared = req.prepare()
+    prepared = req.prepare()  # type: requests.PreparedRequest
 
     timeout = time.time() + app.config['OAUTH_FETCH_TOTAL_TIMEOUT']
     retry = 0
@@ -174,7 +174,7 @@ def _fetch(
     prepared,  # type: requests.PreparedRequest
     timeout,  # type: float
     endpoint=None,  # type: Optional[Text]
-):  # type: (...) -> Tuple[Dict[Text, Any], Optional[int], int]
+):  # type: (...) -> Tuple[Dict[Text, Any], int, int]
 
     # Make sure we always have at least a minimal timeout.
     timeout = max(1.0, min(app.config['OAUTH_FETCH_TIMEOUT'], timeout))
@@ -216,7 +216,7 @@ def _fetch(
         # Server error isn't allowed everywhere, but fixing this has been
         # brought up in https://www.rfc-editor.org/errata_search.php?eid=4745
         result = _error(errors.SERVER_ERROR, description)
-        status_code = None
+        status_code = 504
         length = None
         retry_after = 0
     else:
