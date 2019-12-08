@@ -1,10 +1,15 @@
 from __future__ import absolute_import
 
 import logging
+import typing
 
 import flask
 
 from oauthclientbridge import app, crypto, db, errors, oauth, stats
+
+if typing.TYPE_CHECKING:
+    from typing import Optional, Text  # noqa: F401
+
 
 # Disable caching across the board.
 app.after_request(oauth.nocache)
@@ -19,7 +24,7 @@ app.after_request(stats.after_request)
 
 
 @app.route('/')
-def authorize():
+def authorize():  # type: () -> flask.Response
     """Store random state in session cookie and redirect to auth endpoint."""
 
     redirect_uri = flask.request.args.get('redirect_uri')
@@ -42,9 +47,10 @@ def authorize():
 
 
 @app.route('/callback')
-def callback():
+def callback():  # type: () -> flask.Response
     """Validate callback and trade in code for a token."""
-    error, desc = None, None
+    error = None  # type: Optional[Text]
+    desc = None  # type: Optional[Text]
     client_state = flask.session.pop('client_state', None)
     state = flask.session.pop('state', None)
 
@@ -59,8 +65,9 @@ def callback():
         desc = 'State does not match callback state.'
     elif 'error' in flask.request.args:
         error = flask.request.args['error']
-        error = oauth.normalize_error(error, oauth.AUTHORIZATION_ERRORS)
-        desc = errors.DESCRIPTIONS[error]
+        if error is not None:
+            error = oauth.normalize_error(error, oauth.AUTHORIZATION_ERRORS)
+            desc = errors.DESCRIPTIONS[error]
     elif not flask.request.args.get('code'):
         error = errors.INVALID_REQUEST
         desc = 'Authorization code missing from provider callback.'
@@ -117,7 +124,7 @@ def callback():
 
 
 @app.route('/token', methods=['POST'])
-def token():
+def token():  # type: () -> flask.Response
     """Validate token request, refreshing when needed."""
     # TODO: allow all methods and raise invalid_request for !POST?
 
@@ -241,11 +248,12 @@ def token():
 
 
 @app.route('/metrics', methods=['GET'])
-def metrics():
+def metrics():  # () -> flask.Response
     return stats.export_metrics()
 
 
-def _error(error_code, error, state=None):
+def _error(error_code, error=None, state=None):
+    # type: (Text, Text, Text) -> flask.Response
     if error_code == errors.INVALID_CLIENT:
         status = 401
     else:
@@ -255,12 +263,15 @@ def _error(error_code, error, state=None):
         endpoint=stats.endpoint(), status=stats.status(status), error=error_code
     ).inc()
 
-    return _render(error=error_code, description=error, state=state), status
+    response = _render(error=error_code, description=error, state=state)
+    response.status_code = status
+    return response
 
 
 def _render(
     client_id=None, client_secret=None, state=None, error=None, description=None
 ):
+    # type: (Text, Text, Text, Text, Text) -> flask.Response
     # Keep all the vars in something we can dump for tests with tojson.
     variables = {
         'client_id': client_id,
@@ -269,6 +280,11 @@ def _render(
         'error': error,
         'description': description,
     }
-    return flask.render_template_string(
-        app.config['OAUTH_CALLBACK_TEMPLATE'], variables=variables, **variables
+    return flask.Response(
+        flask.render_template_string(
+            app.config['OAUTH_CALLBACK_TEMPLATE'],
+            variables=variables,
+            **variables
+        ).encode('utf-8'),
+        content_type='text/html; charset=UTF-8',
     )

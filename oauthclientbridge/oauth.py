@@ -9,15 +9,7 @@ import requests
 from oauthclientbridge import __version__, app, compat, errors, stats
 
 if typing.TYPE_CHECKING:
-    from typing import (  # noqa: F401
-        Any,
-        Dict,
-        Optional,
-        Sequence,
-        Tuple,
-        Text,
-        Union,
-    )
+    from typing import Any, Dict, Optional, Set, Tuple, Text  # noqa: F401
 
 
 # https://tools.ietf.org/html/rfc6749#section-4.1.2.1
@@ -106,10 +98,9 @@ def nocache(response):  # type: (flask.Response) -> flask.Response
     return response
 
 
-def normalize_error(error, error_types):  # type: (Text, Sequence[Text]) -> Text
+def normalize_error(error, error_types):  # type: (Text, Set[str]) -> Text
     """Translate any "bad" error types to something more usable."""
     error = app.config['OAUTH_FETCH_ERROR_TYPES'].get(error, error)
-
     if error not in error_types:
         return errors.SERVER_ERROR
     else:
