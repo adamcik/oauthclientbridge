@@ -1,3 +1,8 @@
+import typing
+
+if typing.TYPE_CHECKING:
+    from typing import Dict, Text  # noqa: F401
+
 ACCESS_DENIED = 'access_denied'
 INVALID_CLIENT = 'invalid_client'
 INVALID_GRANT = 'invalid_grant'
@@ -48,4 +53,4 @@ DESCRIPTIONS = {
         'The server is currently unable to handle the request due to a '
         'temporary overloading or maintenance of the server.'
     ),
-}
+}  # type: Dict[Text, Text]
