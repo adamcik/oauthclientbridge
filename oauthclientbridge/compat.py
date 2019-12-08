@@ -13,3 +13,12 @@ else:
     from urlparse import parse_qs, urlsplit, urlunsplit
 
     text_type = unicode
+
+__all__ = [
+    'responses',
+    'parse_qs',
+    'urlencode',
+    'urlsplit',
+    'urlunsplit',
+    'text_type',
+]
