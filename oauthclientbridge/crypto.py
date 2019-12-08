@@ -1,8 +1,11 @@
-from typing import Any, Dict, Text, Union  # noqa: F401
-
 import json
+import typing
 
 from cryptography import fernet
+
+if typing.TYPE_CHECKING:
+    from typing import Any, Dict, Text, Union  # noqa: F401
+
 
 InvalidToken = fernet.InvalidToken
 

@@ -1,4 +1,7 @@
-from typing import List, Optional, Text  # noqa
+import typing
+
+if typing.TYPE_CHECKING:
+    from typing import List, Optional, Text  # noqa: F401
 
 # Secret key used for encrypting session cookies used in initial OAuth flow,
 # MUST be set.

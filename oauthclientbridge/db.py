@@ -1,13 +1,15 @@
-from typing import Iterator, Optional, Text, Union  # noqa: F401
-
 import contextlib
 import re
 import sqlite3
+import typing
 import uuid
 
 from flask import g
 
 from oauthclientbridge import app, stats
+
+if typing.TYPE_CHECKING:
+    from typing import Iterator, Optional, Text, Union  # noqa: F401
 
 Error = sqlite3.Error
 IntegrityError = sqlite3.IntegrityError
