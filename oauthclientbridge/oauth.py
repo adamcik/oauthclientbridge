@@ -1,12 +1,25 @@
 import email.utils
 import re
 import time
+import typing
 
+import flask
 import requests
-from flask import jsonify
-from flask import redirect as flask_redirect
 
 from oauthclientbridge import __version__, app, compat, errors, stats
+
+if typing.TYPE_CHECKING:
+    from typing import (  # noqa: F401
+        Any,
+        Dict,
+        Optional,
+        Sequence,
+        Tuple,
+        Text,
+        Union,
+    )
+    import werkzeug  # noqa: F401
+
 
 # https://tools.ietf.org/html/rfc6749#section-4.1.2.1
 AUTHORIZATION_ERRORS = {
@@ -38,13 +51,14 @@ _session.headers['user-agent'] = 'oauthclientbridge %s' % __version__
 
 class Error(Exception):
     def __init__(self, error, description=None, uri=None, retry_after=None):
+        # type: (Text, Text, Text, int) -> None
         self.error = error
         self.description = description
         self.uri = uri
         self.retry_after = retry_after
 
 
-def error_handler(e):
+def error_handler(e):  # type: (Error) -> flask.Response
     """Create a well formed JSON response with status and auth headers."""
     result = {'error': e.error}
     if e.description is not None:
@@ -54,7 +68,7 @@ def error_handler(e):
     if e.uri is not None:
         result['error_uri'] = e.uri
 
-    response = jsonify(result)
+    response = flask.jsonify(result)  # type: flask.Response
     if e.error == errors.INVALID_CLIENT:
         response.status_code = 401
         response.www_authenticate.set_basic()
@@ -71,22 +85,21 @@ def error_handler(e):
     return response
 
 
-def fallback_error_handler(e):
+def fallback_error_handler(e):  # type: (Exception) -> flask.Response
     stats.ServerErrorCounter.labels(
         endpoint=stats.endpoint(),
         status=stats.status(500),
         error=errors.SERVER_ERROR,
     ).inc()
 
-    error = {
-        'error': errors.SERVER_ERROR,
-        'error_description': errors.DESCRIPTIONS[errors.SERVER_ERROR],
-    }
+    response = flask.jsonify(
+        _error(errors.SERVER_ERROR, errors.DESCRIPTIONS[errors.SERVER_ERROR])
+    )  # type: flask.Response
+    response.status_code = 500
+    return response
 
-    return jsonify(error), 500
 
-
-def nocache(response):
+def nocache(response):  # type: (flask.Response) -> flask.Response
     """Turns off caching in case there is sensitive content in responses."""
     if 'Cache-Control' not in response.headers:
         response.headers['Cache-Control'] = 'no-store'
@@ -94,7 +107,7 @@ def nocache(response):
     return response
 
 
-def normalize_error(error, error_types):
+def normalize_error(error, error_types):  # type: (Text, Sequence[Text]) -> Text
     """Translate any "bad" error types to something more usable."""
     error = app.config['OAUTH_FETCH_ERROR_TYPES'].get(error, error)
 
@@ -104,16 +117,17 @@ def normalize_error(error, error_types):
         return error
 
 
-def validate_token(token):
-    return token.get('access_token') and token.get('token_type')
+def validate_token(token):  # type: (Dict[Text, Any]) -> bool
+    return bool(token.get('access_token') and token.get('token_type'))
 
 
-def scrub_refresh_token(token):
+def scrub_refresh_token(token):  # type: (Dict[Text, Any]) -> Dict[Text, Any]
     remove = ('access_token', 'expires_in', 'token_type')
     return {k: v for k, v in token.items() if k not in remove}
 
 
 def fetch(uri, username, password, endpoint=None, **data):
+    # type: (Text, Text, Text, Text, **Any) -> Dict[Text, Any]
     """Perform post given URI with auth and provided data."""
     req = requests.Request('POST', uri, auth=(username, password), data=data)
     prepared = req.prepare()
@@ -121,11 +135,9 @@ def fetch(uri, username, password, endpoint=None, **data):
     timeout = time.time() + app.config['OAUTH_FETCH_TOTAL_TIMEOUT']
     retry = 0
 
-    error_description = 'An unknown error occurred talking to provider.'
-    result = {
-        'error': errors.SERVER_ERROR,
-        'error_description': error_description,
-    }
+    result = _error(
+        errors.SERVER_ERROR, 'An unknown error occurred talking to provider.'
+    )
 
     for i in range(app.config['OAUTH_FETCH_TOTAL_RETRIES']):
         prefix = 'attempt #%d %s' % (i + 1, uri)
@@ -168,7 +180,12 @@ def fetch(uri, username, password, endpoint=None, **data):
     return result
 
 
-def _fetch(prepared, timeout, endpoint):
+def _fetch(
+    prepared,  # type: requests.PreparedRequest
+    timeout,  # type: float
+    endpoint=None,  # type: Text
+):  # type: (...) -> Tuple[Dict[Text, Any], Optional[int], int]
+
     # Make sure we always have at least a minimal timeout.
     timeout = max(1.0, min(app.config['OAUTH_FETCH_TIMEOUT'], timeout))
     start_time = time.time()
@@ -208,10 +225,7 @@ def _fetch(prepared, timeout, endpoint):
 
         # Server error isn't allowed everywhere, but fixing this has been
         # brought up in https://www.rfc-editor.org/errata_search.php?eid=4745
-        result = {
-            'error': errors.SERVER_ERROR,
-            'error_description': description,
-        }
+        result = _error(errors.SERVER_ERROR, description)
         status_code = None
         length = None
         retry_after = 0
@@ -232,7 +246,7 @@ def _fetch(prepared, timeout, endpoint):
     return result, status_code, retry_after
 
 
-def _decode(resp):
+def _decode(resp):  # type: (requests.Response) -> Dict[Text, Any]
     # Per OAuth spec all responses should be JSON, but this isn't allways
     # the case. For instance 502 errors and a gateway that does not correctly
     # create a fake JSON error response.
@@ -255,10 +269,14 @@ def _decode(resp):
         error = errors.SERVER_ERROR
         description = 'Unhandled provider error (HTTP %s).' % resp.status_code
 
+    return _error(error, description)
+
+
+def _error(error, description):  # type: (Text, Text) -> Dict[Text, Any]
     return {'error': error, 'error_description': description}
 
 
-def _parse_retry(value):
+def _parse_retry(value):  # type: (Text) -> int
     if not value:
         seconds = 0
     elif re.match(r'^\s*[0-9]+\s*$', value):
@@ -268,29 +286,32 @@ def _parse_retry(value):
         if date_tuple is None:
             seconds = 0
         else:
-            seconds = time.mktime(date_tuple) - time.time()
+            seconds = int(time.mktime(date_tuple) - time.time())
     return max(0, seconds)
 
 
-def redirect(uri, **params):
-    return flask_redirect(_rewrite_uri(uri, params))
+def redirect(uri, **params):  # type: (Text, **Text) -> werkzeug.Response
+    return flask.redirect(_rewrite_uri(uri, params))
 
 
 def _rewrite_query(original, params):
+    # type: (Text, Dict[str, Text]) -> str
     # TODO: test this...
     parts = []
     query = compat.parse_qs(original, keep_blank_values=True)
-    for key, value in params.items():
-        query[key] = [value]  # Override with new params.
-    for key, values in query.items():
+    for p, value in params.items():
+        query[p] = [value]  # Override with new params.
+    for q, values in query.items():
         for value in values:  # Turn query into list of tuples.
+            # TODO: params is really TEXT then this is no longer needed.
             if isinstance(value, compat.text_type):
-                value = value.encode('utf-8')
-            parts.append((key, value))
+                parts.append((q, value.encode('utf-8')))
+            else:
+                parts.append((q, value))
     return compat.urlencode(parts)
 
 
-def _rewrite_uri(uri, params):
+def _rewrite_uri(uri, params):  # type: (Text, Dict[str, Text]) -> Text
     # TODO: test this and move to utils.py?
     scheme, netloc, path, query, fragment = compat.urlsplit(uri)
     query = _rewrite_query(query, params)
