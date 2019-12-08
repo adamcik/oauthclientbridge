@@ -2,7 +2,7 @@ from __future__ import absolute_import
 
 import logging
 
-from flask import jsonify, render_template_string, request, session
+import flask
 
 from oauthclientbridge import app, crypto, db, errors, oauth, stats
 
@@ -22,22 +22,22 @@ app.after_request(stats.after_request)
 def authorize():
     """Store random state in session cookie and redirect to auth endpoint."""
 
-    redirect_uri = request.args.get('redirect_uri')
+    redirect_uri = flask.request.args.get('redirect_uri')
     if redirect_uri and redirect_uri != app.config['OAUTH_REDIRECT_URI']:
         return _error(errors.INVALID_REQUEST, 'Wrong redirect_uri.')
 
     default_scope = ' '.join(app.config['OAUTH_SCOPES'] or [])
 
-    session['client_state'] = request.args.get('state')
-    session['state'] = crypto.generate_key()
+    flask.session['client_state'] = flask.request.args.get('state')
+    flask.session['state'] = crypto.generate_key()
 
     return oauth.redirect(
         app.config['OAUTH_AUTHORIZATION_URI'],
         client_id=app.config['OAUTH_CLIENT_ID'],
         response_type='code',
         redirect_uri=app.config['OAUTH_REDIRECT_URI'],
-        scope=request.args.get('scope', default_scope),
-        state=session['state'],
+        scope=flask.request.args.get('scope', default_scope),
+        state=flask.session['state'],
     )
 
 
@@ -45,23 +45,23 @@ def authorize():
 def callback():
     """Validate callback and trade in code for a token."""
     error, desc = None, None
-    client_state = session.pop('client_state', None)
-    state = session.pop('state', None)
+    client_state = flask.session.pop('client_state', None)
+    state = flask.session.pop('state', None)
 
-    if not request.args:
+    if not flask.request.args:
         error = errors.INVALID_REQUEST
         desc = 'No arguments provided, request is invalid.'
     elif state is None:
         error = errors.INVALID_STATE
         desc = 'State is not set, this page was probably refreshed.'
-    elif state != request.args.get('state'):
+    elif state != flask.request.args.get('state'):
         error = errors.INVALID_STATE
         desc = 'State does not match callback state.'
-    elif 'error' in request.args:
-        error = request.args['error']
+    elif 'error' in flask.request.args:
+        error = flask.request.args['error']
         error = oauth.normalize_error(error, oauth.AUTHORIZATION_ERRORS)
         desc = errors.DESCRIPTIONS[error]
-    elif not request.args.get('code'):
+    elif not flask.request.args.get('code'):
         error = errors.INVALID_REQUEST
         desc = 'Authorization code missing from provider callback.'
 
@@ -71,7 +71,7 @@ def callback():
 
         msg = 'Callback failed %s: %s' % (error, desc)
         if error == errors.INVALID_SCOPE:
-            msg += ' - %r' % request.args.get('scope')
+            msg += ' - %r' % flask.request.args.get('scope')
         app.logger.log(level, msg)
 
         return _error(error, desc, client_state)
@@ -82,7 +82,7 @@ def callback():
         app.config['OAUTH_CLIENT_SECRET'],
         grant_type='authorization_code',
         redirect_uri=app.config['OAUTH_REDIRECT_URI'],
-        code=request.args.get('code'),
+        code=flask.request.args.get('code'),
         endpoint='token',
     )
 
@@ -121,19 +121,19 @@ def token():
     """Validate token request, refreshing when needed."""
     # TODO: allow all methods and raise invalid_request for !POST?
 
-    if request.form.get('grant_type') != 'client_credentials':
+    if flask.request.form.get('grant_type') != 'client_credentials':
         raise oauth.Error(
             errors.UNSUPPORTED_GRANT_TYPE,
             'Only "client_credentials" is supported.',
         )
-    elif 'scope' in request.form:
+    elif 'scope' in flask.request.form:
         raise oauth.Error(
             errors.INVALID_SCOPE, 'Setting scope is not supported.'
         )
 
     try:
         # Trigger decoding base64 value that might have bad Unicode data.
-        authorization = request.authorization
+        authorization = flask.request.authorization
     except ValueError:
         authorization = None
 
@@ -142,8 +142,8 @@ def token():
             errors.INVALID_CLIENT, 'Only Basic Auth is supported.'
         )
 
-    client_id = request.form.get('client_id')
-    client_secret = request.form.get('client_secret')
+    client_id = flask.request.form.get('client_id')
+    client_secret = flask.request.form.get('client_secret')
     if (client_id or client_secret) and authorization:
         raise oauth.Error(
             errors.INVALID_REQUEST,
@@ -181,7 +181,7 @@ def token():
         raise oauth.Error(errors.INVALID_CLIENT, 'Client not known.')
 
     if 'refresh_token' not in result:
-        return jsonify(result)
+        return flask.jsonify(result)
 
     refresh_result = oauth.fetch(
         app.config['OAUTH_REFRESH_URI'] or app.config['OAUTH_TOKEN_URI'],
@@ -237,7 +237,7 @@ def token():
         db.update(client_id, crypto.dumps(client_secret, modified))
 
     # Only return what we got from the API (minus refresh_token).
-    return jsonify(refresh_result)
+    return flask.jsonify(refresh_result)
 
 
 @app.route('/metrics', methods=['GET'])
@@ -269,6 +269,6 @@ def _render(
         'error': error,
         'description': description,
     }
-    return render_template_string(
+    return flask.render_template_string(
         app.config['OAUTH_CALLBACK_TEMPLATE'], variables=variables, **variables
     )
