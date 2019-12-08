@@ -1,14 +1,18 @@
 import os
 import re
 import time
+import typing
 
+import flask
 import pyprometheus
 import pyprometheus.contrib.uwsgi_features
 import pyprometheus.registry
 import pyprometheus.utils.exposition
-from flask import Response, request
 
 from oauthclientbridge import compat
+
+if typing.TYPE_CHECKING:
+    from typing import Text
 
 if 'PROMETHEUS_UWSGI_SHAREDAREA' in os.environ:
     storage = pyprometheus.contrib.uwsgi_features.UWSGIStorage()
@@ -148,23 +152,23 @@ ClientResponseSizeHistogram = pyprometheus.Histogram(
 )
 
 
-def status(code):
+def status(code):  # type: (int) -> str
     if code not in HTTP_STATUS:
         text = compat.responses.get(code, str(code)).lower()
         HTTP_STATUS[code] = 'http_%s' % re.sub(r'[ -]', '_', text)
     return HTTP_STATUS[code]
 
 
-def endpoint():
-    return getattr(request.url_rule, 'endpoint', 'notfound')
+def endpoint():  # type: () -> Text
+    return getattr(flask.request.url_rule, 'endpoint', 'notfound')
 
 
-def before_request():
-    request._stats_latency_start_time = time.time()
+def before_request():  # type: () -> None
+    flask.request._stats_latency_start_time = time.time()
 
 
-def after_request(response):
-    request_latency = time.time() - request._stats_latency_start_time
+def after_request(response):  # type: (flask.Response) -> flask.Response
+    request_latency = time.time() - flask.request._stats_latency_start_time
     labels = {'endpoint': endpoint(), 'status': status(response.status_code)}
 
     ServerLatencyHistogram.labels(**labels).observe(request_latency)
@@ -172,13 +176,13 @@ def after_request(response):
         ServerResponseSizeHistogram.labels(**labels).observe(
             response.content_length
         )
-    if request.content_length is not None:
+    if flask.request.content_length is not None:
         ServerRequestSizeHistogram.labels(**labels).observe(
-            request.content_length
+            flask.request.content_length
         )
     return response
 
 
-def export_metrics():
+def export_metrics():  # type: () -> flask.Response
     text = pyprometheus.utils.exposition.registry_to_text(registry)
-    return Response(text, mimetype='text/plain')
+    return flask.Response(text, mimetype='text/plain')
