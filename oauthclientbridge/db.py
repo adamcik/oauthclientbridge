@@ -1,3 +1,5 @@
+from typing import Iterator, Optional, Text, Union  # noqa: F401
+
 import contextlib
 import re
 import sqlite3
@@ -11,18 +13,18 @@ Error = sqlite3.Error
 IntegrityError = sqlite3.IntegrityError
 
 
-def generate_id():
+def generate_id():  # type: () -> Text
     return str(uuid.uuid4())
 
 
-def initialize():
+def initialize():  # type: () -> None
     with app.open_resource('schema.sql', mode='r') as f:
         schema = f.read()
     with get() as c:
         c.executescript(schema)
 
 
-def get():
+def get():  # type: () -> sqlite3.Connection
     """Get singleton SQLite database connection."""
     if getattr(g, '_oauth_database', None) is None:
         g._oauth_database = sqlite3.connect(
@@ -36,13 +38,15 @@ def get():
     return g._oauth_database
 
 
-def vacuum():
+def vacuum():  # type: () -> None
     with get() as c:
         c.execute('VACUUM')
 
 
 @contextlib.contextmanager
-def cursor(name, transaction=False):
+def cursor(
+    name, transaction=False
+):  # type: (Text, bool) -> Iterator[sqlite3.Cursor]
     """Get SQLite cursor with automatic commit if no exceptions are raised."""
     try:
         with get() as connection:
@@ -67,7 +71,7 @@ def cursor(name, transaction=False):
         raise
 
 
-def insert(token):
+def insert(token):  # type: (Union[bytes, Text]) -> Text
     """Store encrypted token and return what client_id it was stored under."""
     client_id = generate_id()
 
@@ -83,7 +87,7 @@ def insert(token):
     return client_id
 
 
-def lookup(client_id):
+def lookup(client_id):  # type: (Text) -> Optional[bytes]
     """Lookup a client_id and return encrypted token.
 
     Raises a LookupError if client_id is not found.
@@ -101,7 +105,7 @@ def lookup(client_id):
         return None
 
 
-def update(client_id, token):
+def update(client_id, token):  # type: (Text, Union[bytes, Text, None]) -> int
     """Update a client_id with a new encrypted token."""
 
     if isinstance(token, bytes):
