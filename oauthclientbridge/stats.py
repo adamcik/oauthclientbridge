@@ -4,22 +4,18 @@ import time
 import typing
 
 import flask
-import pyprometheus
-import pyprometheus.contrib.uwsgi_features
-import pyprometheus.registry
-import pyprometheus.utils.exposition
+import prometheus_client
+import prometheus_client.multiprocess
 
 from oauthclientbridge import compat
 
 if typing.TYPE_CHECKING:
-    from typing import Text
+    from typing import Text  # noqa: F401
 
-if 'PROMETHEUS_UWSGI_SHAREDAREA' in os.environ:
-    storage = pyprometheus.contrib.uwsgi_features.UWSGIStorage()
-else:
-    storage = pyprometheus.LocalMemoryStorage()
+registry = prometheus_client.CollectorRegistry()
 
-registry = pyprometheus.registry.BaseRegistry(storage=storage)
+if 'prometheus_multiproc_dir' in os.environ:
+    prometheus_client.multiprocess.MultiProcessCollector(registry)
 
 
 TIME_BUCKETS = (
@@ -74,14 +70,14 @@ RETRY_BUCKETS = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, float('inf'))
 # Rest of these get populated lazily with http_%d as fallback.
 HTTP_STATUS = {429: 'http_too_many_requests'}
 
-DBErrorCounter = pyprometheus.Counter(
+DBErrorCounter = prometheus_client.Counter(
     'oauth_database_error_total',
     'Database errors.',
     ['query', 'error'],
     registry=registry,
 )
 
-DBLatencyHistorgram = pyprometheus.Histogram(
+DBLatencyHistorgram = prometheus_client.Histogram(
     'oauth_database_latency_seconds',
     'Database query latency.',
     ['query'],
@@ -89,14 +85,14 @@ DBLatencyHistorgram = pyprometheus.Histogram(
     registry=registry,
 )
 
-ServerErrorCounter = pyprometheus.Counter(
+ServerErrorCounter = prometheus_client.Counter(
     'oauth_server_error_total',
     'OAuth errors returned to users.',
     ['endpoint', 'status', 'error'],
     registry=registry,
 )
 
-ServerLatencyHistogram = pyprometheus.Histogram(
+ServerLatencyHistogram = prometheus_client.Histogram(
     'oauth_server_latency_seconds',
     'Overall request latency.',
     ['endpoint', 'status'],
@@ -104,7 +100,7 @@ ServerLatencyHistogram = pyprometheus.Histogram(
     registry=registry,
 )
 
-ServerRequestSizeHistogram = pyprometheus.Histogram(
+ServerRequestSizeHistogram = prometheus_client.Histogram(
     'oauth_server_request_bytes',
     'Overall request size.',
     ['endpoint', 'status'],
@@ -112,7 +108,7 @@ ServerRequestSizeHistogram = pyprometheus.Histogram(
     registry=registry,
 )
 
-ServerResponseSizeHistogram = pyprometheus.Histogram(
+ServerResponseSizeHistogram = prometheus_client.Histogram(
     'oauth_server_response_bytes',
     'Overall response size.',
     ['endpoint', 'status'],
@@ -120,14 +116,14 @@ ServerResponseSizeHistogram = pyprometheus.Histogram(
     registry=registry,
 )
 
-ClientErrorCounter = pyprometheus.Counter(
+ClientErrorCounter = prometheus_client.Counter(
     'oauth_client_error_total',
     'OAuth errors from upstream provider.',
     ['endpoint', 'status', 'error'],
     registry=registry,
 )
 
-ClientRetryHistogram = pyprometheus.Histogram(
+ClientRetryHistogram = prometheus_client.Histogram(
     'oauth_client_retries',
     'OAuth fetch retries.',
     ['endpoint', 'status'],
@@ -135,7 +131,7 @@ ClientRetryHistogram = pyprometheus.Histogram(
     registry=registry,
 )
 
-ClientLatencyHistogram = pyprometheus.Histogram(
+ClientLatencyHistogram = prometheus_client.Histogram(
     'oauth_client_latency_seconds',
     'Overall request latency.',
     ['endpoint', 'status'],
@@ -143,7 +139,7 @@ ClientLatencyHistogram = pyprometheus.Histogram(
     registry=registry,
 )
 
-ClientResponseSizeHistogram = pyprometheus.Histogram(
+ClientResponseSizeHistogram = prometheus_client.Histogram(
     'oauth_client_response_bytes',
     'Overall response size.',
     ['endpoint', 'status'],
@@ -184,5 +180,5 @@ def after_request(response):  # type: (flask.Response) -> flask.Response
 
 
 def export_metrics():  # type: () -> flask.Response
-    text = pyprometheus.utils.exposition.registry_to_text(registry)
-    return flask.Response(text, mimetype='text/plain')
+    text = prometheus_client.generate_latest(registry)
+    return flask.Response(text, mimetype=prometheus_client.CONTENT_TYPE_LATEST)
