@@ -14,6 +14,19 @@ if app.config['OAUTH_NUM_PROXIES']:
     wrapper = ProxyFix(app.wsgi_app, app.config['OAUTH_NUM_PROXIES'])
     app.wsgi_app = wrapper  # type: ignore
 
+try:
+    import sentry_sdk
+    from sentry_sdk.integrations.flask import FlaskIntegration
+
+    if app.config['OAUTH_SENTRY_DSN']:
+        sentry_sdk.init(
+            dsn=app.config['OAUTH_SENTRY_DSN'],
+            integrations=[FlaskIntegration()],
+        )
+except ImportError as e:
+    app.logger.info('Failed to import sentry: %s', e)
+
+
 import oauthclientbridge.cli
 import oauthclientbridge.logging
 import oauthclientbridge.views

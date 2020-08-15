@@ -149,3 +149,6 @@ OAUTH_ERROR_LOG_LEVELS = {
     'invalid_request': 'WARNING',
     'temporarily_unavailable': 'INFO',
 }
+
+# Optional dsn to use for sending data to sentry
+OAUTH_SENTRY_DSN = None
