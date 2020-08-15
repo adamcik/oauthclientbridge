@@ -18,8 +18,8 @@ if app.config['OAUTH_NUM_PROXIES']:
     app.wsgi_app = wrapper  # type: ignore
 
 try:
-    import sentry_sdk
-    from sentry_sdk.integrations.flask import FlaskIntegration
+    import sentry_sdk  # type: ignore
+    from sentry_sdk.integrations.flask import FlaskIntegration  # type: ignore
 
     if app.config['OAUTH_SENTRY_DSN']:
         sentry_sdk.init(

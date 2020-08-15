@@ -160,11 +160,13 @@ def endpoint():  # type: () -> Text
 
 
 def before_request():  # type: () -> None
-    flask.request._stats_latency_start_time = time.time()
+    flask.request._stats_latency_start_time = time.time()  # type: ignore
 
 
 def after_request(response):  # type: (flask.Response) -> flask.Response
-    request_latency = time.time() - flask.request._stats_latency_start_time
+    request_latency = (
+        time.time() - flask.request._stats_latency_start_time  # type: ignore
+    )
     labels = {'endpoint': endpoint(), 'status': status(response.status_code)}
 
     ServerLatencyHistogram.labels(**labels).observe(request_latency)
