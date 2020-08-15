@@ -2,7 +2,10 @@
 
 from flask import Flask
 
-from werkzeug.contrib.fixers import ProxyFix
+try:
+    from werkzeug.middleware.proxy_fix import ProxyFix
+except ImportError:
+    from werkzeug.contrib.fixers import ProxyFix
 
 __version__ = '1.0.1'
 
