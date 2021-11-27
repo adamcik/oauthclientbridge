@@ -1,5 +1,3 @@
-import base64
-
 import pytest
 
 from oauthclientbridge import app, compat, crypto, db, errors
@@ -169,15 +167,9 @@ def test_token_refresh_post_data(post, refresh_token, requests_mock):
     """Test that expected data gets POSTed to provider."""
 
     def match(request):
-        parts = request.headers['Authorization'].split(' ')
-        assert parts[0] == 'Basic'
-
-        user, password = base64.b64decode(parts[1]).decode('utf-8').split(':')
-
-        assert user == app.config['OAUTH_CLIENT_ID']
-        assert password == app.config['OAUTH_CLIENT_SECRET']
-
         expected = {
+            'client_id': [app.config['OAUTH_CLIENT_ID']],
+            'client_secret': [app.config['OAUTH_CLIENT_SECRET']],
             'grant_type': ['refresh_token'],
             'refresh_token': [refresh_token.value['refresh_token']],
         }

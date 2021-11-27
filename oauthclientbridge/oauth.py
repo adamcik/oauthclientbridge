@@ -116,10 +116,10 @@ def scrub_refresh_token(token):  # type: (Dict[Text, Any]) -> Dict[Text, Any]
     return {k: v for k, v in token.items() if k not in remove}
 
 
-def fetch(uri, username, password, endpoint=None, **data):
+def fetch(uri, auth=None, endpoint=None, **data):
     # type: (Text, Text, Text, Optional[Text], **Any) -> Dict[Text, Any]
     """Perform post given URI with auth and provided data."""
-    req = requests.Request('POST', uri, auth=(username, password), data=data)
+    req = requests.Request('POST', uri, data=data, auth=auth)
     prepared = req.prepare()  # type: requests.PreparedRequest
 
     timeout = time.time() + app.config['OAUTH_FETCH_TOTAL_TIMEOUT']

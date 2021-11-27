@@ -85,11 +85,11 @@ def callback():  # type: () -> flask.Response
 
     result = oauth.fetch(
         app.config['OAUTH_TOKEN_URI'],
-        app.config['OAUTH_CLIENT_ID'],
-        app.config['OAUTH_CLIENT_SECRET'],
+        client_id=app.config['OAUTH_CLIENT_ID'],
+        client_secret=app.config['OAUTH_CLIENT_SECRET'],
+        code=flask.request.args.get('code'),
         grant_type='authorization_code',
         redirect_uri=app.config['OAUTH_REDIRECT_URI'],
-        code=flask.request.args.get('code'),
         endpoint='token',
     )
 
@@ -192,8 +192,8 @@ def token():  # type: () -> flask.Response
 
     refresh_result = oauth.fetch(
         app.config['OAUTH_REFRESH_URI'] or app.config['OAUTH_TOKEN_URI'],
-        app.config['OAUTH_CLIENT_ID'],
-        app.config['OAUTH_CLIENT_SECRET'],
+        client_id=app.config['OAUTH_CLIENT_ID'],
+        client_secret=app.config['OAUTH_CLIENT_SECRET'],
         grant_type=app.config['OAUTH_GRANT_TYPE'],
         refresh_token=result['refresh_token'],
         endpoint='refresh',
