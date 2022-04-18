@@ -14,7 +14,7 @@ if typing.TYPE_CHECKING:
 
 registry = prometheus_client.CollectorRegistry()
 
-if 'prometheus_multiproc_dir' in os.environ:
+if "prometheus_multiproc_dir" in os.environ:
     prometheus_client.multiprocess.MultiProcessCollector(registry)
 
 
@@ -38,7 +38,7 @@ TIME_BUCKETS = (
     4.0,
     7.0,
     10.0,
-    float('inf'),
+    float("inf"),
 )
 
 BYTE_BUCKETS = (
@@ -62,87 +62,87 @@ BYTE_BUCKETS = (
     90112,
     147456,
     204800,
-    float('inf'),
+    float("inf"),
 )
 
-RETRY_BUCKETS = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, float('inf'))
+RETRY_BUCKETS = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, float("inf"))
 
 # Rest of these get populated lazily with http_%d as fallback.
-HTTP_STATUS = {429: 'http_too_many_requests'}
+HTTP_STATUS = {429: "http_too_many_requests"}
 
 DBErrorCounter = prometheus_client.Counter(
-    'oauth_database_error_total',
-    'Database errors.',
-    ['query', 'error'],
+    "oauth_database_error_total",
+    "Database errors.",
+    ["query", "error"],
     registry=registry,
 )
 
 DBLatencyHistorgram = prometheus_client.Histogram(
-    'oauth_database_latency_seconds',
-    'Database query latency.',
-    ['query'],
+    "oauth_database_latency_seconds",
+    "Database query latency.",
+    ["query"],
     buckets=TIME_BUCKETS,
     registry=registry,
 )
 
 ServerErrorCounter = prometheus_client.Counter(
-    'oauth_server_error_total',
-    'OAuth errors returned to users.',
-    ['endpoint', 'status', 'error'],
+    "oauth_server_error_total",
+    "OAuth errors returned to users.",
+    ["endpoint", "status", "error"],
     registry=registry,
 )
 
 ServerLatencyHistogram = prometheus_client.Histogram(
-    'oauth_server_latency_seconds',
-    'Overall request latency.',
-    ['endpoint', 'status'],
+    "oauth_server_latency_seconds",
+    "Overall request latency.",
+    ["endpoint", "status"],
     buckets=TIME_BUCKETS,
     registry=registry,
 )
 
 ServerRequestSizeHistogram = prometheus_client.Histogram(
-    'oauth_server_request_bytes',
-    'Overall request size.',
-    ['endpoint', 'status'],
+    "oauth_server_request_bytes",
+    "Overall request size.",
+    ["endpoint", "status"],
     buckets=BYTE_BUCKETS,
     registry=registry,
 )
 
 ServerResponseSizeHistogram = prometheus_client.Histogram(
-    'oauth_server_response_bytes',
-    'Overall response size.',
-    ['endpoint', 'status'],
+    "oauth_server_response_bytes",
+    "Overall response size.",
+    ["endpoint", "status"],
     buckets=BYTE_BUCKETS,
     registry=registry,
 )
 
 ClientErrorCounter = prometheus_client.Counter(
-    'oauth_client_error_total',
-    'OAuth errors from upstream provider.',
-    ['endpoint', 'status', 'error'],
+    "oauth_client_error_total",
+    "OAuth errors from upstream provider.",
+    ["endpoint", "status", "error"],
     registry=registry,
 )
 
 ClientRetryHistogram = prometheus_client.Histogram(
-    'oauth_client_retries',
-    'OAuth fetch retries.',
-    ['endpoint', 'status'],
+    "oauth_client_retries",
+    "OAuth fetch retries.",
+    ["endpoint", "status"],
     buckets=RETRY_BUCKETS,
     registry=registry,
 )
 
 ClientLatencyHistogram = prometheus_client.Histogram(
-    'oauth_client_latency_seconds',
-    'Overall request latency.',
-    ['endpoint', 'status'],
+    "oauth_client_latency_seconds",
+    "Overall request latency.",
+    ["endpoint", "status"],
     buckets=TIME_BUCKETS,
     registry=registry,
 )
 
 ClientResponseSizeHistogram = prometheus_client.Histogram(
-    'oauth_client_response_bytes',
-    'Overall response size.',
-    ['endpoint', 'status'],
+    "oauth_client_response_bytes",
+    "Overall response size.",
+    ["endpoint", "status"],
     buckets=BYTE_BUCKETS,
     registry=registry,
 )
@@ -151,12 +151,12 @@ ClientResponseSizeHistogram = prometheus_client.Histogram(
 def status(code):  # type: (int) -> str
     if code not in HTTP_STATUS:
         text = compat.responses.get(code, str(code)).lower()
-        HTTP_STATUS[code] = 'http_%s' % re.sub(r'[ -]', '_', text)
+        HTTP_STATUS[code] = "http_%s" % re.sub(r"[ -]", "_", text)
     return HTTP_STATUS[code]
 
 
 def endpoint():  # type: () -> Text
-    return getattr(flask.request.url_rule, 'endpoint', 'notfound')
+    return getattr(flask.request.url_rule, "endpoint", "notfound")
 
 
 def before_request():  # type: () -> None
@@ -167,13 +167,11 @@ def after_request(response):  # type: (flask.Response) -> flask.Response
     request_latency = (
         time.time() - flask.request._stats_latency_start_time  # type: ignore
     )
-    labels = {'endpoint': endpoint(), 'status': status(response.status_code)}
+    labels = {"endpoint": endpoint(), "status": status(response.status_code)}
 
     ServerLatencyHistogram.labels(**labels).observe(request_latency)
     if response.content_length is not None:
-        ServerResponseSizeHistogram.labels(**labels).observe(
-            response.content_length
-        )
+        ServerResponseSizeHistogram.labels(**labels).observe(response.content_length)
     if flask.request.content_length is not None:
         ServerRequestSizeHistogram.labels(**labels).observe(
             flask.request.content_length

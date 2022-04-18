@@ -7,14 +7,14 @@ try:
 except ImportError:
     from werkzeug.contrib.fixers import ProxyFix
 
-__version__ = '1.0.1'
+__version__ = "1.0.1"
 
 app = Flask(__name__)
-app.config.from_object('oauthclientbridge.default_settings')
-app.config.from_envvar('OAUTH_SETTINGS', silent=True)
+app.config.from_object("oauthclientbridge.default_settings")
+app.config.from_envvar("OAUTH_SETTINGS", silent=True)
 
-if app.config['OAUTH_NUM_PROXIES']:
-    wrapper = ProxyFix(app.wsgi_app, app.config['OAUTH_NUM_PROXIES'])
+if app.config["OAUTH_NUM_PROXIES"]:
+    wrapper = ProxyFix(app.wsgi_app, app.config["OAUTH_NUM_PROXIES"])
     app.wsgi_app = wrapper  # type: ignore
 
 import oauthclientbridge.cli

@@ -24,14 +24,14 @@ OAUTH_DATABASE = None  # type: Optional[Text]
 OAUTH_DATABASE_TIMEOUT = 5
 
 # SQlite3 database PRAGMAs to run at connection time for database.
-OAUTH_DATABASE_PRAGMAS = ['PRAGMA journal_mode = WAL']
+OAUTH_DATABASE_PRAGMAS = ["PRAGMA journal_mode = WAL"]
 
 # Client ID and secret provided by upstream OAuth provider, MUST be set.
 OAUTH_CLIENT_ID = None  # type: Optional[Text]
 OAUTH_CLIENT_SECRET = None  # type: Optional[Text]
 
 # Type of grant to request from upstream.
-OAUTH_GRANT_TYPE = 'refresh_token'
+OAUTH_GRANT_TYPE = "refresh_token"
 
 # List of OAuth scopes to request from the upstream provider:
 OAUTH_SCOPES = []  # type: List[Text]
@@ -62,14 +62,14 @@ OAUTH_FETCH_RETRY_STATUS_CODES = [429, 500, 502, 503, 504]
 OAUTH_FETCH_UNAVAILABLE_STATUS_CODES = [429, 502, 503, 504]
 
 # Non-standard oauth errors and what standard errors to translate them to.
-OAUTH_FETCH_ERROR_TYPES = {'errorTransient': 'temporarily_unavailable'}
+OAUTH_FETCH_ERROR_TYPES = {"errorTransient": "temporarily_unavailable"}
 
 # Backoff factor to use for not hammering the oauth server too much.
 OAUTH_FETCH_BACKOFF_FACTOR = 0.1
 
 # Bridge callback URI to send users back to. Should exactly match URI
 # registered with the upstream provider.
-OAUTH_REDIRECT_URI = 'http://localhost:5000/callback'
+OAUTH_REDIRECT_URI = "http://localhost:5000/callback"
 
 # Jinja2 template to use for the callback page. Possible context values are:
 #  error, description, client_id, client_secret
@@ -101,11 +101,11 @@ OAUTH_NUM_PROXIES = 0
 OAUTH_LOG_FILE = None  # type: Optional[Text]
 
 # Log level for file logging.
-OAUTH_LOG_FILE_LEVEL = 'INFO'
+OAUTH_LOG_FILE_LEVEL = "INFO"
 
 # Log format for file logging.
 OAUTH_LOG_FILE_FORMAT = (
-    '%(asctime)s %(levelname)s: %(message)s ' '[in %(pathname)s:%(lineno)d]'
+    "%(asctime)s %(levelname)s: %(message)s " "[in %(pathname)s:%(lineno)d]"
 )
 
 # Max bytes to pass to the RotatingFileHandler logging handler.
@@ -118,7 +118,7 @@ OAUTH_LOG_FILE_BACKUP_COUNT = 0
 OAUTH_LOG_EMAIL = []  # type: List[Text]
 
 # Log level for email logging.
-OAUTH_LOG_EMAIL_LEVEL = 'ERROR'
+OAUTH_LOG_EMAIL_LEVEL = "ERROR"
 
 # Log format for email logging.
 OAUTH_LOG_EMAIL_FORMAT = """
@@ -134,18 +134,18 @@ Function:         %(funcName)s
 """
 
 # SMTP host to use for email logging.
-OAUTH_LOG_EMAIL_HOST = 'localhost'
+OAUTH_LOG_EMAIL_HOST = "localhost"
 
 # From address to user for email logging.
-OAUTH_LOG_EMAIL_FROM = 'oauthclientbridge@localhost'
+OAUTH_LOG_EMAIL_FROM = "oauthclientbridge@localhost"
 
 # Subject line to use for email logging.
-OAUTH_LOG_EMAIL_SUBJECT = 'oauthclientbridge: %(request_base_url)s'
+OAUTH_LOG_EMAIL_SUBJECT = "oauthclientbridge: %(request_base_url)s"
 
 # Log levels to use for errors in callback flow.
 OAUTH_ERROR_LOG_LEVELS = {
-    'access_denied': 'INFO',
-    'invalid_state': 'WARNING',
-    'invalid_request': 'WARNING',
-    'temporarily_unavailable': 'INFO',
+    "access_denied": "INFO",
+    "invalid_state": "WARNING",
+    "invalid_request": "WARNING",
+    "temporarily_unavailable": "INFO",
 }

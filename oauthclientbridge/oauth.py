@@ -37,7 +37,7 @@ TOKEN_ERRORS = {
 }
 
 _session = requests.Session()
-_session.headers['user-agent'] = 'oauthclientbridge %s' % __version__
+_session.headers["user-agent"] = "oauthclientbridge %s" % __version__
 
 
 class Error(Exception):
@@ -51,20 +51,20 @@ class Error(Exception):
 
 def error_handler(e):  # type: (Error) -> flask.Response
     """Create a well formed JSON response with status and auth headers."""
-    result = {'error': e.error}
+    result = {"error": e.error}
     if e.description is not None:
-        result['error_description'] = e.description
+        result["error_description"] = e.description
     elif e.error in errors.DESCRIPTIONS:
-        result['error_description'] = errors.DESCRIPTIONS[e.error]
+        result["error_description"] = errors.DESCRIPTIONS[e.error]
     if e.uri is not None:
-        result['error_uri'] = e.uri
+        result["error_uri"] = e.uri
 
     response = flask.jsonify(result)  # type: flask.Response
     if e.error == errors.INVALID_CLIENT:
         response.status_code = 401
         response.www_authenticate.set_basic()
     elif e.retry_after:
-        response.headers['Retry-After'] = int(e.retry_after + 1)
+        response.headers["Retry-After"] = int(e.retry_after + 1)
         response.status_code = 429
     else:
         response.status_code = 400
@@ -92,15 +92,15 @@ def fallback_error_handler(e):  # type: (Exception) -> flask.Response
 
 def nocache(response):  # type: (flask.Response) -> flask.Response
     """Turns off caching in case there is sensitive content in responses."""
-    if 'Cache-Control' not in response.headers:
-        response.headers['Cache-Control'] = 'no-store'
-        response.headers['Pragma'] = 'no-cache'
+    if "Cache-Control" not in response.headers:
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Pragma"] = "no-cache"
     return response
 
 
 def normalize_error(error, error_types):  # type: (Text, Set[str]) -> Text
     """Translate any "bad" error types to something more usable."""
-    error = app.config['OAUTH_FETCH_ERROR_TYPES'].get(error, error)
+    error = app.config["OAUTH_FETCH_ERROR_TYPES"].get(error, error)
     if error not in error_types:
         return errors.SERVER_ERROR
     else:
@@ -108,62 +108,62 @@ def normalize_error(error, error_types):  # type: (Text, Set[str]) -> Text
 
 
 def validate_token(token):  # type: (Dict[Text, Any]) -> bool
-    return bool(token.get('access_token') and token.get('token_type'))
+    return bool(token.get("access_token") and token.get("token_type"))
 
 
 def scrub_refresh_token(token):  # type: (Dict[Text, Any]) -> Dict[Text, Any]
-    remove = ('access_token', 'expires_in', 'token_type')
+    remove = ("access_token", "expires_in", "token_type")
     return {k: v for k, v in token.items() if k not in remove}
 
 
 def fetch(uri, auth=None, endpoint=None, **data):
     # type: (Text, Text, Text, Optional[Text], **Any) -> Dict[Text, Any]
     """Perform post given URI with auth and provided data."""
-    req = requests.Request('POST', uri, data=data, auth=auth)
+    req = requests.Request("POST", uri, data=data, auth=auth)
     prepared = req.prepare()  # type: requests.PreparedRequest
 
-    timeout = time.time() + app.config['OAUTH_FETCH_TOTAL_TIMEOUT']
+    timeout = time.time() + app.config["OAUTH_FETCH_TOTAL_TIMEOUT"]
     retry = 0
 
     result = _error(
-        errors.SERVER_ERROR, 'An unknown error occurred talking to provider.'
+        errors.SERVER_ERROR, "An unknown error occurred talking to provider."
     )
 
-    for i in range(app.config['OAUTH_FETCH_TOTAL_RETRIES']):
-        prefix = 'attempt #%d %s' % (i + 1, uri)
+    for i in range(app.config["OAUTH_FETCH_TOTAL_RETRIES"]):
+        prefix = "attempt #%d %s" % (i + 1, uri)
 
         # TODO: Add jitter to backoff and/or retry after?
-        backoff = (2 ** i - 1) * app.config['OAUTH_FETCH_BACKOFF_FACTOR']
+        backoff = (2**i - 1) * app.config["OAUTH_FETCH_BACKOFF_FACTOR"]
         remaining_timeout = timeout - time.time()
 
         if (retry or backoff) > remaining_timeout:
-            app.logger.debug('Abort %s no timeout remaining.', prefix)
+            app.logger.debug("Abort %s no timeout remaining.", prefix)
             break
         elif (retry or backoff) > 0:
-            app.logger.debug('Retry %s [sleep %.3f]', prefix, retry or backoff)
+            app.logger.debug("Retry %s [sleep %.3f]", prefix, retry or backoff)
             time.sleep(retry or backoff)
 
         result, status, retry = _fetch(prepared, remaining_timeout, endpoint)
 
-        labels = {'endpoint': endpoint, 'status': stats.status(status)}
+        labels = {"endpoint": endpoint, "status": stats.status(status)}
         stats.ClientRetryHistogram.labels(**labels).observe(i)
 
-        if status is not None and 'error' in result:
-            error = result['error']
-            error = app.config['OAUTH_FETCH_ERROR_TYPES'].get(error, error)
+        if status is not None and "error" in result:
+            error = result["error"]
+            error = app.config["OAUTH_FETCH_ERROR_TYPES"].get(error, error)
             if error not in errors.DESCRIPTIONS:
-                error = 'invalid_error'
+                error = "invalid_error"
             stats.ClientErrorCounter.labels(error=error, **labels).inc()
 
         if status is None:
             pass  # We didn't even get a response, so try again.
-        elif status not in app.config['OAUTH_FETCH_RETRY_STATUS_CODES']:
+        elif status not in app.config["OAUTH_FETCH_RETRY_STATUS_CODES"]:
             break
-        elif 'error' not in result:
+        elif "error" not in result:
             break  # No error reported so might as well return it.
 
         app.logger.debug(
-            'Result %s [status %s] [retry after %s]', prefix, status, retry
+            "Result %s [status %s] [retry after %s]", prefix, status, retry
         )
 
     # TODO: consider returning retry after time so it can be used.
@@ -177,7 +177,7 @@ def _fetch(
 ):  # type: (...) -> Tuple[Dict[Text, Any], int, int]
 
     # Make sure we always have at least a minimal timeout.
-    timeout = max(1.0, min(app.config['OAUTH_FETCH_TIMEOUT'], timeout))
+    timeout = max(1.0, min(app.config["OAUTH_FETCH_TIMEOUT"], timeout))
     start_time = time.time()
 
     try:
@@ -190,26 +190,26 @@ def _fetch(
         _session.close()
 
         # Fallback values in case we can't say anything better.
-        status_label = 'unknown_exception'
-        description = 'An unknown error occurred while talking to provider.'
+        status_label = "unknown_exception"
+        description = "An unknown error occurred while talking to provider."
 
         # Don't give API users error messages we don't control the contents of.
         if isinstance(e, requests.exceptions.Timeout):
-            description = 'Request timed out while connecting to provider.'
+            description = "Request timed out while connecting to provider."
             if isinstance(e, requests.exceptions.ConnectTimeout):
-                status_label = 'connection_timeout'
+                status_label = "connection_timeout"
             elif isinstance(e, requests.exceptions.ReadTimeout):
-                status_label = 'read_timeout'
+                status_label = "read_timeout"
         elif isinstance(e, requests.exceptions.ConnectionError):
-            description = 'An error occurred while connecting to the provider.'
+            description = "An error occurred while connecting to the provider."
             if isinstance(e, requests.exceptions.SSLError):
-                status_label = 'ssl_error'
+                status_label = "ssl_error"
             elif isinstance(e, requests.exceptions.ProxyError):
-                status_label = 'proxy_error'
+                status_label = "proxy_error"
             else:
-                status_label = 'connection_error'
+                status_label = "connection_error"
 
-        app.logger.warning('Fetching %r failed: %s', prepared.url, e)
+        app.logger.warning("Fetching %r failed: %s", prepared.url, e)
 
         # TODO: Should this be temporarily_unavailable?
 
@@ -226,9 +226,9 @@ def _fetch(
         result = _decode(resp)
         status_code = resp.status_code
         length = len(resp.content)
-        retry_after = _parse_retry(resp.headers.get('retry-after'))
+        retry_after = _parse_retry(resp.headers.get("retry-after"))
 
-    labels = {'endpoint': endpoint, 'status': status_label}
+    labels = {"endpoint": endpoint, "status": status_label}
     if length is not None:
         stats.ClientResponseSizeHistogram.labels(**labels).observe(length)
     stats.ClientLatencyHistogram.labels(**labels).observe(request_latency)
@@ -245,31 +245,31 @@ def _decode(resp):  # type: (requests.Response) -> Dict[Text, Any]
         return resp.json()
     except ValueError as e:
         app.logger.warning(
-            'Fetching %r (HTTP %s, %s) failed: %s',
+            "Fetching %r (HTTP %s, %s) failed: %s",
             resp.url,
             resp.status_code,
-            resp.headers.get('Content-Type', '-'),
+            resp.headers.get("Content-Type", "-"),
             e,
         )
 
-    if resp.status_code in app.config['OAUTH_FETCH_UNAVAILABLE_STATUS_CODES']:
+    if resp.status_code in app.config["OAUTH_FETCH_UNAVAILABLE_STATUS_CODES"]:
         error = errors.TEMPORARILY_UNAVAILABLE
-        description = 'Provider is unavailable.'
+        description = "Provider is unavailable."
     else:
         error = errors.SERVER_ERROR
-        description = 'Unhandled provider error (HTTP %s).' % resp.status_code
+        description = "Unhandled provider error (HTTP %s)." % resp.status_code
 
     return _error(error, description)
 
 
 def _error(error, description):  # type: (Text, Text) -> Dict[Text, Any]
-    return {'error': error, 'error_description': description}
+    return {"error": error, "error_description": description}
 
 
 def _parse_retry(value):  # type: (Text) -> int
     if not value:
         seconds = 0
-    elif re.match(r'^\s*[0-9]+\s*$', value):
+    elif re.match(r"^\s*[0-9]+\s*$", value):
         seconds = int(value)
     else:
         date_tuple = email.utils.parsedate(value)
@@ -281,9 +281,7 @@ def _parse_retry(value):  # type: (Text) -> int
 
 
 def redirect(uri, **params):  # type: (Text, **Text) -> flask.Response
-    return flask.Response(
-        status=302, headers={'Location': _rewrite_uri(uri, params)}
-    )
+    return flask.Response(status=302, headers={"Location": _rewrite_uri(uri, params)})
 
 
 def _rewrite_query(original, params):
@@ -297,7 +295,7 @@ def _rewrite_query(original, params):
         for value in values:  # Turn query into list of tuples.
             # TODO: params is really TEXT then this is no longer needed.
             if isinstance(value, compat.text_type):
-                parts.append((q, value.encode('utf-8')))
+                parts.append((q, value.encode("utf-8")))
             else:
                 parts.append((q, value))
     return compat.urlencode(parts)

@@ -15,10 +15,10 @@ else:
     text_type = unicode
 
 __all__ = [
-    'responses',
-    'parse_qs',
-    'urlencode',
-    'urlsplit',
-    'urlunsplit',
-    'text_type',
+    "responses",
+    "parse_qs",
+    "urlencode",
+    "urlsplit",
+    "urlunsplit",
+    "text_type",
 ]

@@ -6,24 +6,22 @@ import pytest
 
 from oauthclientbridge import app, crypto, db
 
-TestToken = collections.namedtuple(
-    'TestToken', ('client_id', 'client_secret', 'value')
-)
+TestToken = collections.namedtuple("TestToken", ("client_id", "client_secret", "value"))
 
 
 @pytest.fixture
 def app_context():
     app.config.update(
         {
-            'TESTING': True,
-            'SECRET_KEY': 's3cret',
-            'OAUTH_DATABASE': ':memory:',
-            'OAUTH_CLIENT_ID': 'client',
-            'OAUTH_CLIENT_SECRET': 's3cret',
-            'OAUTH_AUTHORIZATION_URI': 'https://provider.example.com/auth',
-            'OAUTH_TOKEN_URI': 'https://provider.example.com/token',
-            'OAUTH_REDIRECT_URI': 'https://client.example.com/callback',
-            'OAUTH_CALLBACK_TEMPLATE': '{{ variables|tojson }}',
+            "TESTING": True,
+            "SECRET_KEY": "s3cret",
+            "OAUTH_DATABASE": ":memory:",
+            "OAUTH_CLIENT_ID": "client",
+            "OAUTH_CLIENT_SECRET": "s3cret",
+            "OAUTH_AUTHORIZATION_URI": "https://provider.example.com/auth",
+            "OAUTH_TOKEN_URI": "https://provider.example.com/token",
+            "OAUTH_REDIRECT_URI": "https://client.example.com/callback",
+            "OAUTH_CALLBACK_TEMPLATE": "{{ variables|tojson }}",
         }
     )
 
@@ -47,7 +45,7 @@ def cursor(app_context):
 def get(client):
     def _get(path):
         resp = client.get(path)
-        return json.loads(resp.data.decode('utf-8')), resp.status_code
+        return json.loads(resp.data.decode("utf-8")), resp.status_code
 
     return _get
 
@@ -59,11 +57,11 @@ def post(client):
             headers = {}
 
         if auth:
-            encoded = base64.b64encode(('%s:%s' % auth).encode('ascii'))
-            headers['Authorization'] = b'Basic %s' % encoded
+            encoded = base64.b64encode(("%s:%s" % auth).encode("ascii"))
+            headers["Authorization"] = b"Basic %s" % encoded
 
         resp = client.post(path, headers=headers, data=data)
-        return json.loads(resp.data.decode('utf-8')), resp.status_code
+        return json.loads(resp.data.decode("utf-8")), resp.status_code
 
     return _post
 
@@ -71,15 +69,15 @@ def post(client):
 @pytest.fixture
 def state(client):
     with client.session_transaction() as session:
-        session['state'] = 'abcdef'
-    return 'abcdef'
+        session["state"] = "abcdef"
+    return "abcdef"
 
 
 @pytest.fixture
 def client_state(client):
     with client.session_transaction() as session:
-        session['client_state'] = 's3cret'
-    return 's3cret'
+        session["client_state"] = "s3cret"
+    return "s3cret"
 
 
 def _test_token(**data):
@@ -91,9 +89,9 @@ def _test_token(**data):
 
 @pytest.fixture
 def access_token():
-    return _test_token(token_type='test', access_token='123', expires_in=3600)
+    return _test_token(token_type="test", access_token="123", expires_in=3600)
 
 
 @pytest.fixture
 def refresh_token():
-    return _test_token(refresh_token='abc')
+    return _test_token(refresh_token="abc")

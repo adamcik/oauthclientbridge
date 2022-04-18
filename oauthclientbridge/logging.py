@@ -24,42 +24,36 @@ class ContextualFilter(logging.Filter):
 class CustomSMTPHandler(logging.handlers.SMTPHandler):
     def __init__(self, mailhost, fromaddr, toaddrs, subject):
         # type: (Union[str, Tuple[str, int]], str, List[str], str) -> None
-        super(CustomSMTPHandler, self).__init__(
-            mailhost, fromaddr, toaddrs, subject
-        )
+        super(CustomSMTPHandler, self).__init__(mailhost, fromaddr, toaddrs, subject)
         self.subject_formatter = logging.Formatter(subject)
 
     def getSubject(self, record):  # noqa: N802
         # type: (logging.LogRecord) -> str
-        return self.subject_formatter.format(record).split('\n')[0]
+        return self.subject_formatter.format(record).split("\n")[0]
 
 
 context_provider = ContextualFilter()
 app.logger.addFilter(context_provider)
-app.logger.setLevel('DEBUG')
+app.logger.setLevel("DEBUG")
 
-if app.config['OAUTH_LOG_FILE']:
+if app.config["OAUTH_LOG_FILE"]:
     file_handler = logging.handlers.RotatingFileHandler(
-        app.config['OAUTH_LOG_FILE'],
-        maxBytes=app.config['OAUTH_LOG_FILE_MAX_BYTES'],
-        backupCount=app.config['OAUTH_LOG_FILE_BACKUP_COUNT'],
+        app.config["OAUTH_LOG_FILE"],
+        maxBytes=app.config["OAUTH_LOG_FILE_MAX_BYTES"],
+        backupCount=app.config["OAUTH_LOG_FILE_BACKUP_COUNT"],
     )
-    file_handler.setFormatter(
-        logging.Formatter(app.config['OAUTH_LOG_FILE_FORMAT'])
-    )
-    file_handler.setLevel(app.config['OAUTH_LOG_FILE_LEVEL'])
+    file_handler.setFormatter(logging.Formatter(app.config["OAUTH_LOG_FILE_FORMAT"]))
+    file_handler.setLevel(app.config["OAUTH_LOG_FILE_LEVEL"])
     app.logger.addHandler(file_handler)
 
 
-if not app.debug and app.config['OAUTH_LOG_EMAIL']:
+if not app.debug and app.config["OAUTH_LOG_EMAIL"]:
     mail_handler = CustomSMTPHandler(
-        app.config['OAUTH_LOG_EMAIL_HOST'],
-        app.config['OAUTH_LOG_EMAIL_FROM'],
-        app.config['OAUTH_LOG_EMAIL'],
-        app.config['OAUTH_LOG_EMAIL_SUBJECT'],
+        app.config["OAUTH_LOG_EMAIL_HOST"],
+        app.config["OAUTH_LOG_EMAIL_FROM"],
+        app.config["OAUTH_LOG_EMAIL"],
+        app.config["OAUTH_LOG_EMAIL_SUBJECT"],
     )
-    mail_handler.setFormatter(
-        logging.Formatter(app.config['OAUTH_LOG_EMAIL_FORMAT'])
-    )
-    mail_handler.setLevel(app.config['OAUTH_LOG_EMAIL_LEVEL'])
+    mail_handler.setFormatter(logging.Formatter(app.config["OAUTH_LOG_EMAIL_FORMAT"]))
+    mail_handler.setLevel(app.config["OAUTH_LOG_EMAIL_LEVEL"])
     app.logger.addHandler(mail_handler)
