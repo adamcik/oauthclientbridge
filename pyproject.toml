@@ -1,17 +1,46 @@
-[build-system]
-requires = ["setuptools >= 30.3.0", "wheel"]
+[tool.poetry]
+name = "oauthclientbridge"
+version = "1.4.0"
+readme = "README.rst"
+description = "Bridge OAuth2 Authorization Code Grants to Clients Grants"
+repository = "https://github.com/adamcik/oauthclientbridge"
+authors = ["Thomas Adamcik <thomas@adamcik.no>"]
+license = "Apache-2.0"
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+]
 
+[tool.poetry.dependencies]
+python = "^3.9"
+Flask = "^2.1.1"
+cryptography = "^36.0.2"
+prometheus-client = "^0.14.1"
+requests = "^2.27.1"
+
+[tool.poetry.dev-dependencies]
+black = "*"
+flake8 = "*"
+flake8-black = "*"
+flake8-bugbear = "*"
+flake8-isort = "*"
+isort = "*"
+mypy = "*"
+pytest = "*"
+pytest-cov = "*"
+requests_mock = "*"
 
 [tool.black]
-target-version = ["py27", "py36", "py37", "py38"]
-line-length = 80
-skip-string-normalization = true
+target-version = ["py39"]
 
 [tool.isort]
-multi_line_output = 3
-include_trailing_comma = true
-force_grid_wrap = 0
-use_parentheses = true
-line_length = 88
-known_tests = "tests"
-sections = "FUTURE,STDLIB,THIRDPARTY,FIRSTPARTY,TESTS,LOCALFOLDER"
+profile = "black"
+
+[tool.pylint.format]
+max-line-length = "88"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
