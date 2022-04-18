@@ -205,7 +205,9 @@ def token():  # type: () -> flask.Response
         )
 
         if error == errors.INVALID_GRANT:
-            db.update(client_id, None)
+            # TODO: Store when we got an invalid grant? Or just cache this so
+            # we have fewer backend calls to provider?
+            # db.update(client_id, None)
             app.logger.warning('Revoked: %s', client_id)
         elif error == errors.TEMPORARILY_UNAVAILABLE:
             app.logger.warning('Token refresh failed: %s', refresh_result)
