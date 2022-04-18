@@ -90,7 +90,7 @@ def fallback_error_handler(e):  # type: (Exception) -> flask.Response
     return response
 
 
-def nocache(response):  # type: (flask.Response) -> flask.Response
+def nocache(response):
     """Turns off caching in case there is sensitive content in responses."""
     if "Cache-Control" not in response.headers:
         response.headers["Cache-Control"] = "no-store"
@@ -117,7 +117,7 @@ def scrub_refresh_token(token):  # type: (Dict[Text, Any]) -> Dict[Text, Any]
 
 
 def fetch(uri, auth=None, endpoint=None, **data):
-    # type: (Text, Text, Text, Optional[Text], **Any) -> Dict[Text, Any]
+    # type: (Text, Optional[Text], Optional[Text], **Any) -> Dict[Text, Any]
     """Perform post given URI with auth and provided data."""
     req = requests.Request("POST", uri, data=data, auth=auth)
     prepared = req.prepare()  # type: requests.PreparedRequest
@@ -266,7 +266,7 @@ def _error(error, description):  # type: (Text, Text) -> Dict[Text, Any]
     return {"error": error, "error_description": description}
 
 
-def _parse_retry(value):  # type: (Text) -> int
+def _parse_retry(value):  # type: (Optional[Text]) -> int
     if not value:
         seconds = 0
     elif re.match(r"^\s*[0-9]+\s*$", value):

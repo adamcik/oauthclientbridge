@@ -121,7 +121,7 @@ def update(client_id, token):  # type: (Text, Union[bytes, Text, None]) -> int
 
 
 @app.teardown_appcontext
-def close(exception):  # type: (Optional[Exception]) -> None
+def close(exception):
     """Ensure that connection gets closed when app teardown happens."""
     if getattr(g, "_oauth_database", None) is None:
         return

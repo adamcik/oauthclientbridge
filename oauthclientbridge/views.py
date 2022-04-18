@@ -113,7 +113,7 @@ def callback():  # type: () -> flask.Response
     try:
         client_id = db.insert(token)
     except db.IntegrityError:
-        app.log.warning("Could not get unique client id.")
+        app.logger.warning("Could not get unique client id.")
         return _error("integrity_error", "Database integrity error.", client_state)
 
     return _render(client_id=client_id, client_secret=client_secret, state=client_state)

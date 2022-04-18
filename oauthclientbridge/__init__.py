@@ -2,12 +2,9 @@
 
 from flask import Flask
 
-try:
-    from werkzeug.middleware.proxy_fix import ProxyFix
-except ImportError:
-    from werkzeug.contrib.fixers import ProxyFix
+from werkzeug.middleware.proxy_fix import ProxyFix
 
-__version__ = "1.0.1"
+__version__ = "1.4.0"
 
 app = Flask(__name__)
 app.config.from_object("oauthclientbridge.default_settings")
