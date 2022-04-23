@@ -156,14 +156,12 @@ def endpoint() -> str:
 
 
 def before_request() -> None:
-    flask.request._stats_latency_start_time = time.time()  # type: ignore
+    flask.g.stats_latency_start_time = time.time()
 
 
 # TODO: Figure our why I can't type annotate response
 def after_request(response) -> flask.Response:
-    request_latency = (
-        time.time() - flask.request._stats_latency_start_time  # type: ignore
-    )
+    request_latency = time.time() - flask.g.stats_latency_start_time
     labels = {"endpoint": endpoint(), "status": status(response.status_code)}
 
     ServerLatencyHistogram.labels(**labels).observe(request_latency)
