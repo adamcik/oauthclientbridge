@@ -1,7 +1,4 @@
-import typing
-
-if typing.TYPE_CHECKING:
-    from typing import List, Optional, Text  # noqa: F401
+from typing import List, Optional
 
 # Secret key used for encrypting session cookies used in initial OAuth flow,
 # MUST be set.
@@ -15,10 +12,10 @@ if typing.TYPE_CHECKING:
 #
 # Also make sure you have secure access to this file _and_ the directory it's
 # in to keep it from leaking via .pyc files.
-SECRET_KEY = None  # type: Optional[bytes]
+SECRET_KEY: Optional[bytes] = None
 
 # SQLite3 database to store tokens information in, MUST be set.
-OAUTH_DATABASE = None  # type: Optional[Text]
+OAUTH_DATABASE: Optional[str] = None
 
 # SQlite3 database timeout to use at "connection" time.
 OAUTH_DATABASE_TIMEOUT = 5
@@ -27,22 +24,22 @@ OAUTH_DATABASE_TIMEOUT = 5
 OAUTH_DATABASE_PRAGMAS = ["PRAGMA journal_mode = WAL"]
 
 # Client ID and secret provided by upstream OAuth provider, MUST be set.
-OAUTH_CLIENT_ID = None  # type: Optional[Text]
-OAUTH_CLIENT_SECRET = None  # type: Optional[Text]
+OAUTH_CLIENT_ID: Optional[str] = None
+OAUTH_CLIENT_SECRET: Optional[str] = None
 
 # Type of grant to request from upstream.
 OAUTH_GRANT_TYPE = "refresh_token"
 
 # List of OAuth scopes to request from the upstream provider:
-OAUTH_SCOPES = []  # type: List[Text]
+OAUTH_SCOPES: List[str] = []
 
 # Upstream authorization URI to redirect users to, MUST be set.
-OAUTH_AUTHORIZATION_URI = None  # type: Optional[Text]
+OAUTH_AUTHORIZATION_URI: Optional[str] = None
 
 # Upstream token and refresh URIs. The token URI MUST be set, while the refresh
 # one will fallback to the token URI.
-OAUTH_TOKEN_URI = None  # type: Optional[Text]
-OAUTH_REFRESH_URI = None  # type: Optional[Text]
+OAUTH_TOKEN_URI: Optional[str] = None
+OAUTH_REFRESH_URI: Optional[str] = None
 
 # Overall allowed timeout across all retires, backoff and retry-after time.
 OAUTH_FETCH_TOTAL_TIMEOUT = 20.0
@@ -98,7 +95,7 @@ OAUTH_CALLBACK_TEMPLATE = """
 OAUTH_NUM_PROXIES = 0
 
 # Additional log file for application level logging, set to None to disable.
-OAUTH_LOG_FILE = None  # type: Optional[Text]
+OAUTH_LOG_FILE: Optional[str] = None
 
 # Log level for file logging.
 OAUTH_LOG_FILE_LEVEL = "INFO"
@@ -115,7 +112,7 @@ OAUTH_LOG_FILE_MAX_BYTES = 0
 OAUTH_LOG_FILE_BACKUP_COUNT = 0
 
 # List of addresses to send logging emails to, leave empty to disable.
-OAUTH_LOG_EMAIL = []  # type: List[Text]
+OAUTH_LOG_EMAIL: List[str] = []
 
 # Log level for email logging.
 OAUTH_LOG_EMAIL_LEVEL = "ERROR"
