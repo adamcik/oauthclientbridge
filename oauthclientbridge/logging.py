@@ -1,6 +1,6 @@
 import logging
 import logging.handlers
-from typing import Any, List
+from typing import Any
 
 from flask import request
 
@@ -17,7 +17,7 @@ class ContextualFilter(logging.Filter):
 
 
 class CustomSMTPHandler(logging.handlers.SMTPHandler):
-    def __init__(self, mailhost: str, fromaddr: str, toaddrs: List[str], subject: str):
+    def __init__(self, mailhost: str, fromaddr: str, toaddrs: list[str], subject: str):
         super().__init__(mailhost, fromaddr, toaddrs, subject)
         self.subject_formatter = logging.Formatter(subject)
 

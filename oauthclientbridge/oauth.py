@@ -2,7 +2,7 @@ import email.utils
 import re
 import time
 import urllib.parse
-from typing import Any, Dict, Optional, Set, Tuple
+from typing import Any, Optional
 
 import flask
 import requests
@@ -101,7 +101,7 @@ def nocache(response) -> flask.Response:
     return response
 
 
-def normalize_error(error: str, error_types: Set[str]) -> str:
+def normalize_error(error: str, error_types: set[str]) -> str:
     """Translate any "bad" error types to something more usable."""
     error = app.config["OAUTH_FETCH_ERROR_TYPES"].get(error, error)
     if error not in error_types:
@@ -110,18 +110,18 @@ def normalize_error(error: str, error_types: Set[str]) -> str:
         return error
 
 
-def validate_token(token: Dict[str, Any]) -> bool:
+def validate_token(token: dict[str, Any]) -> bool:
     return bool(token.get("access_token") and token.get("token_type"))
 
 
-def scrub_refresh_token(token: Dict[str, Any]) -> Dict[str, Any]:
+def scrub_refresh_token(token: dict[str, Any]) -> dict[str, Any]:
     remove = ("access_token", "expires_in", "token_type")
     return {k: v for k, v in token.items() if k not in remove}
 
 
 def fetch(
     uri: str, auth: Optional[str] = None, endpoint: Optional[str] = None, **data
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Perform post given URI with auth and provided data."""
     req = requests.Request("POST", uri, data=data, auth=auth)
     prepared = req.prepare()
@@ -178,7 +178,7 @@ def _fetch(
     prepared: requests.PreparedRequest,
     timeout: float,
     endpoint: Optional[str] = None,
-) -> Tuple[Dict[str, Any], int, int]:
+) -> tuple[dict[str, Any], int, int]:
 
     # Make sure we always have at least a minimal timeout.
     timeout = max(1.0, min(app.config["OAUTH_FETCH_TIMEOUT"], timeout))
@@ -240,7 +240,7 @@ def _fetch(
     return result, status_code, retry_after
 
 
-def _decode(resp: requests.Response) -> Dict[str, Any]:
+def _decode(resp: requests.Response) -> dict[str, Any]:
     # Per OAuth spec all responses should be JSON, but this isn't allways
     # the case. For instance 502 errors and a gateway that does not correctly
     # create a fake JSON error response.
@@ -266,7 +266,7 @@ def _decode(resp: requests.Response) -> Dict[str, Any]:
     return _error(error, description)
 
 
-def _error(error: str, description: str) -> Dict[str, Any]:
+def _error(error: str, description: str) -> dict[str, Any]:
     return {"error": error, "error_description": description}
 
 
@@ -288,7 +288,7 @@ def redirect(uri: str, **params: str) -> flask.Response:
     return flask.Response(status=302, headers={"Location": _rewrite_uri(uri, params)})
 
 
-def _rewrite_query(original: str, params: Dict[str, str]) -> str:
+def _rewrite_query(original: str, params: dict[str, str]) -> str:
     # TODO: test this...
     parts = []
     query = urllib.parse.parse_qs(original, keep_blank_values=True)
@@ -304,7 +304,7 @@ def _rewrite_query(original: str, params: Dict[str, str]) -> str:
     return urllib.parse.urlencode(parts)
 
 
-def _rewrite_uri(uri: str, params: Dict[str, str]) -> str:
+def _rewrite_uri(uri: str, params: dict[str, str]) -> str:
     # TODO: test this and move to utils.py?
     scheme, netloc, path, query, fragment = urllib.parse.urlsplit(uri)
     query = _rewrite_query(query, params)

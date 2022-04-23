@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Optional
 
 # Secret key used for encrypting session cookies used in initial OAuth flow,
 # MUST be set.
@@ -31,7 +31,7 @@ OAUTH_CLIENT_SECRET: Optional[str] = None
 OAUTH_GRANT_TYPE = "refresh_token"
 
 # List of OAuth scopes to request from the upstream provider:
-OAUTH_SCOPES: List[str] = []
+OAUTH_SCOPES: list[str] = []
 
 # Upstream authorization URI to redirect users to, MUST be set.
 OAUTH_AUTHORIZATION_URI: Optional[str] = None
@@ -112,7 +112,7 @@ OAUTH_LOG_FILE_MAX_BYTES = 0
 OAUTH_LOG_FILE_BACKUP_COUNT = 0
 
 # List of addresses to send logging emails to, leave empty to disable.
-OAUTH_LOG_EMAIL: List[str] = []
+OAUTH_LOG_EMAIL: list[str] = []
 
 # Log level for email logging.
 OAUTH_LOG_EMAIL_LEVEL = "ERROR"
