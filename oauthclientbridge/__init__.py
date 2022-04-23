@@ -1,9 +1,11 @@
 # flake8: noqa
 
+import importlib.metadata
+
 from flask import Flask
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-__version__ = "1.4.0"
+__version__ = importlib.metadata.version("oauthclientbridge")
 
 app = Flask(__name__)
 app.config.from_object("oauthclientbridge.default_settings")
