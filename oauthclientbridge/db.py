@@ -1,32 +1,30 @@
 import contextlib
 import re
 import sqlite3
-import typing
 import uuid
 
 from flask import g
 
 from oauthclientbridge import app, stats
 
-if typing.TYPE_CHECKING:
-    from typing import Iterator, Optional, Text, Union  # noqa: F401
+from typing import Iterator, Optional
 
 Error = sqlite3.Error
 IntegrityError = sqlite3.IntegrityError
 
 
-def generate_id():  # type: () -> Text
+def generate_id() -> str:
     return str(uuid.uuid4())
 
 
-def initialize():  # type: () -> None
+def initialize() -> None:
     with app.open_resource("schema.sql", mode="r") as f:
         schema = f.read()
     with get() as c:
         c.executescript(schema)
 
 
-def get():  # type: () -> sqlite3.Connection
+def get() -> sqlite3.Connection:
     """Get singleton SQLite database connection."""
     if getattr(g, "_oauth_database", None) is None:
         connection = sqlite3.connect(
@@ -41,13 +39,13 @@ def get():  # type: () -> sqlite3.Connection
     return g._oauth_database
 
 
-def vacuum():  # type: () -> None
+def vacuum() -> None:
     with get() as c:
         c.execute("VACUUM")
 
 
 @contextlib.contextmanager
-def cursor(name, transaction=False):  # type: (Text, bool) -> Iterator[sqlite3.Cursor]
+def cursor(name: str, transaction: bool = False) -> Iterator[sqlite3.Cursor]:
     """Get SQLite cursor with automatic commit if no exceptions are raised."""
     try:
         with get() as connection:
@@ -72,23 +70,29 @@ def cursor(name, transaction=False):  # type: (Text, bool) -> Iterator[sqlite3.C
         raise
 
 
-def insert(token):  # type: (Union[bytes, Text]) -> Text
+def _prepare_token(token: Optional[bytes]) -> Optional[str]:
+    """Convert token to str so it gets stored as text type in sqlite3.
+
+    This is primarily to make it nicer to inspect the DB when debugging as the
+    token is base64 encoded, not raw bytes.
+    """
+    return None if token is None else token.decode("ascii")
+
+
+def insert(token: bytes) -> str:
     """Store encrypted token and return what client_id it was stored under."""
     client_id = generate_id()
-
-    if isinstance(token, bytes):
-        token = token.decode("ascii")
 
     with cursor(name="insert_token", transaction=True) as c:
         # TODO: Retry creating client_id if it already exists?
         c.execute(
             "INSERT INTO tokens (client_id, token) VALUES (?, ?)",
-            (client_id, token),
+            (client_id, _prepare_token(token)),
         )
     return client_id
 
 
-def lookup(client_id):  # type: (Text) -> Optional[bytes]
+def lookup(client_id: str) -> Optional[bytes]:
     """Lookup a client_id and return encrypted token.
 
     Raises a LookupError if client_id is not found.
@@ -101,21 +105,20 @@ def lookup(client_id):  # type: (Text) -> Optional[bytes]
     if row is None:
         raise LookupError("Client not found.")
     elif row[0]:
+        # Fernet only likes bytes, so return token as such. DB might contain
+        # tokens stored as TEXT, BLOB or NULL types.
         return bytes(row[0])
     else:
         return None
 
 
-def update(client_id, token):  # type: (Text, Union[bytes, Text, None]) -> int
+def update(client_id: str, token: Optional[bytes]) -> int:
     """Update a client_id with a new encrypted token."""
-
-    if isinstance(token, bytes):
-        token = token.decode("ascii")
 
     with cursor(name="update_token", transaction=True) as c:
         c.execute(
             "UPDATE tokens SET token = ? WHERE client_id = ?",
-            (token, client_id),
+            (_prepare_token(token), client_id),
         )
         return int(c.rowcount)
 

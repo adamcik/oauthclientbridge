@@ -28,9 +28,8 @@ def test_lookup_revoked(cursor):
 TOKEN_TYPE_QUERY = "SELECT token, typeof(token) FROM tokens WHERE client_id = ?"
 
 
-@pytest.mark.parametrize("token", ["token", b"token"])
-def test_insert(token, cursor):
-    client_id = db.insert(token)
+def test_insert(cursor):
+    client_id = db.insert(b"token")
 
     cursor.execute(TOKEN_TYPE_QUERY, (client_id,))
     result, dbtype = cursor.fetchone()
@@ -38,11 +37,10 @@ def test_insert(token, cursor):
     assert b"text" == dbtype
 
 
-@pytest.mark.parametrize("token", ["token", b"token"])
-def test_update(token, cursor):
+def test_update(cursor):
     cursor.execute("INSERT INTO tokens (client_id) VALUES ('client')")
 
-    assert 1 == db.update("client", token)
+    assert 1 == db.update("client", b"token")
 
     cursor.execute(TOKEN_TYPE_QUERY, ("client",))
     result, dbtype = cursor.fetchone()
@@ -62,4 +60,4 @@ def test_update_none(cursor):
 
 
 def test_update_missing(app_context):
-    assert 0 == db.update("client", "token")
+    assert 0 == db.update("client", b"token")
