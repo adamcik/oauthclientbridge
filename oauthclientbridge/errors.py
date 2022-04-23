@@ -1,8 +1,3 @@
-import typing
-
-if typing.TYPE_CHECKING:
-    from typing import Dict, Text  # noqa: F401
-
 ACCESS_DENIED = "access_denied"
 INVALID_CLIENT = "invalid_client"
 INVALID_GRANT = "invalid_grant"
@@ -16,7 +11,7 @@ UNAUTHORIZED_CLIENT = "unauthorized_client"
 UNSUPPORTED_GRANT_TYPE = "unsupported_grant_type"
 UNSUPPORTED_RESPONSE_TYPE = "unsupported_response_type"
 
-DESCRIPTIONS = {
+DESCRIPTIONS: dict[str, str] = {
     INVALID_REQUEST: (
         "The request is missing a required parameter, includes an invalid "
         "parameter value, includes a parameter more than once, or is "
@@ -48,4 +43,4 @@ DESCRIPTIONS = {
         "The server is currently unable to handle the request due to a "
         "temporary overloading or maintenance of the server."
     ),
-}  # type: Dict[Text, Text]
+}
