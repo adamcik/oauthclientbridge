@@ -1,16 +1,12 @@
 import email.utils
 import re
 import time
-import typing
+from typing import Any, Dict, Optional, Set, Tuple
 
 import flask
 import requests
 
 from oauthclientbridge import __version__, app, compat, errors, stats
-
-if typing.TYPE_CHECKING:
-    from typing import Any, Dict, Optional, Set, Tuple, Text  # noqa: F401
-
 
 # https://tools.ietf.org/html/rfc6749#section-4.1.2.1
 AUTHORIZATION_ERRORS = {
@@ -41,15 +37,20 @@ _session.headers["user-agent"] = "oauthclientbridge %s" % __version__
 
 
 class Error(Exception):
-    def __init__(self, error, description=None, uri=None, retry_after=None):
-        # type: (Text, Optional[Text], Optional[Text], Optional[int]) -> None
+    def __init__(
+        self,
+        error: str,
+        description: Optional[str] = None,
+        uri: Optional[str] = None,
+        retry_after: Optional[int] = None,
+    ):
         self.error = error
         self.description = description
         self.uri = uri
         self.retry_after = retry_after
 
 
-def error_handler(e):  # type: (Error) -> flask.Response
+def error_handler(e: Error) -> flask.Response:
     """Create a well formed JSON response with status and auth headers."""
     result = {"error": e.error}
     if e.description is not None:
@@ -76,7 +77,7 @@ def error_handler(e):  # type: (Error) -> flask.Response
     return response
 
 
-def fallback_error_handler(e):  # type: (Exception) -> flask.Response
+def fallback_error_handler(e: Exception) -> flask.Response:
     stats.ServerErrorCounter.labels(
         endpoint=stats.endpoint(),
         status=stats.status(500),
@@ -90,7 +91,8 @@ def fallback_error_handler(e):  # type: (Exception) -> flask.Response
     return response
 
 
-def nocache(response):
+# TODO: Figure out why I can't type annotate response here.
+def nocache(response) -> flask.Response:
     """Turns off caching in case there is sensitive content in responses."""
     if "Cache-Control" not in response.headers:
         response.headers["Cache-Control"] = "no-store"
@@ -98,7 +100,7 @@ def nocache(response):
     return response
 
 
-def normalize_error(error, error_types):  # type: (Text, Set[str]) -> Text
+def normalize_error(error: str, error_types: Set[str]) -> str:
     """Translate any "bad" error types to something more usable."""
     error = app.config["OAUTH_FETCH_ERROR_TYPES"].get(error, error)
     if error not in error_types:
@@ -107,20 +109,21 @@ def normalize_error(error, error_types):  # type: (Text, Set[str]) -> Text
         return error
 
 
-def validate_token(token):  # type: (Dict[Text, Any]) -> bool
+def validate_token(token: Dict[str, Any]) -> bool:
     return bool(token.get("access_token") and token.get("token_type"))
 
 
-def scrub_refresh_token(token):  # type: (Dict[Text, Any]) -> Dict[Text, Any]
+def scrub_refresh_token(token: Dict[str, Any]) -> Dict[str, Any]:
     remove = ("access_token", "expires_in", "token_type")
     return {k: v for k, v in token.items() if k not in remove}
 
 
-def fetch(uri, auth=None, endpoint=None, **data):
-    # type: (Text, Optional[Text], Optional[Text], **Any) -> Dict[Text, Any]
+def fetch(
+    uri: str, auth: Optional[str] = None, endpoint: Optional[str] = None, **data
+) -> Dict[str, Any]:
     """Perform post given URI with auth and provided data."""
     req = requests.Request("POST", uri, data=data, auth=auth)
-    prepared = req.prepare()  # type: requests.PreparedRequest
+    prepared = req.prepare()
 
     timeout = time.time() + app.config["OAUTH_FETCH_TOTAL_TIMEOUT"]
     retry = 0
@@ -171,10 +174,10 @@ def fetch(uri, auth=None, endpoint=None, **data):
 
 
 def _fetch(
-    prepared,  # type: requests.PreparedRequest
-    timeout,  # type: float
-    endpoint=None,  # type: Optional[Text]
-):  # type: (...) -> Tuple[Dict[Text, Any], int, int]
+    prepared: requests.PreparedRequest,
+    timeout: float,
+    endpoint: Optional[str] = None,
+) -> Tuple[Dict[str, Any], int, int]:
 
     # Make sure we always have at least a minimal timeout.
     timeout = max(1.0, min(app.config["OAUTH_FETCH_TIMEOUT"], timeout))
@@ -236,7 +239,7 @@ def _fetch(
     return result, status_code, retry_after
 
 
-def _decode(resp):  # type: (requests.Response) -> Dict[Text, Any]
+def _decode(resp: requests.Response) -> Dict[str, Any]:
     # Per OAuth spec all responses should be JSON, but this isn't allways
     # the case. For instance 502 errors and a gateway that does not correctly
     # create a fake JSON error response.
@@ -262,11 +265,11 @@ def _decode(resp):  # type: (requests.Response) -> Dict[Text, Any]
     return _error(error, description)
 
 
-def _error(error, description):  # type: (Text, Text) -> Dict[Text, Any]
+def _error(error: str, description: str) -> Dict[str, Any]:
     return {"error": error, "error_description": description}
 
 
-def _parse_retry(value):  # type: (Optional[Text]) -> int
+def _parse_retry(value: Optional[str]) -> int:
     if not value:
         seconds = 0
     elif re.match(r"^\s*[0-9]+\s*$", value):
@@ -280,12 +283,11 @@ def _parse_retry(value):  # type: (Optional[Text]) -> int
     return max(0, seconds)
 
 
-def redirect(uri, **params):  # type: (Text, **Text) -> flask.Response
+def redirect(uri: str, **params: str) -> flask.Response:
     return flask.Response(status=302, headers={"Location": _rewrite_uri(uri, params)})
 
 
-def _rewrite_query(original, params):
-    # type: (Text, Dict[str, Text]) -> str
+def _rewrite_query(original: str, params: Dict[str, str]) -> str:
     # TODO: test this...
     parts = []
     query = compat.parse_qs(original, keep_blank_values=True)
@@ -301,7 +303,7 @@ def _rewrite_query(original, params):
     return compat.urlencode(parts)
 
 
-def _rewrite_uri(uri, params):  # type: (Text, Dict[str, Text]) -> Text
+def _rewrite_uri(uri: str, params: Dict[str, str]) -> str:
     # TODO: test this and move to utils.py?
     scheme, netloc, path, query, fragment = compat.urlsplit(uri)
     query = _rewrite_query(query, params)
