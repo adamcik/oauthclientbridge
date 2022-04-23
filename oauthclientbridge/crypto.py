@@ -1,8 +1,7 @@
 import json
+from typing import Any
 
 from cryptography import fernet
-
-from typing import Any
 
 InvalidToken = fernet.InvalidToken
 

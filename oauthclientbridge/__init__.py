@@ -1,7 +1,6 @@
 # flake8: noqa
 
 from flask import Flask
-
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 __version__ = "1.4.0"

@@ -8,8 +8,9 @@ if sys.version_info[0] == 3:
 
     text_type = str
 else:
-    from httplib import responses
     from urllib import urlencode
+
+    from httplib import responses
     from urlparse import parse_qs, urlsplit, urlunsplit
 
     text_type = unicode

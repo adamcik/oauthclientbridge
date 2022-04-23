@@ -2,12 +2,11 @@ import contextlib
 import re
 import sqlite3
 import uuid
+from typing import Iterator, Optional
 
 from flask import g
 
 from oauthclientbridge import app, stats
-
-from typing import Iterator, Optional
 
 Error = sqlite3.Error
 IntegrityError = sqlite3.IntegrityError
