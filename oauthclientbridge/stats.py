@@ -1,3 +1,4 @@
+import http.client
 import os
 import re
 import time
@@ -5,8 +6,6 @@ import time
 import flask
 import prometheus_client
 import prometheus_client.multiprocess
-
-from oauthclientbridge import compat
 
 registry = prometheus_client.CollectorRegistry()
 
@@ -146,7 +145,7 @@ ClientResponseSizeHistogram = prometheus_client.Histogram(
 
 def status(code: int) -> str:
     if code not in HTTP_STATUS:
-        text = compat.responses.get(code, str(code)).lower()
+        text = http.client.responses.get(code, str(code)).lower()
         HTTP_STATUS[code] = "http_%s" % re.sub(r"[ -]", "_", text)
     return HTTP_STATUS[code]
 

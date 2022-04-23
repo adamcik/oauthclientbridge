@@ -1,12 +1,13 @@
 import email.utils
 import re
 import time
+import urllib.parse
 from typing import Any, Dict, Optional, Set, Tuple
 
 import flask
 import requests
 
-from oauthclientbridge import __version__, app, compat, errors, stats
+from oauthclientbridge import __version__, app, errors, stats
 
 # https://tools.ietf.org/html/rfc6749#section-4.1.2.1
 AUTHORIZATION_ERRORS = {
@@ -290,21 +291,21 @@ def redirect(uri: str, **params: str) -> flask.Response:
 def _rewrite_query(original: str, params: Dict[str, str]) -> str:
     # TODO: test this...
     parts = []
-    query = compat.parse_qs(original, keep_blank_values=True)
+    query = urllib.parse.parse_qs(original, keep_blank_values=True)
     for p, value in params.items():
         query[p] = [value]  # Override with new params.
     for q, values in query.items():
         for value in values:  # Turn query into list of tuples.
             # TODO: params is really TEXT then this is no longer needed.
-            if isinstance(value, compat.text_type):
+            if isinstance(value, str):
                 parts.append((q, value.encode("utf-8")))
             else:
                 parts.append((q, value))
-    return compat.urlencode(parts)
+    return urllib.parse.urlencode(parts)
 
 
 def _rewrite_uri(uri: str, params: Dict[str, str]) -> str:
     # TODO: test this and move to utils.py?
-    scheme, netloc, path, query, fragment = compat.urlsplit(uri)
+    scheme, netloc, path, query, fragment = urllib.parse.urlsplit(uri)
     query = _rewrite_query(query, params)
-    return compat.urlunsplit((scheme, netloc, path, query, fragment))
+    return urllib.parse.urlunsplit((scheme, netloc, path, query, fragment))

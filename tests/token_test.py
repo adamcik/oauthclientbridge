@@ -1,6 +1,8 @@
+import urllib.parse
+
 import pytest
 
-from oauthclientbridge import app, compat, crypto, db, errors
+from oauthclientbridge import app, crypto, db, errors
 
 
 @pytest.mark.parametrize(
@@ -173,7 +175,7 @@ def test_token_refresh_post_data(post, refresh_token, requests_mock):
             "grant_type": ["refresh_token"],
             "refresh_token": [refresh_token.value["refresh_token"]],
         }
-        assert expected == compat.parse_qs(request.body)
+        assert expected == urllib.parse.parse_qs(request.body)
         return True
 
     requests_mock.post(

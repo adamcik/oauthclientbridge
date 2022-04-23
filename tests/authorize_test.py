@@ -1,11 +1,13 @@
+import urllib.parse
+
 import pytest
 
-from oauthclientbridge import app, compat, crypto, db, errors
+from oauthclientbridge import app, crypto, db, errors
 
 
 def test_authorize_redirects(client):
     resp = client.get("/")
-    location = compat.urlsplit(resp.location)
+    location = urllib.parse.urlsplit(resp.location)
 
     with client.session_transaction() as session:
         assert resp.status_code == 302
@@ -21,13 +23,13 @@ def test_authorize_wrong_method(client):
 
 def test_authorize_redirect_uri(client):
     redirect_uri = app.config["OAUTH_REDIRECT_URI"]
-    url = "/?%s" % compat.urlencode({"redirect_uri": redirect_uri})
+    url = "/?%s" % urllib.parse.urlencode({"redirect_uri": redirect_uri})
     resp = client.get(url)
     assert resp.status_code == 302
 
 
 def test_authorize_wrong_redirect_uri(client):
-    url = "/?%s" % compat.urlencode({"redirect_uri": "wrong-value"})
+    url = "/?%s" % urllib.parse.urlencode({"redirect_uri": "wrong-value"})
     resp = client.get(url)
     assert resp.status_code == 400
 
