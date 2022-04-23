@@ -1,5 +1,3 @@
-from __future__ import absolute_import
-
 import logging
 import logging.handlers
 import typing
@@ -24,7 +22,7 @@ class ContextualFilter(logging.Filter):
 class CustomSMTPHandler(logging.handlers.SMTPHandler):
     def __init__(self, mailhost, fromaddr, toaddrs, subject):
         # type: (Union[str, Tuple[str, int]], str, List[str], str) -> None
-        super(CustomSMTPHandler, self).__init__(mailhost, fromaddr, toaddrs, subject)
+        super().__init__(mailhost, fromaddr, toaddrs, subject)
         self.subject_formatter = logging.Formatter(subject)
 
     def getSubject(self, record):  # noqa: N802

@@ -1,5 +1,3 @@
-from __future__ import absolute_import
-
 import logging
 import typing
 
@@ -76,7 +74,7 @@ def callback():  # type: () -> flask.Response
         level = app.config["OAUTH_ERROR_LOG_LEVELS"].get(error, "ERROR")
         level = logging.getLevelName(level)
 
-        msg = "Callback failed %s: %s" % (error, desc)
+        msg = f"Callback failed {error}: {desc}"
         if error == errors.INVALID_SCOPE:
             msg += " - %r" % flask.request.args.get("scope")
         app.logger.log(level, msg)
