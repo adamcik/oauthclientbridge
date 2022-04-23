@@ -1,13 +1,9 @@
 import logging
-import typing
+from typing import Optional
 
 import flask
 
 from oauthclientbridge import app, crypto, db, errors, oauth, stats
-
-if typing.TYPE_CHECKING:
-    from typing import Optional, Text  # noqa: F401
-
 
 # Disable caching across the board.
 app.after_request(oauth.nocache)
@@ -22,7 +18,7 @@ app.after_request(stats.after_request)
 
 
 @app.route("/")
-def authorize():  # type: () -> flask.Response
+def authorize() -> flask.Response:
     """Store random state in session cookie and redirect to auth endpoint."""
 
     redirect_uri = flask.request.args.get("redirect_uri")
@@ -45,10 +41,10 @@ def authorize():  # type: () -> flask.Response
 
 
 @app.route("/callback")
-def callback():  # type: () -> flask.Response
+def callback() -> flask.Response:
     """Validate callback and trade in code for a token."""
-    error = None  # type: Optional[Text]
-    desc = None  # type: Optional[Text]
+    error: Optional[str] = None
+    desc: Optional[str] = None
     client_state = flask.session.pop("client_state", None)
     state = flask.session.pop("state", None)
 
@@ -118,7 +114,7 @@ def callback():  # type: () -> flask.Response
 
 
 @app.route("/token", methods=["POST"])
-def token():  # type: () -> flask.Response
+def token() -> flask.Response:
     """Validate token request, refreshing when needed."""
     # TODO: allow all methods and raise invalid_request for !POST?
 
@@ -237,12 +233,13 @@ def token():  # type: () -> flask.Response
 
 
 @app.route("/metrics", methods=["GET"])
-def metrics():  # type: () -> flask.Response
+def metrics() -> flask.Response:
     return stats.export_metrics()
 
 
-def _error(error_code, error=None, state=None):
-    # type: (Text, Optional[Text], Optional[Text]) -> flask.Response
+def _error(
+    error_code: str, error: Optional[str] = None, state: Optional[str] = None
+) -> flask.Response:
     if error_code == errors.INVALID_CLIENT:
         status = 401
     else:
@@ -258,12 +255,12 @@ def _error(error_code, error=None, state=None):
 
 
 def _render(
-    client_id=None,  # type: Optional[Text]
-    client_secret=None,  # type: Optional[Text]
-    state=None,  # type: Optional[Text]
-    error=None,  # type: Optional[Text]
-    description=None,  # type: Optional[Text]
-):  # type: (...) -> flask.Response
+    client_id: Optional[str] = None,
+    client_secret: Optional[str] = None,
+    state: Optional[str] = None,
+    error: Optional[str] = None,
+    description: Optional[str] = None,
+) -> flask.Response:
     # Keep all the vars in something we can dump for tests with tojson.
     variables = {
         "client_id": client_id,
