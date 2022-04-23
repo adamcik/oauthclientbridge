@@ -1,16 +1,12 @@
 import os
 import re
 import time
-import typing
 
 import flask
 import prometheus_client
 import prometheus_client.multiprocess
 
 from oauthclientbridge import compat
-
-if typing.TYPE_CHECKING:
-    from typing import Text  # noqa: F401
 
 registry = prometheus_client.CollectorRegistry()
 
@@ -148,22 +144,23 @@ ClientResponseSizeHistogram = prometheus_client.Histogram(
 )
 
 
-def status(code):  # type: (int) -> str
+def status(code: int) -> str:
     if code not in HTTP_STATUS:
         text = compat.responses.get(code, str(code)).lower()
         HTTP_STATUS[code] = "http_%s" % re.sub(r"[ -]", "_", text)
     return HTTP_STATUS[code]
 
 
-def endpoint():  # type: () -> Text
+def endpoint() -> str:
     return getattr(flask.request.url_rule, "endpoint", "notfound")
 
 
-def before_request():  # type: () -> None
+def before_request() -> None:
     flask.request._stats_latency_start_time = time.time()  # type: ignore
 
 
-def after_request(response):
+# TODO: Figure our why I can't type annotate response
+def after_request(response) -> flask.Response:
     request_latency = (
         time.time() - flask.request._stats_latency_start_time  # type: ignore
     )
@@ -179,6 +176,6 @@ def after_request(response):
     return response
 
 
-def export_metrics():  # type: () -> flask.Response
+def export_metrics() -> flask.Response:
     text = prometheus_client.generate_latest(registry)
     return flask.Response(text, mimetype=prometheus_client.CONTENT_TYPE_LATEST)
