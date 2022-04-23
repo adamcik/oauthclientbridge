@@ -1,17 +1,14 @@
 import logging
 import logging.handlers
-import typing
+from typing import Any, List
 
 from flask import request
 
 from oauthclientbridge import app
 
-if typing.TYPE_CHECKING:
-    from typing import Any, List, Text, Tuple, Union  # noqa: F401
-
 
 class ContextualFilter(logging.Filter):
-    def filter(self, record):  # type: (Any) -> bool
+    def filter(self, record: Any) -> bool:
         record.request_path = request.path
         record.request_base_url = request.base_url
         record.request_method = request.method
@@ -20,13 +17,11 @@ class ContextualFilter(logging.Filter):
 
 
 class CustomSMTPHandler(logging.handlers.SMTPHandler):
-    def __init__(self, mailhost, fromaddr, toaddrs, subject):
-        # type: (Union[str, Tuple[str, int]], str, List[str], str) -> None
+    def __init__(self, mailhost: str, fromaddr: str, toaddrs: List[str], subject: str):
         super().__init__(mailhost, fromaddr, toaddrs, subject)
         self.subject_formatter = logging.Formatter(subject)
 
-    def getSubject(self, record):  # noqa: N802
-        # type: (logging.LogRecord) -> str
+    def getSubject(self, record: logging.LogRecord) -> str:
         return self.subject_formatter.format(record).split("\n")[0]
 
 
