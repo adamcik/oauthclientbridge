@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "oauthclientbridge"
 version = "1.4.0"
-readme = "README.rst"
+readme = "README.md"
 description = "Bridge OAuth2 Authorization Code Grants to Clients Grants"
 repository = "https://github.com/adamcik/oauthclientbridge"
 authors = ["Thomas Adamcik <thomas@adamcik.no>"]
