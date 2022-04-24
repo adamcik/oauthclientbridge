@@ -9,6 +9,9 @@ import requests
 
 from oauthclientbridge import __version__, app, errors, stats
 
+OAuthResponse = dict[str, Any]
+URIParam = dict[str, str]
+
 # https://tools.ietf.org/html/rfc6749#section-4.1.2.1
 AUTHORIZATION_ERRORS = {
     errors.INVALID_REQUEST,
@@ -110,18 +113,18 @@ def normalize_error(error: str, error_types: set[str]) -> str:
         return error
 
 
-def validate_token(token: dict[str, Any]) -> bool:
+def validate_token(token: OAuthResponse) -> bool:
     return bool(token.get("access_token") and token.get("token_type"))
 
 
-def scrub_refresh_token(token: dict[str, Any]) -> dict[str, Any]:
+def scrub_refresh_token(token: OAuthResponse) -> OAuthResponse:
     remove = ("access_token", "expires_in", "token_type")
     return {k: v for k, v in token.items() if k not in remove}
 
 
 def fetch(
     uri: str, auth: Optional[str] = None, endpoint: Optional[str] = None, **data
-) -> dict[str, Any]:
+) -> OAuthResponse:
     """Perform post given URI with auth and provided data."""
     req = requests.Request("POST", uri, data=data, auth=auth)
     prepared = req.prepare()
@@ -178,7 +181,7 @@ def _fetch(
     prepared: requests.PreparedRequest,
     timeout: float,
     endpoint: Optional[str] = None,
-) -> tuple[dict[str, Any], int, int]:
+) -> tuple[OAuthResponse, int, int]:
 
     # Make sure we always have at least a minimal timeout.
     timeout = max(1.0, min(app.config["OAUTH_FETCH_TIMEOUT"], timeout))
@@ -240,7 +243,7 @@ def _fetch(
     return result, status_code, retry_after
 
 
-def _decode(resp: requests.Response) -> dict[str, Any]:
+def _decode(resp: requests.Response) -> OAuthResponse:
     # Per OAuth spec all responses should be JSON, but this isn't allways
     # the case. For instance 502 errors and a gateway that does not correctly
     # create a fake JSON error response.
@@ -266,7 +269,7 @@ def _decode(resp: requests.Response) -> dict[str, Any]:
     return _error(error, description)
 
 
-def _error(error: str, description: str) -> dict[str, Any]:
+def _error(error: str, description: str) -> OAuthResponse:
     return {"error": error, "error_description": description}
 
 
@@ -288,7 +291,7 @@ def redirect(uri: str, **params: str) -> flask.Response:
     return flask.Response(status=302, headers={"Location": _rewrite_uri(uri, params)})
 
 
-def _rewrite_query(original: str, params: dict[str, str]) -> str:
+def _rewrite_query(original: str, params: URIParam) -> str:
     # TODO: test this...
     parts = []
     query = urllib.parse.parse_qs(original, keep_blank_values=True)
@@ -304,7 +307,7 @@ def _rewrite_query(original: str, params: dict[str, str]) -> str:
     return urllib.parse.urlencode(parts)
 
 
-def _rewrite_uri(uri: str, params: dict[str, str]) -> str:
+def _rewrite_uri(uri: str, params: URIParam) -> str:
     # TODO: test this and move to utils.py?
     scheme, netloc, path, query, fragment = urllib.parse.urlsplit(uri)
     query = _rewrite_query(query, params)
