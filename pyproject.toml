@@ -31,6 +31,7 @@ mypy = "*"
 pytest = "*"
 pytest-cov = "*"
 requests_mock = "*"
+types-requests = "*"
 
 [tool.black]
 target-version = ["py39"]
