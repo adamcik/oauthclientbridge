@@ -1,5 +1,3 @@
-from typing import Optional
-
 # Secret key used for encrypting session cookies used in initial OAuth flow,
 # MUST be set.
 #
@@ -12,10 +10,10 @@ from typing import Optional
 #
 # Also make sure you have secure access to this file _and_ the directory it's
 # in to keep it from leaking via .pyc files.
-SECRET_KEY: Optional[bytes] = None
+SECRET_KEY: bytes | None = None
 
 # SQLite3 database to store tokens information in, MUST be set.
-OAUTH_DATABASE: Optional[str] = None
+OAUTH_DATABASE: str | None = None
 
 # SQlite3 database timeout to use at "connection" time.
 OAUTH_DATABASE_TIMEOUT = 5
@@ -24,8 +22,8 @@ OAUTH_DATABASE_TIMEOUT = 5
 OAUTH_DATABASE_PRAGMAS = ["PRAGMA journal_mode = WAL"]
 
 # Client ID and secret provided by upstream OAuth provider, MUST be set.
-OAUTH_CLIENT_ID: Optional[str] = None
-OAUTH_CLIENT_SECRET: Optional[str] = None
+OAUTH_CLIENT_ID: str | None = None
+OAUTH_CLIENT_SECRET: str | None = None
 
 # Type of grant to request from upstream.
 OAUTH_GRANT_TYPE = "refresh_token"
@@ -34,12 +32,12 @@ OAUTH_GRANT_TYPE = "refresh_token"
 OAUTH_SCOPES: list[str] = []
 
 # Upstream authorization URI to redirect users to, MUST be set.
-OAUTH_AUTHORIZATION_URI: Optional[str] = None
+OAUTH_AUTHORIZATION_URI: str | None = None
 
 # Upstream token and refresh URIs. The token URI MUST be set, while the refresh
 # one will fallback to the token URI.
-OAUTH_TOKEN_URI: Optional[str] = None
-OAUTH_REFRESH_URI: Optional[str] = None
+OAUTH_TOKEN_URI: str | None = None
+OAUTH_REFRESH_URI: str | None = None
 
 # Overall allowed timeout across all retires, backoff and retry-after time.
 OAUTH_FETCH_TOTAL_TIMEOUT = 20.0
@@ -55,7 +53,7 @@ OAUTH_FETCH_TOTAL_RETRIES = 3
 OAUTH_FETCH_RETRY_STATUS_CODES = [429, 500, 502, 503, 504]
 
 # Status codes to treat as temporarily_unavailable when we can't decode the
-# repsonse. Remaining status codes treated as server_error.
+# response. Remaining status codes treated as server_error.
 OAUTH_FETCH_UNAVAILABLE_STATUS_CODES = [429, 502, 503, 504]
 
 # Non-standard oauth errors and what standard errors to translate them to.
@@ -95,7 +93,7 @@ OAUTH_CALLBACK_TEMPLATE = """
 OAUTH_NUM_PROXIES = 0
 
 # Additional log file for application level logging, set to None to disable.
-OAUTH_LOG_FILE: Optional[str] = None
+OAUTH_LOG_FILE: str | None = None
 
 # Log level for file logging.
 OAUTH_LOG_FILE_LEVEL = "INFO"
