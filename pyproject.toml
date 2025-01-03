@@ -1,11 +1,19 @@
-[tool.poetry]
+[project]
+authors = [
+    {name = "Thomas Adamcik", email = "thomas@adamcik.no"},
+]
+license = {text = "Apache-2.0"}
+requires-python = "<3.10,>=3.9"
+dependencies = [
+    "Flask<3.0.0,>=2.1.1",
+    "cryptography<37.0.0,>=36.0.2",
+    "prometheus-client<1.0.0,>=0.14.1",
+    "requests<3.0.0,>=2.27.1",
+]
 name = "oauthclientbridge"
 version = "2.0.0"
 readme = "README.md"
 description = "Bridge OAuth2 Authorization Code Grants to Clients Grants"
-repository = "https://github.com/adamcik/oauthclientbridge"
-authors = ["Thomas Adamcik <thomas@adamcik.no>"]
-license = "Apache-2.0"
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "License :: OSI Approved :: Apache Software License",
@@ -13,35 +21,23 @@ classifiers = [
     "Programming Language :: Python :: 3",
 ]
 
-[tool.poetry.dependencies]
-python = "^3.9"
-Flask = "^2.1.1"
-cryptography = "^36.0.2"
-prometheus-client = "^0.14.1"
-requests = "^2.27.1"
+[project.urls]
+repository = "https://github.com/adamcik/oauthclientbridge"
 
-[tool.poetry.dev-dependencies]
-black = "*"
-flake8 = "*"
-flake8-black = "*"
-flake8-bugbear = "*"
-flake8-isort = "*"
-isort = "*"
-mypy = "*"
-pytest = "*"
-pytest-cov = "*"
-requests_mock = "*"
-types-requests = "*"
-
-[tool.black]
-target-version = ["py39"]
-
-[tool.isort]
-profile = "black"
-
-[tool.pylint.format]
-max-line-length = "88"
-
-[build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
+[dependency-groups]
+dev = [
+  {include-group = "test"},
+  {include-group = "typing"},
+  {include-group = "lint"},
+]
+typing = [
+  "types-requests",
+  "basedpyright",
+]
+test = [
+  "pytest",
+  "pytest-cov",
+]
+lint = [
+  "ruff",
+]
