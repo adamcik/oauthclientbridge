@@ -1,4 +1,4 @@
-# flake8: noqa
+# pyright: reportImportCycles=none
 
 import importlib.metadata
 

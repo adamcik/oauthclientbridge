@@ -5,6 +5,8 @@
 *-journal
 .coverage
 .tox/
+.direnv/
+result
 MANIFEST
 build/
 dist/

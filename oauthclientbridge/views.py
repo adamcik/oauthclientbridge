@@ -68,7 +68,7 @@ def callback() -> flask.Response:
 
     if error is not None:
         level = app.config["OAUTH_ERROR_LOG_LEVELS"].get(error, "ERROR")
-        level = logging.getLevelName(level)
+        level = logging.getLevelNamesMapping()[level]
 
         msg = f"Callback failed {error}: {desc}"
         if error == errors.INVALID_SCOPE:
