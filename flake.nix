@@ -2,7 +2,7 @@
   description = "oauthclientbridge";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
     pyproject-nix = {
       url = "github:pyproject-nix/pyproject.nix";
@@ -54,9 +54,11 @@
           pkgs = nixpkgs.legacyPackages.${system};
           inherit (pkgs) stdenv;
 
-          # Base Python package set from pyproject.nix
+          python = pkgs.python312;
+
+          # Base Python package set from pyproject.V
           baseSet = pkgs.callPackage pyproject-nix.build.packages {
-            python = pkgs.python312;
+            inherit python;
           };
 
           # An overlay of build fixups & test additions
@@ -80,18 +82,18 @@
                       stdenv.mkDerivation {
                         name = "${final.oauthclientbridge.name}-typing";
                         inherit (final.oauthclientbridge) src;
-                        nativeBuildInputs = [ venv ];
+                        nativeBuildInputs = [
+                          venv
+                        ];
                         dontConfigure = true;
                         dontInstall = true;
-
                         buildPhase = ''
-                          runHook preBuild
                           mkdir $out
                           basedpyright oauthclientbridge --level error
-                          runHook postBuild
                         '';
                       };
 
+                    # Run pytest with coverage reports installed into build output
                     pytest =
                       let
                         venv = final.mkVirtualEnv "oauthclientbridge-pytest-env" {
@@ -101,15 +103,22 @@
                       stdenv.mkDerivation {
                         name = "${final.oauthclientbridge.name}-pytest";
                         inherit (final.oauthclientbridge) src;
-                        nativeBuildInputs = [ venv ];
+                        nativeBuildInputs = [
+                          venv
+                        ];
+
                         dontConfigure = true;
-                        dontInstall = true;
 
                         buildPhase = ''
                           runHook preBuild
-                          mkdir $out
-                          pytest tests
+                          pytest --cov tests --cov-report html tests
                           runHook postBuild
+                        '';
+
+                        installPhase = ''
+                          runHook preInstall
+                          mv htmlcov $out
+                          runHook postInstall
                         '';
                       };
                   };
@@ -146,6 +155,7 @@
           pythonSet = pythonSets.${system};
         in
         lib.optionalAttrs pkgs.stdenv.isLinux {
+          # Expose Docker container in packages
           docker =
             let
               venv = pythonSet.mkVirtualEnv "oauthclientbridge-env" workspace.deps.default;
@@ -169,7 +179,33 @@
         system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
-          editablePythonSet = pythonSets.${system}.overrideScope editableOverlay;
+
+          python = pkgs.python312;
+
+          editablePythonSet = pythonSets.${system}.overrideScope (
+            lib.composeManyExtensions [
+              editableOverlay
+
+              (final: prev: {
+                oauthclientbridge = prev.oauthclientbridge.overrideAttrs (old: {
+                  src = lib.fileset.toSource {
+                    root = old.src;
+                    fileset = lib.fileset.unions [
+                      (old.src + "/pyproject.toml")
+                      (old.src + "/README.md")
+                      (old.src + "/oauthclientbridge/__init__.py")
+                    ];
+                  };
+                  nativeBuildInputs =
+                    old.nativeBuildInputs
+                    ++ final.resolveBuildSystem {
+                      editables = [ ];
+                    };
+                });
+              })
+            ]
+          );
+
           venv = editablePythonSet.mkVirtualEnv "oauthclientbridge-dev-env" {
             oauthclientbridge = [ "dev" ];
           };
@@ -180,11 +216,14 @@
               venv
               pkgs.uv
             ];
+            env = {
+              UV_NO_SYNC = "1";
+              UV_PYTHON = python.interpreter;
+              UV_PYTHON_DOWNLOADS = "never";
+            };
             shellHook = ''
               unset PYTHONPATH
               export REPO_ROOT=$(git rev-parse --show-toplevel)
-              export UV_NO_SYNC=1
-              export UV_PYTHON_DOWNLOADS=never
             '';
           };
         }
