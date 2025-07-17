@@ -1,25 +1,23 @@
 [project]
-authors = [
-    {name = "Thomas Adamcik", email = "thomas@adamcik.no"},
-]
-license = {text = "Apache-2.0"}
+authors = [{ name = "Thomas Adamcik", email = "thomas@adamcik.no" }]
+license = { text = "Apache-2.0" }
 requires-python = "<3.13,>=3.12"
 dependencies = [
-    "Flask==2.1.1",
-    "werkzeug==2.1.1",
-    "cryptography==36.0.2",
-    "prometheus-client==0.14.1",
-    "requests==2.27.1",
+  "Flask==2.1.1",
+  "werkzeug==2.1.1",
+  "cryptography==36.0.2",
+  "prometheus-client==0.14.1",
+  "requests==2.27.1",
 ]
 name = "oauthclientbridge"
 version = "2.0.0"
 readme = "README.md"
 description = "Bridge OAuth2 Authorization Code Grants to Clients Grants"
 classifiers = [
-    "Development Status :: 5 - Production/Stable",
-    "License :: OSI Approved :: Apache Software License",
-    "Operating System :: OS Independent",
-    "Programming Language :: Python :: 3",
+  "Development Status :: 5 - Production/Stable",
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
 ]
 
 [project.urls]
@@ -27,19 +25,10 @@ repository = "https://github.com/adamcik/oauthclientbridge"
 
 [dependency-groups]
 dev = [
-  {include-group = "test"},
-  {include-group = "typing"},
-  {include-group = "lint"},
+  { include-group = "test" },
+  { include-group = "typing" },
+  { include-group = "lint" },
 ]
-typing = [
-  "types-requests",
-  "basedpyright",
-]
-test = [
-  "pytest",
-  "pytest-cov",
-  "requests_mock",
-]
-lint = [
-  "ruff",
-]
+typing = ["types-requests", "basedpyright"]
+test = ["pytest", "pytest-cov", "requests_mock"]
+lint = ["ruff"]
