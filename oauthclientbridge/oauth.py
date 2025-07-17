@@ -48,6 +48,7 @@ class Error(Exception):
         uri: Optional[str] = None,
         retry_after: Optional[int] = None,
     ):
+        super().__init__()
         self.error = error
         self.description = description
         self.uri = uri
@@ -182,7 +183,6 @@ def _fetch(
     timeout: float,
     endpoint: Optional[str] = None,
 ) -> tuple[OAuthResponse, int, int]:
-
     # Make sure we always have at least a minimal timeout.
     timeout = max(1.0, min(app.config["OAUTH_FETCH_TIMEOUT"], timeout))
     start_time = time.time()
