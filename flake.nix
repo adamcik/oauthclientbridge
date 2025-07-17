@@ -93,6 +93,26 @@
                         '';
                       };
 
+                    ruff =
+                      let
+                        venv = final.mkVirtualEnv "oauthclientbridge-lint-env" {
+                          oauthclientbridge = [ "lint" ];
+                        };
+                      in
+                      stdenv.mkDerivation {
+                        name = "${final.oauthclientbridge.name}-lint";
+                        inherit (final.oauthclientbridge) src;
+                        nativeBuildInputs = [
+                          venv
+                        ];
+                        dontConfigure = true;
+                        dontInstall = true;
+                        buildPhase = ''
+                          mkdir $out
+                          ruff check
+                        '';
+                      };
+
                     # Run pytest with coverage reports installed into build output
                     pytest =
                       let
