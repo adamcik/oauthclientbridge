@@ -3,12 +3,13 @@ authors = [
     {name = "Thomas Adamcik", email = "thomas@adamcik.no"},
 ]
 license = {text = "Apache-2.0"}
-requires-python = "<3.10,>=3.9"
+requires-python = "<3.13,>=3.12"
 dependencies = [
-    "Flask<3.0.0,>=2.1.1",
-    "cryptography<37.0.0,>=36.0.2",
-    "prometheus-client<1.0.0,>=0.14.1",
-    "requests<3.0.0,>=2.27.1",
+    "Flask==2.1.1",
+    "werkzeug==2.1.1",
+    "cryptography==36.0.2",
+    "prometheus-client==0.14.1",
+    "requests==2.27.1",
 ]
 name = "oauthclientbridge"
 version = "2.0.0"
@@ -37,6 +38,7 @@ typing = [
 test = [
   "pytest",
   "pytest-cov",
+  "requests_mock",
 ]
 lint = [
   "ruff",
