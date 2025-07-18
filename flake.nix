@@ -213,7 +213,7 @@
                     fileset = lib.fileset.unions [
                       (old.src + "/pyproject.toml")
                       (old.src + "/README.md")
-                      (old.src + "/oauthclientbridge/__init__.py")
+                      (old.src + "/src/oauthclientbridge/__init__.py")
                     ];
                   };
                   nativeBuildInputs =
