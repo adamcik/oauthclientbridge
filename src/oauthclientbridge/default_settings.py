@@ -16,7 +16,7 @@ SECRET_KEY: bytes | None = None
 OAUTH_DATABASE: str | None = None
 
 # SQlite3 database timeout to use at "connection" time.
-OAUTH_DATABASE_TIMEOUT = 5
+OAUTH_DATABASE_TIMEOUT: float = 5
 
 # SQlite3 database PRAGMAs to run at connection time for database.
 OAUTH_DATABASE_PRAGMAS = ["PRAGMA journal_mode = WAL"]
@@ -26,7 +26,7 @@ OAUTH_CLIENT_ID: str | None = None
 OAUTH_CLIENT_SECRET: str | None = None
 
 # Type of grant to request from upstream.
-OAUTH_GRANT_TYPE = "refresh_token"
+OAUTH_GRANT_TYPE: str = "refresh_token"
 
 # List of OAuth scopes to request from the upstream provider:
 OAUTH_SCOPES: list[str] = []
@@ -40,14 +40,14 @@ OAUTH_TOKEN_URI: str | None = None
 OAUTH_REFRESH_URI: str | None = None
 
 # Overall allowed timeout across all retires, backoff and retry-after time.
-OAUTH_FETCH_TOTAL_TIMEOUT = 20.0
+OAUTH_FETCH_TOTAL_TIMEOUT: float = 20.0
 
 # Number of seconds to wait for initial connection and subsequent reads to
 # upstream OAuth endpoint for a single fetch attempt.
-OAUTH_FETCH_TIMEOUT = 5.0
+OAUTH_FETCH_TIMEOUT: float = 5.0
 
 # Maximum number of retries for fetching oauth data.
-OAUTH_FETCH_TOTAL_RETRIES = 3
+OAUTH_FETCH_TOTAL_RETRIES: int = 3
 
 # Status codes that should be considered retryable for oauth.
 OAUTH_FETCH_RETRY_STATUS_CODES = [429, 500, 502, 503, 504]
@@ -60,11 +60,11 @@ OAUTH_FETCH_UNAVAILABLE_STATUS_CODES = [429, 502, 503, 504]
 OAUTH_FETCH_ERROR_TYPES = {"errorTransient": "temporarily_unavailable"}
 
 # Backoff factor to use for not hammering the oauth server too much.
-OAUTH_FETCH_BACKOFF_FACTOR = 0.1
+OAUTH_FETCH_BACKOFF_FACTOR: float = 0.1
 
 # Bridge callback URI to send users back to. Should exactly match URI
 # registered with the upstream provider.
-OAUTH_REDIRECT_URI = "http://localhost:5000/callback"
+OAUTH_REDIRECT_URI: str = "http://localhost:5000/callback"
 
 # Jinja2 template to use for the callback page. Possible context values are:
 #  error, description, client_id, client_secret
@@ -72,7 +72,7 @@ OAUTH_REDIRECT_URI = "http://localhost:5000/callback"
 # Should be setup to give the client_id and client_secret to the user. Either
 # directly or passing the value back to the parent window if this is being run
 # in a pop-up window.
-OAUTH_CALLBACK_TEMPLATE = """
+OAUTH_CALLBACK_TEMPLATE: str = """
 {% if error %}
   {{ error }}{% if description %}: {{ description }}{% endif %}
 {% else %}
@@ -90,7 +90,7 @@ OAUTH_CALLBACK_TEMPLATE = """
 """
 
 # Number proxies to expect in front of us. Used for handling X-Forwarded-For
-OAUTH_NUM_PROXIES = 0
+OAUTH_NUM_PROXIES: int = 0
 
 # Additional log file for application level logging, set to None to disable.
 OAUTH_LOG_FILE: str | None = None
