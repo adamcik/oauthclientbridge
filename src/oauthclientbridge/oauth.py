@@ -2,7 +2,7 @@ import email.utils
 import re
 import time
 import urllib.parse
-from typing import Any, Optional
+from typing import Any
 
 import flask
 import requests
@@ -44,9 +44,9 @@ class Error(Exception):
     def __init__(
         self,
         error: str,
-        description: Optional[str] = None,
-        uri: Optional[str] = None,
-        retry_after: Optional[int] = None,
+        description: str | None = None,
+        uri: str | None = None,
+        retry_after: int | None = None,
     ):
         super().__init__()
         self.error = error
@@ -124,7 +124,7 @@ def scrub_refresh_token(token: OAuthResponse) -> OAuthResponse:
 
 
 def fetch(
-    uri: str, auth: Optional[str] = None, endpoint: Optional[str] = None, **data
+    uri: str, auth: str | None = None, endpoint: str | None = None, **data
 ) -> OAuthResponse:
     """Perform post given URI with auth and provided data."""
     req = requests.Request("POST", uri, data=data, auth=auth)
@@ -185,7 +185,7 @@ def fetch(
 def _fetch(
     prepared: requests.PreparedRequest,
     timeout: float,
-    endpoint: Optional[str] = None,
+    endpoint: str | None = None,
 ) -> tuple[OAuthResponse, int, int]:
     # Make sure we always have at least a minimal timeout.
     timeout = max(1.0, min(flask.current_app.config["OAUTH_FETCH_TIMEOUT"], timeout))
@@ -280,7 +280,7 @@ def _error(error: str, description: str) -> OAuthResponse:
     return {"error": error, "error_description": description}
 
 
-def _parse_retry(value: Optional[str]) -> int:
+def _parse_retry(value: str | None) -> int:
     if not value:
         seconds = 0
     elif re.match(r"^\s*[0-9]+\s*$", value):

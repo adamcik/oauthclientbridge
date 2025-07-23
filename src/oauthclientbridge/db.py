@@ -2,7 +2,7 @@ import contextlib
 import re
 import sqlite3
 import uuid
-from typing import Iterator, Optional
+from typing import Iterator
 
 from flask import current_app, g
 
@@ -69,7 +69,7 @@ def cursor(name: str, transaction: bool = False) -> Iterator[sqlite3.Cursor]:
         raise
 
 
-def _prepare_token(token: Optional[bytes]) -> Optional[str]:
+def _prepare_token(token: bytes | None) -> str | None:
     """Convert token to str so it gets stored as text type in sqlite3.
 
     This is primarily to make it nicer to inspect the DB when debugging as the
@@ -91,7 +91,7 @@ def insert(token: bytes) -> str:
     return client_id
 
 
-def lookup(client_id: str) -> Optional[bytes]:
+def lookup(client_id: str) -> bytes | None:
     """Lookup a client_id and return encrypted token.
 
     Raises a LookupError if client_id is not found.
@@ -111,7 +111,7 @@ def lookup(client_id: str) -> Optional[bytes]:
         return None
 
 
-def update(client_id: str, token: Optional[bytes]) -> int:
+def update(client_id: str, token: bytes | None) -> int:
     """Update a client_id with a new encrypted token."""
 
     with cursor(name="update_token", transaction=True) as c:
@@ -122,7 +122,7 @@ def update(client_id: str, token: Optional[bytes]) -> int:
         return int(c.rowcount)
 
 
-def close(exception: Optional[BaseException]) -> None:
+def close(exception: BaseException | None) -> None:
     """Ensure that connection gets closed when app teardown happens."""
     if getattr(g, "_oauth_database", None) is None:
         return

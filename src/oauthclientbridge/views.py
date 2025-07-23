@@ -1,5 +1,4 @@
 import logging
-from typing import Optional
 
 import flask
 from flask import Blueprint
@@ -35,8 +34,8 @@ def authorize() -> flask.Response:
 @routes.route("/callback")
 def callback() -> flask.Response:
     """Validate callback and trade in code for a token."""
-    error: Optional[str] = None
-    desc: Optional[str] = None
+    error: str | None = None
+    desc: str | None = None
     client_state = flask.session.pop("client_state", None)
     state = flask.session.pop("state", None)
 
@@ -235,8 +234,8 @@ def metrics() -> flask.Response:
 
 def _error(
     error_code: str,
-    error: Optional[str] = None,
-    state: Optional[str] = None,
+    error: str | None = None,
+    state: str | None = None,
 ) -> flask.Response:
     if error_code == errors.INVALID_CLIENT:
         status = 401
@@ -253,11 +252,11 @@ def _error(
 
 
 def _render(
-    client_id: Optional[str] = None,
-    client_secret: Optional[str] = None,
-    state: Optional[str] = None,
-    error: Optional[str] = None,
-    description: Optional[str] = None,
+    client_id: str | None = None,
+    client_secret: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+    description: str | None = None,
 ) -> flask.Response:
     # Keep all the vars in something we can dump for tests with tojson.
     variables = {
