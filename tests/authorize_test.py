@@ -2,11 +2,14 @@ import urllib.parse
 
 import pytest
 from flask import current_app
+from flask.testing import FlaskClient
+from requests_mock import Mocker
 
 from oauthclientbridge import crypto, db, errors
+from tests.conftest import GetClient
 
 
-def test_authorize_redirects(client):
+def test_authorize_redirects(client: FlaskClient):
     resp = client.get("/")
     location = urllib.parse.urlsplit(resp.location)
 
@@ -17,25 +20,25 @@ def test_authorize_redirects(client):
         assert "state" in session
 
 
-def test_authorize_wrong_method(client):
+def test_authorize_wrong_method(client: FlaskClient):
     resp = client.post("/")
     assert resp.status_code == 405
 
 
-def test_authorize_redirect_uri(client):
+def test_authorize_redirect_uri(client: FlaskClient):
     redirect_uri = current_app.config["OAUTH_REDIRECT_URI"]
     url = "/?%s" % urllib.parse.urlencode({"redirect_uri": redirect_uri})
     resp = client.get(url)
     assert resp.status_code == 302
 
 
-def test_authorize_wrong_redirect_uri(client):
+def test_authorize_wrong_redirect_uri(client: FlaskClient):
     url = "/?%s" % urllib.parse.urlencode({"redirect_uri": "wrong-value"})
     resp = client.get(url)
     assert resp.status_code == 400
 
 
-def test_authorize_client_state(client):
+def test_authorize_client_state(client: FlaskClient):
     resp = client.get("/?state=s3cret")
 
     with client.session_transaction() as session:
@@ -44,7 +47,7 @@ def test_authorize_client_state(client):
 
 
 def test_callback_authorization_client_state(
-    client, get, client_state, state, requests_mock
+    client: FlaskClient, get: GetClient, client_state: str, state, requests_mock: Mocker
 ):
     data = {"token_type": "Bearer", "access_token": "1234567890"}
     requests_mock.post(current_app.config["OAUTH_TOKEN_URI"], json=data)
@@ -85,7 +88,9 @@ def test_callback_authorization_client_state(
         ("?state={state}&error=badErrorCode", errors.SERVER_ERROR),
     ],
 )
-def test_callback_error_handling(query, expected_error, client_state, get, state):
+def test_callback_error_handling(
+    query: str, expected_error: str, client_state: str, get: GetClient, state: str
+):
     resp = get("/callback" + query.format(state=state))
 
     assert resp.status == 400
@@ -102,29 +107,13 @@ def test_callback_error_handling(query, expected_error, client_state, get, state
         ({"token_type": "foobar"}, errors.INVALID_RESPONSE, 400),
         ({"access_token": "foobar"}, errors.INVALID_RESPONSE, 400),
         ({"access_token": "", "token_type": ""}, errors.INVALID_RESPONSE, 400),
-        (
-            {"access_token": "foobar", "token_type": ""},
-            errors.INVALID_RESPONSE,
-            400,
-        ),
-        (
-            {"access_token": "", "token_type": "foobar"},
-            errors.INVALID_RESPONSE,
-            400,
-        ),
+        ({"access_token": "foobar", "token_type": ""}, errors.INVALID_RESPONSE, 400),
+        ({"access_token": "", "token_type": "foobar"}, errors.INVALID_RESPONSE, 400),
         ({"error": errors.INVALID_REQUEST}, errors.INVALID_REQUEST, 400),
         ({"error": errors.INVALID_CLIENT}, errors.INVALID_CLIENT, 401),
         ({"error": errors.INVALID_GRANT}, errors.INVALID_GRANT, 400),
-        (
-            {"error": errors.UNAUTHORIZED_CLIENT},
-            errors.UNAUTHORIZED_CLIENT,
-            400,
-        ),
-        (
-            {"error": errors.UNSUPPORTED_GRANT_TYPE},
-            errors.UNSUPPORTED_GRANT_TYPE,
-            400,
-        ),
+        ({"error": errors.UNAUTHORIZED_CLIENT}, errors.UNAUTHORIZED_CLIENT, 400),
+        ({"error": errors.UNSUPPORTED_GRANT_TYPE}, errors.UNSUPPORTED_GRANT_TYPE, 400),
         ({"error": errors.INVALID_SCOPE}, errors.INVALID_SCOPE, 400),
         ({"error": errors.SERVER_ERROR}, errors.SERVER_ERROR, 400),
         (
@@ -137,7 +126,12 @@ def test_callback_error_handling(query, expected_error, client_state, get, state
     ],
 )
 def test_callback_authorization_code_error_handling(
-    data, expected_error, expected_status, get, state, requests_mock
+    data: dict[str, str],
+    expected_error: str,
+    expected_status: int,
+    get: GetClient,
+    state: str,
+    requests_mock: Mocker,
 ):
     requests_mock.post(current_app.config["OAUTH_TOKEN_URI"], json=data)
 
@@ -147,7 +141,9 @@ def test_callback_authorization_code_error_handling(
 
 
 # TODO: Test with more status codes from callback...
-def test_callback_authorization_code_invalid_response(get, state, requests_mock):
+def test_callback_authorization_code_invalid_response(
+    get: GetClient, state: str, requests_mock: Mocker
+):
     requests_mock.post(current_app.config["OAUTH_TOKEN_URI"], text="Not a JSON value")
 
     resp = get("/callback?code=1234&state=" + state)
@@ -155,7 +151,9 @@ def test_callback_authorization_code_invalid_response(get, state, requests_mock)
     assert resp.data["error"] == errors.SERVER_ERROR
 
 
-def test_callback_authorization_code_stores_token(get, state, requests_mock):
+def test_callback_authorization_code_stores_token(
+    get: GetClient, state: str, requests_mock: Mocker
+):
     data = {"token_type": "Bearer", "access_token": "1234567890"}
     requests_mock.post(current_app.config["OAUTH_TOKEN_URI"], json=data)
 
@@ -167,7 +165,9 @@ def test_callback_authorization_code_stores_token(get, state, requests_mock):
     assert data == crypto.loads(resp.data["client_secret"], encrypted)
 
 
-def test_callback_authorization_code_store_refresh_token(get, state, requests_mock):
+def test_callback_authorization_code_store_refresh_token(
+    get: GetClient, state: str, requests_mock: Mocker
+):
     token = {
         "token_type": "test",
         "refresh_token": "abc",
@@ -187,7 +187,9 @@ def test_callback_authorization_code_store_refresh_token(get, state, requests_mo
     assert expected == crypto.loads(resp.data["client_secret"], encrypted)
 
 
-def test_callback_authorization_code_store_unknown(get, state, requests_mock):
+def test_callback_authorization_code_store_unknown(
+    get: GetClient, state: str, requests_mock: Mocker
+):
     data = {"token_type": "Bearer", "access_token": "123", "private": "foobar"}
     requests_mock.post(current_app.config["OAUTH_TOKEN_URI"], json=data)
 
@@ -199,7 +201,7 @@ def test_callback_authorization_code_store_unknown(get, state, requests_mock):
     assert data == crypto.loads(resp.data["client_secret"], encrypted)
 
 
-def test_callack_wrong_method(client, state):
+def test_callack_wrong_method(client: FlaskClient, state: str):
     resp = client.post("/callback?code=1234&state=" + state)
     assert resp.status_code == 405
 

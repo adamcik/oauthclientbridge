@@ -6,6 +6,7 @@ import pytest
 from flask import Flask
 from flask.ctx import AppContext
 from flask.testing import FlaskClient
+from werkzeug.datastructures import Headers
 
 from oauthclientbridge import create_app, crypto, db
 
@@ -13,7 +14,7 @@ from oauthclientbridge import create_app, crypto, db
 class TestResponse(NamedTuple):
     data: dict[str, Any]
     status: int
-    headers: dict[str, str]
+    headers: Headers
 
 
 class TestToken(NamedTuple):
