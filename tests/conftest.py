@@ -1,6 +1,6 @@
 import base64
-import collections
 import json
+from typing import Any, NamedTuple, Protocol
 
 import pytest
 from flask import Flask
@@ -9,7 +9,17 @@ from flask.testing import FlaskClient
 
 from oauthclientbridge import create_app, crypto, db
 
-TestToken = collections.namedtuple("TestToken", ("client_id", "client_secret", "value"))
+
+class TestResponse(NamedTuple):
+    data: dict[str, Any]
+    status: int
+    headers: dict[str, str]
+
+
+class TestToken(NamedTuple):
+    client_id: str
+    client_secret: str
+    value: dict[str, Any]
 
 
 @pytest.fixture
@@ -37,28 +47,55 @@ def app_context(app: Flask):
 
 
 @pytest.fixture
-def client(app: Flask, app_context):
+def client(app: Flask, app_context: AppContext):
+    _ = app_context
+
     yield app.test_client()
 
 
 @pytest.fixture
 def cursor(app_context: AppContext):
+    _ = app_context
+
     with db.get() as connection:
         yield connection.cursor()
 
 
+class GetClient(Protocol):
+    def __call__(self, path: str) -> TestResponse: ...
+
+
 @pytest.fixture
-def get(client: FlaskClient):
-    def _get(path):
+def get(client: FlaskClient) -> GetClient:
+    def _get(path: str):
         resp = client.get(path)
-        return json.loads(resp.data.decode("utf-8")), resp.status_code
+        return TestResponse(
+            json.loads(resp.text),
+            resp.status_code,
+            resp.headers,
+        )
 
     return _get
 
 
+class PostClient(Protocol):
+    def __call__(
+        self,
+        path: str,
+        data: dict[str, Any],
+        auth: tuple[str, str] | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> TestResponse: ...
+
+
 @pytest.fixture
 def post(client: FlaskClient):
-    def _post(path, data, auth=None, headers=None):
+    def _post(
+        path: str,
+        data: dict[str, Any],
+        auth: tuple[str, str] | None = None,
+        headers: dict[str, str] | None = None,
+    ):
         if not headers:
             headers = {}
 
@@ -67,7 +104,12 @@ def post(client: FlaskClient):
             headers["Authorization"] = "Basic %s" % encoded.decode("ascii")
 
         resp = client.post(path, headers=headers, data=data)
-        return json.loads(resp.data.decode("utf-8")), resp.status_code
+
+        return TestResponse(
+            json.loads(resp.text),
+            resp.status_code,
+            resp.headers,
+        )
 
     return _post
 
@@ -86,7 +128,7 @@ def client_state(client: FlaskClient):
     return "s3cret"
 
 
-def _test_token(**data):
+def _test_token(**data: str | int):
     client_secret = crypto.generate_key()
     token = crypto.dumps(client_secret, data)
     client_id = db.insert(token)
@@ -94,10 +136,16 @@ def _test_token(**data):
 
 
 @pytest.fixture
-def access_token():
-    return _test_token(token_type="test", access_token="123", expires_in=3600)
+def access_token() -> TestToken:
+    return _test_token(
+        token_type="test",
+        access_token="123",
+        expires_in=3600,
+    )
 
 
 @pytest.fixture
-def refresh_token():
-    return _test_token(refresh_token="abc")
+def refresh_token() -> TestToken:
+    return _test_token(
+        refresh_token="abc",
+    )
