@@ -65,10 +65,12 @@ def error_handler(e: Error) -> flask.Response:
     if e.uri is not None:
         result["error_uri"] = e.uri
 
-    response = flask.jsonify(result)  # type: flask.Response
+    response = flask.jsonify(result)
     if e.error == errors.INVALID_CLIENT:
         response.status_code = 401
-        response.www_authenticate.set_basic()
+        response.headers["WWW-Authenticate"] = (
+            f'Basic realm="{flask.current_app.config["OAUTH_REALM"]}"'
+        )
     elif e.retry_after:
         response.headers["Retry-After"] = int(e.retry_after + 1)
         response.status_code = 429

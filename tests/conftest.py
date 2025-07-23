@@ -64,7 +64,7 @@ def post(client: FlaskClient):
 
         if auth:
             encoded = base64.b64encode(("%s:%s" % auth).encode("ascii"))
-            headers["Authorization"] = b"Basic %s" % encoded
+            headers["Authorization"] = "Basic %s" % encoded.decode("ascii")
 
         resp = client.post(path, headers=headers, data=data)
         return json.loads(resp.data.decode("utf-8")), resp.status_code

@@ -66,6 +66,9 @@ OAUTH_FETCH_BACKOFF_FACTOR: float = 0.1
 # registered with the upstream provider.
 OAUTH_REDIRECT_URI: str = "http://localhost:5000/callback"
 
+# Realm to present for basic auth.
+OAUTH_REALM: str = "oauthclientbridge"
+
 # Jinja2 template to use for the callback page. Possible context values are:
 #  error, description, client_id, client_secret
 #
