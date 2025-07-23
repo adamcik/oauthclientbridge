@@ -15,12 +15,12 @@ app = create_app(settings)
 @app.cli.command()
 def initdb():  # type: ignore
     """Initializes the database."""
-    click.echo("Initializing %s" % settings.database)
+    click.echo("Initializing %s" % settings.database.database)
     db.initialize()
 
 
 @app.cli.command()
 def cleandb():  # type: ignore
     """Cleans database of stale data."""
-    click.echo("Vacummed %s" % settings.database)
+    click.echo("Vacummed %s" % settings.database.database)
     db.vacuum()

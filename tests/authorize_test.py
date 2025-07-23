@@ -26,7 +26,7 @@ def test_authorize_wrong_method(client: FlaskClient):
 
 
 def test_authorize_redirect_uri(client: FlaskClient, settings: Settings):
-    redirect_uri = settings.redirect_uri
+    redirect_uri = settings.oauth.redirect_uri
     url = "/?%s" % urllib.parse.urlencode({"redirect_uri": redirect_uri})
     resp = client.get(url)
     assert resp.status_code == 302
@@ -56,7 +56,7 @@ def test_callback_authorization_client_state(
 ):
     data = {"token_type": "Bearer", "access_token": "1234567890"}
     _ = requests_mock.post(
-        settings.token_uri,
+        settings.oauth.token_uri,
         json=data,
     )
 
@@ -140,7 +140,7 @@ def test_callback_authorization_code_error_handling(
     settings: Settings,
 ):
     _ = requests_mock.post(
-        settings.token_uri,
+        settings.oauth.token_uri,
         json=data,
     )
 
@@ -157,7 +157,7 @@ def test_callback_authorization_code_invalid_response(
     settings: Settings,
 ):
     _ = requests_mock.post(
-        settings.token_uri,
+        settings.oauth.token_uri,
         text="Not a JSON value",
     )
 
@@ -174,7 +174,7 @@ def test_callback_authorization_code_stores_token(
 ):
     data = {"token_type": "Bearer", "access_token": "1234567890"}
     _ = requests_mock.post(
-        settings.token_uri,
+        settings.oauth.token_uri,
         json=data,
     )
 
@@ -200,7 +200,7 @@ def test_callback_authorization_code_store_refresh_token(
         "expires_in": 3600,
     }
     _ = requests_mock.post(
-        settings.token_uri,
+        settings.oauth.token_uri,
         json=token,
     )
 
@@ -222,7 +222,7 @@ def test_callback_authorization_code_store_unknown(
 ):
     data = {"token_type": "Bearer", "access_token": "123", "private": "foobar"}
     _ = requests_mock.post(
-        settings.token_uri,
+        settings.oauth.token_uri,
         json=data,
     )
 

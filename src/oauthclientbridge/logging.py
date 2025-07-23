@@ -32,23 +32,23 @@ def configure() -> None:
     logging.getLogger().addFilter(context_provider)
     logging.getLogger().setLevel("DEBUG")
 
-    if settings.log_file:
+    if settings.logging.file:
         file_handler = logging.handlers.RotatingFileHandler(
-            settings.log_file,
-            maxBytes=settings.log_file_max_bytes,
-            backupCount=settings.log_file_backup_count,
+            settings.logging.file,
+            maxBytes=settings.logging.file_max_bytes,
+            backupCount=settings.logging.file_backup_count,
         )
-        file_handler.setFormatter(logging.Formatter(settings.log_file_format))
-        file_handler.setLevel(settings.log_file_level)
+        file_handler.setFormatter(logging.Formatter(settings.logging.file_format))
+        file_handler.setLevel(settings.logging.file_level)
         logging.getLogger().addHandler(file_handler)
 
-    if settings.log_email:
+    if settings.logging.email:
         mail_handler = CustomSMTPHandler(
-            settings.log_email_host,
-            settings.log_email_from,
-            settings.log_email,
-            settings.log_email_subject,
+            settings.logging.email_host,
+            settings.logging.email_from,
+            settings.logging.email,
+            settings.logging.email_subject,
         )
-        mail_handler.setFormatter(logging.Formatter(settings.log_email_format))
-        mail_handler.setLevel(settings.log_email_level)
+        mail_handler.setFormatter(logging.Formatter(settings.logging.email_format))
+        mail_handler.setLevel(settings.logging.email_level)
         logging.getLogger().addHandler(mail_handler)

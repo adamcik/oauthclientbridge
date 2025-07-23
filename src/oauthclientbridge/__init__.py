@@ -32,12 +32,12 @@ def create_app(settings: Settings | None = None) -> Flask:
 
     app = Flask(__name__)
 
-    app.secret_key = settings.secret_key.get_secret_value()
+    app.secret_key = settings.bridge.secret_key.get_secret_value()
 
-    if get_settings().num_proxies:
+    if get_settings().bridge.num_proxies:
         wrapper = ProxyFix(
             app.wsgi_app,
-            x_for=int(get_settings().num_proxies),
+            x_for=int(get_settings().bridge.num_proxies),
         )
         app.wsgi_app = wrapper
 

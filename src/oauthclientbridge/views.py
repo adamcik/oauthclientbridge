@@ -5,6 +5,7 @@ import flask
 from flask import Blueprint, current_app
 
 from oauthclientbridge import crypto, db, errors, get_settings, oauth, stats
+from oauthclientbridge.settings import Settings
 
 routes = Blueprint("views", __name__)
 
@@ -15,10 +16,10 @@ def authorize() -> flask.Response:
     settings = get_settings()
 
     redirect_uri: str | None = flask.request.args.get("redirect_uri")
-    if redirect_uri and redirect_uri != get_settings().redirect_uri:
-        return _error(errors.INVALID_REQUEST, "Wrong redirect_uri.")
+    if redirect_uri and redirect_uri != settings.oauth.redirect_uri:
+        return _error(settings, errors.INVALID_REQUEST, "Wrong redirect_uri.")
 
-    default_scope: str = " ".join(settings.scopes or [])
+    default_scope: str = " ".join(settings.oauth.scopes or [])
     scope = flask.request.args.get("scope", default_scope)
     state = crypto.generate_key()
 
@@ -26,10 +27,10 @@ def authorize() -> flask.Response:
     flask.session["state"] = state
 
     return oauth.redirect(
-        settings.authorization_uri,
-        client_id=settings.client_id,
+        settings.oauth.authorization_uri,
+        client_id=settings.oauth.client_id,
         response_type="code",
-        redirect_uri=settings.redirect_uri,
+        redirect_uri=settings.oauth.redirect_uri,
         scope=scope,
         state=state,
     )
@@ -65,7 +66,7 @@ def callback() -> flask.Response:
         desc = "Authorization code missing from provider callback."
 
     if error is not None:
-        level = settings.error_log_levels.get(error, "ERROR")
+        level = settings.logging.error_levels.get(error, "ERROR")
         level = logging.getLevelNamesMapping()[level]
 
         msg = f"Callback failed {error}: {desc}"
@@ -73,15 +74,15 @@ def callback() -> flask.Response:
             msg += " - %r" % flask.request.args.get("scope")
         current_app.logger.log(level, msg)
 
-        return _error(error, desc, client_state)
+        return _error(settings, error, desc, client_state)
 
     result = oauth.fetch(
-        settings.token_uri,
-        client_id=settings.client_id,
-        client_secret=settings.client_secret.get_secret_value(),
+        settings.oauth.token_uri,
+        client_id=settings.oauth.client_id,
+        client_secret=settings.oauth.client_secret.get_secret_value(),
         code=flask.request.args.get("code"),
         grant_type="authorization_code",
-        redirect_uri=settings.redirect_uri,
+        redirect_uri=settings.oauth.redirect_uri,
         endpoint="token",
     )
 
@@ -94,7 +95,7 @@ def callback() -> flask.Response:
 
     if error is not None:
         current_app.logger.warning("Retrieving token failed: %s", result)
-        return _error(error, desc, client_state)
+        return _error(settings, error, desc, client_state)
 
     if "refresh_token" in result:
         result = oauth.scrub_refresh_token(result)
@@ -106,14 +107,19 @@ def callback() -> flask.Response:
         client_id = db.insert(token)
     except db.IntegrityError:
         current_app.logger.warning("Could not get unique client id.")
-        return _error("integrity_error", "Database integrity error.", client_state)
+        return _error(
+            settings, "integrity_error", "Database integrity error.", client_state
+        )
 
-    return _render(client_id=client_id, client_secret=client_secret, state=client_state)
+    return _render(
+        settings, client_id=client_id, client_secret=client_secret, state=client_state
+    )
 
 
 @routes.route("/token", methods=["POST"])
 def token() -> flask.Response:
     """Validate token request, refreshing when needed."""
+    settings = get_settings()
     # TODO: allow all methods and raise invalid_request for !POST?
 
     if flask.request.form.get("grant_type") != "client_credentials":
@@ -174,11 +180,13 @@ def token() -> flask.Response:
     if "refresh_token" not in result:
         return flask.jsonify(result)
 
+    settings = get_settings()
+
     refresh_result = oauth.fetch(
-        get_settings().refresh_uri or get_settings().token_uri,
-        client_id=get_settings().client_id,
-        client_secret=get_settings().client_secret.get_secret_value(),
-        grant_type=get_settings().grant_type,
+        settings.oauth.refresh_uri or settings.oauth.token_uri,
+        client_id=settings.oauth.client_id,
+        client_secret=settings.oauth.client_secret.get_secret_value(),
+        grant_type=settings.oauth.grant_type,
         refresh_token=result["refresh_token"],
         endpoint="refresh",
     )
@@ -239,6 +247,7 @@ def metrics() -> flask.Response:
 
 
 def _error(
+    settings: Settings,
     error_code: str,
     error: str | None = None,
     state: str | None = None,
@@ -252,12 +261,13 @@ def _error(
         endpoint=stats.endpoint(), status=stats.status(status), error=error_code
     ).inc()
 
-    response = _render(error=error_code, description=error, state=state)
+    response = _render(settings, error=error_code, description=error, state=state)
     response.status_code = status
     return response
 
 
 def _render(
+    settings: Settings,
     client_id: str | None = None,
     client_secret: str | None = None,
     state: str | None = None,
@@ -274,7 +284,7 @@ def _render(
     }
     return flask.Response(
         flask.render_template_string(
-            get_settings().callback_template,
+            settings.bridge.callback_template,
             variables=variables,
             **variables,
         ).encode("utf-8"),

@@ -29,13 +29,13 @@ def get() -> sqlite3.Connection:
         settings = get_settings()
 
         connection = sqlite3.connect(
-            settings.database,
-            timeout=settings.database_timeout,
+            settings.database.database,
+            timeout=settings.database.timeout,
             isolation_level=None,
         )
         g._oauth_database = connection
         g._oauth_database.text_factory = lambda v: v
-        for pragma in settings.database_pragmas:
+        for pragma in settings.database.pragmas:
             g._oauth_database.execute(pragma)
 
     return g._oauth_database

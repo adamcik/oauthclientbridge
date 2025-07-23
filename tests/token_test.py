@@ -74,7 +74,10 @@ def test_token_invalid_credentials(
     assert resp.data["error_description"]
 
     assert "WWW-Authenticate" in resp.headers
-    assert resp.headers["WWW-Authenticate"] == f'Basic realm="{settings.realm}"'
+    assert (
+        resp.headers["WWW-Authenticate"]
+        == f'Basic realm="{settings.bridge.auth_realm}"'
+    )
 
 
 def test_token_multiple_auth_fails(post: PostClient, access_token: TokenTuple):
@@ -144,7 +147,10 @@ def test_token_bad_basic_auth(
     assert resp.data["error"] == errors.INVALID_CLIENT
 
     assert "WWW-Authenticate" in resp.headers
-    assert resp.headers["WWW-Authenticate"] == f'Basic realm="{settings.realm}"'
+    assert (
+        resp.headers["WWW-Authenticate"]
+        == f'Basic realm="{settings.bridge.auth_realm}"'
+    )
 
 
 def test_token_wrong_method(client: FlaskClient):
@@ -199,16 +205,16 @@ def test_token_refresh_post_data(
 
     def match(request):
         expected: dict[str, list[str]] = {
-            "client_id": [settings.client_id],
-            "client_secret": [settings.client_secret.get_secret_value()],
-            "grant_type": ["refresh_token"],
+            "client_id": [settings.oauth.client_id],
+            "client_secret": [settings.oauth.client_secret.get_secret_value()],
+            "grant_type": [settings.oauth.grant_type],
             "refresh_token": [refresh_token.value["refresh_token"]],
         }
         assert expected == urllib.parse.parse_qs(request.body)
         return True
 
     _ = requests_mock.post(
-        settings.token_uri,
+        settings.oauth.token_uri,
         json={"access_token": "abc", "grant_type": "test"},
         additional_matcher=match,
     )
@@ -243,7 +249,7 @@ def test_token_with_extra_values(
     token.update(response)
 
     _ = requests_mock.post(
-        settings.token_uri,
+        settings.oauth.token_uri,
         json=token,
     )
 
@@ -273,7 +279,7 @@ def test_token_refresh_token_is_not_returned_from_provider(
     settings: Settings,
 ):
     _ = requests_mock.post(
-        settings.token_uri,
+        settings.oauth.token_uri,
         json={
             "access_token": "abc",
             "token_type": "test",
@@ -308,7 +314,7 @@ def test_token_only_returns_values_from_provider(
     _ = db.update(refresh_token.client_id, token)
 
     _ = requests_mock.post(
-        settings.token_uri,
+        settings.oauth.token_uri,
         json={"access_token": "abc", "token_type": "test"},
     )
 
@@ -344,7 +350,7 @@ def test_token_cleans_unneeded_data_from_db(
     _ = db.update(refresh_token.client_id, token)
 
     _ = requests_mock.post(
-        settings.token_uri,
+        settings.oauth.token_uri,
         json={"access_token": "abc", "token_type": "test"},
     )
 
@@ -379,7 +385,7 @@ def test_token_only_returns_scope_from_db(
     _ = db.update(refresh_token.client_id, token)
 
     _ = requests_mock.post(
-        settings.token_uri,
+        settings.oauth.token_uri,
         json={"access_token": "abc", "token_type": "test"},
     )
 
@@ -421,7 +427,7 @@ def test_token_provider_errors(
     expected_status: int,
 ):
     _ = requests_mock.post(
-        settings.token_uri,
+        settings.oauth.token_uri,
         status_code=400,
         json={"error": error},
     )
@@ -455,7 +461,7 @@ def test_token_provider_invalid_response(
     token: dict[str, str],
 ):
     _ = requests_mock.post(
-        settings.token_uri,
+        settings.oauth.token_uri,
         json=token,
     )
 
@@ -479,7 +485,7 @@ def test_token_provider_unavailable(
     settings: Settings,
 ):
     _ = requests_mock.post(
-        settings.token_uri,
+        settings.oauth.token_uri,
         status_code=503,
         text="Unavailable.",
     )
