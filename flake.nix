@@ -24,8 +24,7 @@
   };
 
   outputs =
-    { self
-    , nixpkgs
+    { nixpkgs
     , uv2nix
     , pyproject-nix
     , pyproject-build-systems
@@ -34,8 +33,6 @@
     let
       inherit (nixpkgs) lib;
       forAllSystems = lib.genAttrs lib.systems.flakeExposed;
-
-      wsgiApp = "oauthclientbridge:app";
 
       workspace = uv2nix.lib.workspace.loadWorkspace { workspaceRoot = ./.; };
 
@@ -89,7 +86,7 @@
                         dontInstall = true;
                         buildPhase = ''
                           mkdir $out
-                          basedpyright oauthclientbridge --level error
+                          basedpyright src/oauthclientbridge --level error
                         '';
                       };
 
