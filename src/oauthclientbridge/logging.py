@@ -6,8 +6,6 @@ from flask import request
 
 from oauthclientbridge import get_settings
 
-settings = get_settings()
-
 
 class ContextualFilter(logging.Filter):
     def filter(self, record: Any) -> bool:
@@ -28,6 +26,8 @@ class CustomSMTPHandler(logging.handlers.SMTPHandler):
 
 
 def configure() -> None:
+    settings = get_settings()
+
     context_provider = ContextualFilter()
     logging.getLogger().addFilter(context_provider)
     logging.getLogger().setLevel("DEBUG")

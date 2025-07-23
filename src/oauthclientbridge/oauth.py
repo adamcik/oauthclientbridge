@@ -9,8 +9,7 @@ import requests
 from flask import current_app
 
 from oauthclientbridge import __version__, errors, get_settings, stats
-
-settings = get_settings()
+from oauthclientbridge.settings import Settings
 
 OAuthResponse = dict[str, Any]
 URIParam = dict[str, str]
@@ -60,6 +59,8 @@ class Error(Exception):
 
 def error_handler(e: Error) -> flask.Response:
     """Create a well formed JSON response with status and auth headers."""
+    settings = get_settings()
+
     result = {"error": e.error}
     if e.description is not None:
         result["error_description"] = e.description
@@ -109,7 +110,7 @@ def nocache(response: flask.Response) -> flask.Response:
 
 def normalize_error(error: str, error_types: set[str]) -> str:
     """Translate any "bad" error types to something more usable."""
-    error = settings.fetch_error_types.get(error, error)
+    error = get_settings().fetch_error_types.get(error, error)
     if error not in error_types:
         return errors.SERVER_ERROR
     else:
@@ -129,6 +130,8 @@ def fetch(
     uri: str, auth: str | None = None, endpoint: str | None = None, **data
 ) -> OAuthResponse:
     """Perform post given URI with auth and provided data."""
+    settings = get_settings()
+
     req = requests.Request("POST", uri, data=data, auth=auth)
     prepared = req.prepare()
 
@@ -153,7 +156,7 @@ def fetch(
             current_app.logger.debug("Retry %s [sleep %.3f]", prefix, retry or backoff)
             time.sleep(retry or backoff)
 
-        result, status, retry = _fetch(prepared, remaining_timeout, endpoint)
+        result, status, retry = _fetch(settings, prepared, remaining_timeout, endpoint)
 
         labels = {"endpoint": endpoint, "status": stats.status(status)}
         stats.ClientRetryHistogram.labels(**labels).observe(i)
@@ -181,6 +184,7 @@ def fetch(
 
 
 def _fetch(
+    settings: Settings,
     prepared: requests.PreparedRequest,
     timeout: float,
     endpoint: str | None = None,
@@ -232,7 +236,7 @@ def _fetch(
         request_latency = time.time() - start_time
         status_label = stats.status(resp.status_code)
 
-        result = _decode(resp)
+        result = _decode(settings, resp)
         status_code = resp.status_code
         length = len(resp.content)
         retry_after = _parse_retry(resp.headers.get("retry-after"))
@@ -245,8 +249,8 @@ def _fetch(
     return result, status_code, retry_after
 
 
-def _decode(resp: requests.Response) -> OAuthResponse:
-    # Per OAuth spec all responses should be JSON, but this isn't allways
+def _decode(settings: Settings, resp: requests.Response) -> OAuthResponse:
+    # Per OAuth spec all responses should be JSON, but this isn't always
     # the case. For instance 502 errors and a gateway that does not correctly
     # create a fake JSON error response.
 

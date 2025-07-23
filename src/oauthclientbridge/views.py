@@ -6,14 +6,13 @@ from flask import Blueprint, current_app
 
 from oauthclientbridge import crypto, db, errors, get_settings, oauth, stats
 
-settings = get_settings()
-
 routes = Blueprint("views", __name__)
 
 
 @routes.route("/")
 def authorize() -> flask.Response:
     """Store random state in session cookie and redirect to auth endpoint."""
+    settings = get_settings()
 
     redirect_uri: str | None = flask.request.args.get("redirect_uri")
     if redirect_uri and redirect_uri != get_settings().redirect_uri:
@@ -39,6 +38,8 @@ def authorize() -> flask.Response:
 @routes.route("/callback")
 def callback() -> flask.Response:
     """Validate callback and trade in code for a token."""
+    settings = get_settings()
+
     error: str | None = None
     desc: str | None = None
     client_state: str | None = flask.session.pop("client_state", None)
@@ -273,7 +274,7 @@ def _render(
     }
     return flask.Response(
         flask.render_template_string(
-            settings.callback_template,
+            get_settings().callback_template,
             variables=variables,
             **variables,
         ).encode("utf-8"),
