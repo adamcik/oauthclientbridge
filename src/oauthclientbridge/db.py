@@ -4,9 +4,9 @@ import sqlite3
 import uuid
 from typing import Iterator, Optional
 
-from flask import g
+from flask import current_app, g
 
-from oauthclientbridge import app, stats
+from oauthclientbridge import stats
 
 Error = sqlite3.Error
 IntegrityError = sqlite3.IntegrityError
@@ -17,7 +17,7 @@ def generate_id() -> str:
 
 
 def initialize() -> None:
-    with app.open_resource("schema.sql", mode="r") as f:
+    with current_app.open_resource("schema.sql", mode="r") as f:
         schema = f.read()
     with get() as c:
         c.executescript(schema)
@@ -27,13 +27,13 @@ def get() -> sqlite3.Connection:
     """Get singleton SQLite database connection."""
     if getattr(g, "_oauth_database", None) is None:
         connection = sqlite3.connect(
-            app.config["OAUTH_DATABASE"],
-            timeout=app.config["OAUTH_DATABASE_TIMEOUT"],
+            current_app.config["OAUTH_DATABASE"],
+            timeout=current_app.config["OAUTH_DATABASE_TIMEOUT"],
             isolation_level=None,
         )
         g._oauth_database = connection
         g._oauth_database.text_factory = lambda v: v
-        for pragma in app.config["OAUTH_DATABASE_PRAGMAS"]:
+        for pragma in current_app.config["OAUTH_DATABASE_PRAGMAS"]:
             g._oauth_database.execute(pragma)
     return g._oauth_database
 
@@ -122,8 +122,7 @@ def update(client_id: str, token: Optional[bytes]) -> int:
         return int(c.rowcount)
 
 
-@app.teardown_appcontext
-def close(exception):
+def close(exception: Optional[BaseException]) -> None:
     """Ensure that connection gets closed when app teardown happens."""
     if getattr(g, "_oauth_database", None) is None:
         return

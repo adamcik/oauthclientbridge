@@ -2,9 +2,7 @@ import logging
 import logging.handlers
 from typing import Any
 
-from flask import request
-
-from oauthclientbridge import app
+from flask import Flask, request
 
 
 class ContextualFilter(logging.Filter):
@@ -25,28 +23,32 @@ class CustomSMTPHandler(logging.handlers.SMTPHandler):
         return self.subject_formatter.format(record).split("\n")[0]
 
 
-context_provider = ContextualFilter()
-app.logger.addFilter(context_provider)
-app.logger.setLevel("DEBUG")
+def configure(app: Flask) -> None:
+    context_provider = ContextualFilter()
+    app.logger.addFilter(context_provider)
+    app.logger.setLevel("DEBUG")
 
-if app.config["OAUTH_LOG_FILE"]:
-    file_handler = logging.handlers.RotatingFileHandler(
-        app.config["OAUTH_LOG_FILE"],
-        maxBytes=app.config["OAUTH_LOG_FILE_MAX_BYTES"],
-        backupCount=app.config["OAUTH_LOG_FILE_BACKUP_COUNT"],
-    )
-    file_handler.setFormatter(logging.Formatter(app.config["OAUTH_LOG_FILE_FORMAT"]))
-    file_handler.setLevel(app.config["OAUTH_LOG_FILE_LEVEL"])
-    app.logger.addHandler(file_handler)
+    if app.config["OAUTH_LOG_FILE"]:
+        file_handler = logging.handlers.RotatingFileHandler(
+            app.config["OAUTH_LOG_FILE"],
+            maxBytes=app.config["OAUTH_LOG_FILE_MAX_BYTES"],
+            backupCount=app.config["OAUTH_LOG_FILE_BACKUP_COUNT"],
+        )
+        file_handler.setFormatter(
+            logging.Formatter(app.config["OAUTH_LOG_FILE_FORMAT"])
+        )
+        file_handler.setLevel(app.config["OAUTH_LOG_FILE_LEVEL"])
+        app.logger.addHandler(file_handler)
 
-
-if not app.debug and app.config["OAUTH_LOG_EMAIL"]:
-    mail_handler = CustomSMTPHandler(
-        app.config["OAUTH_LOG_EMAIL_HOST"],
-        app.config["OAUTH_LOG_EMAIL_FROM"],
-        app.config["OAUTH_LOG_EMAIL"],
-        app.config["OAUTH_LOG_EMAIL_SUBJECT"],
-    )
-    mail_handler.setFormatter(logging.Formatter(app.config["OAUTH_LOG_EMAIL_FORMAT"]))
-    mail_handler.setLevel(app.config["OAUTH_LOG_EMAIL_LEVEL"])
-    app.logger.addHandler(mail_handler)
+    if not app.debug and app.config["OAUTH_LOG_EMAIL"]:
+        mail_handler = CustomSMTPHandler(
+            app.config["OAUTH_LOG_EMAIL_HOST"],
+            app.config["OAUTH_LOG_EMAIL_FROM"],
+            app.config["OAUTH_LOG_EMAIL"],
+            app.config["OAUTH_LOG_EMAIL_SUBJECT"],
+        )
+        mail_handler.setFormatter(
+            logging.Formatter(app.config["OAUTH_LOG_EMAIL_FORMAT"])
+        )
+        mail_handler.setLevel(app.config["OAUTH_LOG_EMAIL_LEVEL"])
+        app.logger.addHandler(mail_handler)

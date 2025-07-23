@@ -1,8 +1,9 @@
 import urllib.parse
 
 import pytest
+from flask import current_app
 
-from oauthclientbridge import app, crypto, db, errors
+from oauthclientbridge import crypto, db, errors
 
 
 @pytest.mark.parametrize(
@@ -170,8 +171,8 @@ def test_token_refresh_post_data(post, refresh_token, requests_mock):
 
     def match(request):
         expected = {
-            "client_id": [app.config["OAUTH_CLIENT_ID"]],
-            "client_secret": [app.config["OAUTH_CLIENT_SECRET"]],
+            "client_id": [current_app.config["OAUTH_CLIENT_ID"]],
+            "client_secret": [current_app.config["OAUTH_CLIENT_SECRET"]],
             "grant_type": ["refresh_token"],
             "refresh_token": [refresh_token.value["refresh_token"]],
         }
@@ -179,7 +180,7 @@ def test_token_refresh_post_data(post, refresh_token, requests_mock):
         return True
 
     requests_mock.post(
-        app.config["OAUTH_TOKEN_URI"],
+        current_app.config["OAUTH_TOKEN_URI"],
         json={"access_token": "abc", "grant_type": "test"},
         additional_matcher=match,
     )
@@ -206,7 +207,7 @@ def test_token_with_extra_values(post, refresh_token, requests_mock, response, u
     token = {"access_token": "abc", "token_type": "test", "expires_in": 3600}
     token.update(response)
 
-    requests_mock.post(app.config["OAUTH_TOKEN_URI"], json=token)
+    requests_mock.post(current_app.config["OAUTH_TOKEN_URI"], json=token)
 
     data = {
         "client_id": refresh_token.client_id,
@@ -230,7 +231,7 @@ def test_token_refresh_token_is_not_returned_from_provider(
     post, refresh_token, requests_mock
 ):
     requests_mock.post(
-        app.config["OAUTH_TOKEN_URI"],
+        current_app.config["OAUTH_TOKEN_URI"],
         json={
             "access_token": "abc",
             "token_type": "test",
@@ -260,7 +261,7 @@ def test_token_only_returns_values_from_provider(post, refresh_token, requests_m
     db.update(refresh_token.client_id, token)
 
     requests_mock.post(
-        app.config["OAUTH_TOKEN_URI"],
+        current_app.config["OAUTH_TOKEN_URI"],
         json={"access_token": "abc", "token_type": "test"},
     )
 
@@ -291,7 +292,7 @@ def test_token_cleans_uneeded_data_from_db(post, refresh_token, requests_mock):
     db.update(refresh_token.client_id, token)
 
     requests_mock.post(
-        app.config["OAUTH_TOKEN_URI"],
+        current_app.config["OAUTH_TOKEN_URI"],
         json={"access_token": "abc", "token_type": "test"},
     )
 
@@ -320,7 +321,7 @@ def test_token_only_returns_scope_from_db(post, refresh_token, requests_mock):
     db.update(refresh_token.client_id, token)
 
     requests_mock.post(
-        app.config["OAUTH_TOKEN_URI"],
+        current_app.config["OAUTH_TOKEN_URI"],
         json={"access_token": "abc", "token_type": "test"},
     )
 
@@ -356,7 +357,7 @@ def test_token_provider_errors(
     post, refresh_token, requests_mock, error, expected_error, expected_status
 ):
     requests_mock.post(
-        app.config["OAUTH_TOKEN_URI"], status_code=400, json={"error": error}
+        current_app.config["OAUTH_TOKEN_URI"], status_code=400, json={"error": error}
     )
 
     data = {
@@ -374,7 +375,7 @@ def test_token_provider_errors(
 
 @pytest.mark.parametrize("token", [{}, {"access_token": "abc"}, {"token_type": "test"}])
 def test_token_provider_invalid_response(post, refresh_token, requests_mock, token):
-    requests_mock.post(app.config["OAUTH_TOKEN_URI"], json=token)
+    requests_mock.post(current_app.config["OAUTH_TOKEN_URI"], json=token)
 
     data = {
         "client_id": refresh_token.client_id,
@@ -391,7 +392,7 @@ def test_token_provider_invalid_response(post, refresh_token, requests_mock, tok
 
 def test_token_provider_unavailable(post, refresh_token, requests_mock):
     requests_mock.post(
-        app.config["OAUTH_TOKEN_URI"], status_code=503, text="Unavailable."
+        current_app.config["OAUTH_TOKEN_URI"], status_code=503, text="Unavailable."
     )
 
     data = {

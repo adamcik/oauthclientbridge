@@ -3,15 +3,18 @@ import collections
 import json
 
 import pytest
+from flask import Flask
+from flask.ctx import AppContext
+from flask.testing import FlaskClient
 
-from oauthclientbridge import app, crypto, db
+from oauthclientbridge import create_app, crypto, db
 
 TestToken = collections.namedtuple("TestToken", ("client_id", "client_secret", "value"))
 
 
 @pytest.fixture
-def app_context():
-    app.config.update(
+def app():
+    return create_app(
         {
             "TESTING": True,
             "SECRET_KEY": "s3cret",
@@ -25,24 +28,27 @@ def app_context():
         }
     )
 
+
+@pytest.fixture
+def app_context(app: Flask):
     with app.app_context() as ctx:
         db.initialize()
         yield ctx
 
 
 @pytest.fixture
-def client(app_context):
+def client(app: Flask, app_context):
     yield app.test_client()
 
 
 @pytest.fixture
-def cursor(app_context):
+def cursor(app_context: AppContext):
     with db.get() as connection:
         yield connection.cursor()
 
 
 @pytest.fixture
-def get(client):
+def get(client: FlaskClient):
     def _get(path):
         resp = client.get(path)
         return json.loads(resp.data.decode("utf-8")), resp.status_code
@@ -51,7 +57,7 @@ def get(client):
 
 
 @pytest.fixture
-def post(client):
+def post(client: FlaskClient):
     def _post(path, data, auth=None, headers=None):
         if not headers:
             headers = {}
@@ -67,14 +73,14 @@ def post(client):
 
 
 @pytest.fixture
-def state(client):
+def state(client: FlaskClient):
     with client.session_transaction() as session:
         session["state"] = "abcdef"
     return "abcdef"
 
 
 @pytest.fixture
-def client_state(client):
+def client_state(client: FlaskClient):
     with client.session_transaction() as session:
         session["client_state"] = "s3cret"
     return "s3cret"

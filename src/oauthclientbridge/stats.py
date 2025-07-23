@@ -154,12 +154,12 @@ def endpoint() -> str:
     return getattr(flask.request.url_rule, "endpoint", "notfound")
 
 
-def before_request() -> None:
+def record_metrics() -> None:
     flask.g.stats_latency_start_time = time.time()
 
 
 # TODO: Figure our why I can't type annotate response
-def after_request(response) -> flask.Response:
+def finalize_metrics(response) -> flask.Response:
     request_latency = time.time() - flask.g.stats_latency_start_time
     labels = {"endpoint": endpoint(), "status": status(response.status_code)}
 

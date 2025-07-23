@@ -1,6 +1,8 @@
 import click
 
-from oauthclientbridge import app, db
+from oauthclientbridge import create_app, db
+
+app = create_app()
 
 
 @app.cli.command()
