@@ -11,13 +11,13 @@ from werkzeug.datastructures import Headers
 from oauthclientbridge import create_app, crypto, db
 
 
-class TestResponse(NamedTuple):
+class ResponseTuple(NamedTuple):
     data: dict[str, Any]
     status: int
     headers: Headers
 
 
-class TestToken(NamedTuple):
+class TokenTuple(NamedTuple):
     client_id: str
     client_secret: str
     value: dict[str, Any]
@@ -63,14 +63,14 @@ def cursor(app_context: AppContext):
 
 
 class GetClient(Protocol):
-    def __call__(self, path: str) -> TestResponse: ...
+    def __call__(self, path: str) -> ResponseTuple: ...
 
 
 @pytest.fixture
 def get(client: FlaskClient) -> GetClient:
     def _get(path: str):
         resp = client.get(path)
-        return TestResponse(
+        return ResponseTuple(
             json.loads(resp.text),
             resp.status_code,
             resp.headers,
@@ -86,7 +86,7 @@ class PostClient(Protocol):
         data: dict[str, Any],
         auth: tuple[str, str] | None = None,
         headers: dict[str, str] | None = None,
-    ) -> TestResponse: ...
+    ) -> ResponseTuple: ...
 
 
 @pytest.fixture
@@ -106,7 +106,7 @@ def post(client: FlaskClient):
 
         resp = client.post(path, headers=headers, data=data)
 
-        return TestResponse(
+        return ResponseTuple(
             json.loads(resp.text),
             resp.status_code,
             resp.headers,
@@ -133,11 +133,11 @@ def _test_token(**data: str | int):
     client_secret = crypto.generate_key()
     token = crypto.dumps(client_secret, data)
     client_id = db.insert(token)
-    return TestToken(client_id, client_secret, data)
+    return TokenTuple(client_id, client_secret, data)
 
 
 @pytest.fixture
-def access_token() -> TestToken:
+def access_token() -> TokenTuple:
     return _test_token(
         token_type="test",
         access_token="123",
@@ -146,7 +146,7 @@ def access_token() -> TestToken:
 
 
 @pytest.fixture
-def refresh_token() -> TestToken:
+def refresh_token() -> TokenTuple:
     return _test_token(
         refresh_token="abc",
     )

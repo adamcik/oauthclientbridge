@@ -7,7 +7,7 @@ from requests_mock import Mocker
 
 from oauthclientbridge import crypto, db, errors
 
-from .conftest import PostClient, TestResponse, TestToken
+from .conftest import PostClient, ResponseTuple, TokenTuple
 
 
 @pytest.mark.parametrize(
@@ -49,14 +49,14 @@ def test_token_input_validation(
         else:
             initial[key] = value
 
-    resp: TestResponse = post("/token", initial)
+    resp: ResponseTuple = post("/token", initial)
 
     assert resp.status == expected_status
     assert resp.data["error"] == expected_error
     assert resp.data["error_description"]
 
 
-def test_token_invalid_credentials(post: PostClient, access_token: TestToken):
+def test_token_invalid_credentials(post: PostClient, access_token: TokenTuple):
     data = {
         "client_id": access_token.client_id,
         "client_secret": "invalid",
@@ -73,7 +73,7 @@ def test_token_invalid_credentials(post: PostClient, access_token: TestToken):
     assert resp.headers["WWW-Authenticate"] == 'Basic realm="oauthclientbridge"'
 
 
-def test_token_multiple_auth_fails(post: PostClient, access_token: TestToken):
+def test_token_multiple_auth_fails(post: PostClient, access_token: TokenTuple):
     auth = (access_token.client_id, access_token.client_secret)
 
     data = {
@@ -82,14 +82,14 @@ def test_token_multiple_auth_fails(post: PostClient, access_token: TestToken):
         "grant_type": "client_credentials",
     }
 
-    resp: TestResponse = post("/token", data, auth=auth)
+    resp: ResponseTuple = post("/token", data, auth=auth)
 
     assert resp.status == 400
     assert resp.data["error"] == errors.INVALID_REQUEST
     assert resp.data["error_description"]
 
 
-def test_token(post: PostClient, access_token: TestToken):
+def test_token(post: PostClient, access_token: TokenTuple):
     data = {
         "client_id": access_token.client_id,
         "client_secret": access_token.client_secret,
@@ -102,7 +102,7 @@ def test_token(post: PostClient, access_token: TestToken):
     assert resp.data == access_token.value
 
 
-def test_token_basic_auth(post: PostClient, access_token: TestToken):
+def test_token_basic_auth(post: PostClient, access_token: TokenTuple):
     auth = (access_token.client_id, access_token.client_secret)
     data = {"grant_type": "client_credentials"}
 
@@ -144,7 +144,7 @@ def test_token_wrong_method(client: FlaskClient):
     assert resp.status_code == 405
 
 
-def test_token_revoked(post: PostClient, access_token: TestToken):
+def test_token_revoked(post: PostClient, access_token: TokenTuple):
     data = {
         "client_id": access_token.client_id,
         "client_secret": access_token.client_secret,
@@ -161,7 +161,7 @@ def test_token_revoked(post: PostClient, access_token: TestToken):
 
 
 def test_token_wrong_secret_and_not_found_identical(
-    post: PostClient, access_token: TestToken
+    post: PostClient, access_token: TokenTuple
 ):
     data1 = {
         "client_id": access_token.client_id,
@@ -183,7 +183,7 @@ def test_token_wrong_secret_and_not_found_identical(
 
 def test_token_refresh_post_data(
     post: PostClient,
-    refresh_token: TestToken,
+    refresh_token: TokenTuple,
     requests_mock: Mocker,
 ):
     """Test that expected data gets POSTed to provider."""
@@ -224,7 +224,7 @@ def test_token_refresh_post_data(
 )
 def test_token_with_extra_values(
     post: PostClient,
-    refresh_token: TestToken,
+    refresh_token: TokenTuple,
     requests_mock: Mocker,
     response: dict[str, str],
     updated: dict[str, str],
@@ -257,7 +257,7 @@ def test_token_with_extra_values(
 
 
 def test_token_refresh_token_is_not_returned_from_provider(
-    post: PostClient, refresh_token: TestToken, requests_mock: Mocker
+    post: PostClient, refresh_token: TokenTuple, requests_mock: Mocker
 ):
     _ = requests_mock.post(
         current_app.config["OAUTH_TOKEN_URI"],
@@ -284,7 +284,7 @@ def test_token_refresh_token_is_not_returned_from_provider(
 
 def test_token_only_returns_values_from_provider(
     post: PostClient,
-    refresh_token: TestToken,
+    refresh_token: TokenTuple,
     requests_mock: Mocker,
 ):
     token = crypto.dumps(
@@ -314,7 +314,7 @@ def test_token_only_returns_values_from_provider(
 
 def test_token_cleans_uneeded_data_from_db(
     post: PostClient,
-    refresh_token: TestToken,
+    refresh_token: TokenTuple,
     requests_mock: Mocker,
 ):
     token = crypto.dumps(
@@ -353,7 +353,7 @@ def test_token_cleans_uneeded_data_from_db(
 
 def test_token_only_returns_scope_from_db(
     post: PostClient,
-    refresh_token: TestToken,
+    refresh_token: TokenTuple,
     requests_mock: Mocker,
 ):
     token = crypto.dumps(
@@ -397,7 +397,7 @@ def test_token_only_returns_scope_from_db(
 )
 def test_token_provider_errors(
     post: PostClient,
-    refresh_token: TestToken,
+    refresh_token: TokenTuple,
     requests_mock: Mocker,
     error: str,
     expected_error: str,
@@ -432,7 +432,7 @@ def test_token_provider_errors(
 )
 def test_token_provider_invalid_response(
     post: PostClient,
-    refresh_token: TestToken,
+    refresh_token: TokenTuple,
     requests_mock: Mocker,
     token: dict[str, str],
 ):
@@ -456,7 +456,7 @@ def test_token_provider_invalid_response(
 
 def test_token_provider_unavailable(
     post: PostClient,
-    refresh_token: TestToken,
+    refresh_token: TokenTuple,
     requests_mock: Mocker,
 ):
     _ = requests_mock.post(
