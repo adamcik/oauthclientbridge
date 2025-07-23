@@ -135,7 +135,8 @@ def test_token_bad_basic_auth(post: PostClient, base64_basic_auth: str):
     assert resp.status == 401
     assert resp.data["error"] == errors.INVALID_CLIENT
 
-    # TODO: Check auth headers?
+    assert "WWW-Authenticate" in resp.headers
+    assert resp.headers["WWW-Authenticate"] == 'Basic realm="oauthclientbridge"'
 
 
 def test_token_wrong_method(client: FlaskClient):
