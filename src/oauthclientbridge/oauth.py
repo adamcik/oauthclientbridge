@@ -93,13 +93,12 @@ def fallback_error_handler(e: Exception) -> flask.Response:
 
     response = flask.jsonify(
         _error(errors.SERVER_ERROR, errors.DESCRIPTIONS[errors.SERVER_ERROR])
-    )  # type: flask.Response
+    )
     response.status_code = 500
     return response
 
 
-# TODO: Figure out why I can't type annotate response here.
-def nocache(response) -> flask.Response:
+def nocache(response: flask.Response) -> flask.Response:
     """Turns off caching in case there is sensitive content in responses."""
     if "Cache-Control" not in response.headers:
         response.headers["Cache-Control"] = "no-store"

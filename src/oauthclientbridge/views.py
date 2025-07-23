@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 
 import flask
 from flask import Blueprint
@@ -12,11 +13,11 @@ routes = Blueprint("views", __name__)
 def authorize() -> flask.Response:
     """Store random state in session cookie and redirect to auth endpoint."""
 
-    redirect_uri = flask.request.args.get("redirect_uri")
+    redirect_uri: str | None = flask.request.args.get("redirect_uri")
     if redirect_uri and redirect_uri != flask.current_app.config["OAUTH_REDIRECT_URI"]:
         return _error(errors.INVALID_REQUEST, "Wrong redirect_uri.")
 
-    default_scope = " ".join(flask.current_app.config["OAUTH_SCOPES"] or [])
+    default_scope: str = " ".join(flask.current_app.config["OAUTH_SCOPES"] or [])
 
     flask.session["client_state"] = flask.request.args.get("state")
     flask.session["state"] = crypto.generate_key()
@@ -36,8 +37,8 @@ def callback() -> flask.Response:
     """Validate callback and trade in code for a token."""
     error: str | None = None
     desc: str | None = None
-    client_state = flask.session.pop("client_state", None)
-    state = flask.session.pop("state", None)
+    client_state: str | None = flask.session.pop("client_state", None)
+    state: str | None = flask.session.pop("state", None)
 
     if not flask.request.args:
         error = errors.INVALID_REQUEST
@@ -119,15 +120,15 @@ def token() -> flask.Response:
 
     try:
         # Trigger decoding base64 value that might have bad Unicode data.
-        authorization = flask.request.authorization
+        authorization: Any | None = flask.request.authorization
     except ValueError:
         authorization = None
 
     if authorization and authorization.type != "basic":
         raise oauth.Error(errors.INVALID_CLIENT, "Only Basic Auth is supported.")
 
-    client_id = flask.request.form.get("client_id")
-    client_secret = flask.request.form.get("client_secret")
+    client_id: str | None = flask.request.form.get("client_id")
+    client_secret: str | None = flask.request.form.get("client_secret")
     if (client_id or client_secret) and authorization:
         raise oauth.Error(
             errors.INVALID_REQUEST,

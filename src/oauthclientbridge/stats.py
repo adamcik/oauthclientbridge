@@ -158,8 +158,7 @@ def record_metrics() -> None:
     flask.g.stats_latency_start_time = time.time()
 
 
-# TODO: Figure our why I can't type annotate response
-def finalize_metrics(response) -> flask.Response:
+def finalize_metrics(response: flask.Response) -> flask.Response:
     request_latency = time.time() - flask.g.stats_latency_start_time
     labels = {"endpoint": endpoint(), "status": status(response.status_code)}
 
