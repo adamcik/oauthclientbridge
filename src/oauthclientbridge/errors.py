@@ -1,3 +1,5 @@
+# TODO: Convert these to enums
+
 ACCESS_DENIED = "access_denied"
 INVALID_CLIENT = "invalid_client"
 INVALID_GRANT = "invalid_grant"
