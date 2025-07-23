@@ -284,7 +284,7 @@ def _render(
     }
     return flask.Response(
         flask.render_template_string(
-            settings.bridge.callback_template,
+            settings.callback_template,
             variables=variables,
             **variables,
         ).encode("utf-8"),

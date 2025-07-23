@@ -72,9 +72,7 @@ def error_handler(e: Error) -> flask.Response:
     response = flask.jsonify(result)
     if e.error == errors.INVALID_CLIENT:
         response.status_code = 401
-        response.headers["WWW-Authenticate"] = (
-            f'Basic realm="{settings.bridge.auth_realm}"'
-        )
+        response.headers["WWW-Authenticate"] = f'Basic realm="{settings.auth_realm}"'
     elif e.retry_after:
         response.headers["Retry-After"] = int(e.retry_after + 1)
         response.status_code = 429

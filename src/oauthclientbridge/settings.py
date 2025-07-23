@@ -147,7 +147,11 @@ Function:         %(funcName)s
     )
 
 
-class BridgeSettings(BaseSettings):
+class Settings(BaseSettings):
+    """
+    Application settings for oauthclientbridge.
+    """
+
     model_config = SettingsConfigDict(env_prefix="BRIDGE_")
 
     secret_key: SecretStr = Field(
@@ -190,14 +194,7 @@ class BridgeSettings(BaseSettings):
         ),
     )
 
-
-class Settings(BaseSettings):
-    """
-    Application settings for oauthclientbridge.
-    """
-
     oauth: OAuthSettings = Field(default_factory=lambda: OAuthSettings())  # pyright: ignore[reportCallIssue]
     fetch: FetchSettings = Field(default_factory=lambda: FetchSettings())  # pyright: ignore[reportCallIssue]
     database: DatabaseSettings = Field(default_factory=lambda: DatabaseSettings())  # pyright: ignore[reportCallIssue]
     logging: LoggingSettings = Field(default_factory=lambda: LoggingSettings())  # pyright: ignore[reportCallIssue]
-    bridge: BridgeSettings = Field(default_factory=lambda: BridgeSettings())  # pyright: ignore[reportCallIssue]

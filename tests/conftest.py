@@ -11,7 +11,6 @@ from werkzeug.datastructures import Headers
 
 from oauthclientbridge import create_app, crypto, db
 from oauthclientbridge.settings import (
-    BridgeSettings,
     DatabaseSettings,
     OAuthSettings,
     Settings,
@@ -33,11 +32,9 @@ class TokenTuple(NamedTuple):
 @pytest.fixture
 def settings():
     # https://github.com/pydantic/pydantic-settings/issues/201
-    return Settings(
-        bridge=BridgeSettings(  # pyright: ignore[reportCallIssue]
-            secret_key=SecretStr("s3cret"),
-            callback_template="{{ variables|tojson }}",
-        ),
+    return Settings(  # pyright: ignore[reportCallIssue]
+        secret_key=SecretStr("s3cret"),
+        callback_template="{{ variables|tojson }}",
         database=DatabaseSettings(  # pyright: ignore[reportCallIssue]
             database=":memory:",
         ),
