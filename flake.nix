@@ -21,6 +21,8 @@
       inputs.uv2nix.follows = "uv2nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    nix2container.url = "github:nlewo/nix2container";
   };
 
   outputs =
@@ -28,6 +30,7 @@
     , uv2nix
     , pyproject-nix
     , pyproject-build-systems
+    , nix2container
     , ...
     }:
     let
@@ -111,6 +114,7 @@
                       };
 
                     # Run pytest with coverage reports installed into build output
+                    # TODO: Could this be pytestCheckHook instead?
                     pytest =
                       let
                         venv = final.mkVirtualEnv "oauthclientbridge-pytest-env" {
@@ -165,31 +169,111 @@
         pythonSet.oauthclientbridge.passthru.tests
       );
 
-      packages = forAllSystems (
-        system:
-        let
-          pkgs = nixpkgs.legacyPackages.${system};
-          pythonSet = pythonSets.${system};
-        in
-        lib.optionalAttrs pkgs.stdenv.isLinux {
-          # Expose Docker container in packages
-          docker =
-            let
-              venv = pythonSet.mkVirtualEnv "oauthclientbridge-env" workspace.deps.default;
-            in
-            # FIXME: nix2container
-            pkgs.dockerTools.buildLayeredImage {
-              name = "oauthclientbridge";
-              contents = [ pkgs.cacert ];
-              config = {
-                # FIXME: Switch to uswgi
-                Cmd = [
-                  "${venv}/bin/uwsgi"
+      packages = forAllSystems
+        (
+          system:
+          let
+            pkgs = nixpkgs.legacyPackages.${system};
+            nix2containerPkgs = nix2container.packages.${system}.nix2container;
+
+            pythonSet = pythonSets.${system};
+            venv = pythonSet.mkVirtualEnv "oauthclientbridge-env" workspace.deps.default;
+
+            python = pkgs.python312;
+
+            uwsgi = pkgs.uwsgi.override {
+              python3 = python;
+              plugins = [ "python3" ];
+            };
+
+            user = "uwsgi";
+            group = "uwsgi";
+            uid = "1000";
+            gid = "1000";
+
+            shellBin = "/bin/bash";
+
+            mkUser = pkgs.runCommand "mkUser" { } ''
+              mkdir -p $out/etc
+
+              cat<<EOF > $out/etc/passwd
+              root:x:0:0::/root:${shellBin}
+              ${user}:x:${uid}:${gid}::
+              EOF
+
+              cat<<EOF > $out/etc/shadow
+              root:!x:::::::
+              ${user}:!x:::::::
+              EOF
+
+              cat<<EOF > $out/etc/group
+              root:x:0:0::/root:${shellBin}
+              ${user}:x:${toString uid}:${toString gid}::/home/${user}:
+              EOF
+
+              cat<<EOF > $out/etc/gshadow
+              root:x::
+              ${user}:x::
+              EOF
+            '';
+
+            entrypoint = pkgs.writeScript "entrypoint" ''
+              #!${pkgs.stdenv.shell}
+
+              PORT="''${PORT:-8000}"
+              WORKERS="''${WORKER:-$(( $(nproc) * 2 + 1 ))}"
+              THREADS="''${THREADS:-2}"
+
+              ${uwsgi}/bin/uwsgi \
+                --plugin python3 \
+                --module oauthclientbridge:app \
+                --log-format '%(addr) - %(user) [%(ltime)] "%(method) %(uri) %(proto)" %(status) %(size) "%(referer)" "%(uagent)"' \
+                --virtualenv "${venv}" \
+                --http "0.0.0.0:''${PORT}" \
+                --processes "''${WORKERS}" \
+                --threads "''${THREADS}" \
+                --master \
+                --show-config \
+                --need-app \
+                "$@"
+            '';
+          in
+          lib.optionalAttrs pkgs.stdenv.isLinux {
+            # Expose Docker container in packages
+            default =
+              nix2containerPkgs.buildImage {
+                name = "oauthclientbridge";
+                tag = "latest";
+                # created = "now";
+                config = {
+                  entrypoint = [ "${entrypoint}" ];
+                  user = user;
+                };
+
+                layers = [
+                  (nix2containerPkgs.buildLayer {
+                    deps = [ uwsgi ];
+                    copyToRoot = [
+                      (pkgs.buildEnv {
+                        name = "root";
+                        paths = with pkgs; [
+                          bashInteractive
+                          coreutils
+                        ];
+                        pathsToLink = [ "/bin" "/etc" "/run" ];
+                      })
+                      mkUser
+                    ];
+                    layers = [
+                      (nix2containerPkgs.buildLayer {
+                        deps = [ venv ];
+                      })
+                    ];
+                  })
                 ];
               };
-            };
-        }
-      );
+          }
+        );
 
       # Use an editable Python set for development.
       devShells = forAllSystems (
