@@ -49,10 +49,10 @@ def test_callback_authorization_client_state(
     data = {"token_type": "Bearer", "access_token": "1234567890"}
     requests_mock.post(current_app.config["OAUTH_TOKEN_URI"], json=data)
 
-    result, _ = get("/callback?code=1234&state=" + state)
+    resp = get("/callback?code=1234&state=" + state)
 
     with client.session_transaction() as session:
-        assert result["state"] == client_state
+        assert resp.data["state"] == client_state
         assert "client_state" not in session
 
 
@@ -86,11 +86,11 @@ def test_callback_authorization_client_state(
     ],
 )
 def test_callback_error_handling(query, expected_error, client_state, get, state):
-    result, status = get("/callback" + query.format(state=state))
+    resp = get("/callback" + query.format(state=state))
 
-    assert status == 400
-    assert result["error"] == expected_error
-    assert result["state"] == client_state
+    assert resp.status == 400
+    assert resp.data["error"] == expected_error
+    assert resp.data["state"] == client_state
 
 
 # TODO: Revisit all of the status codes returned, since this is not an API
@@ -141,30 +141,30 @@ def test_callback_authorization_code_error_handling(
 ):
     requests_mock.post(current_app.config["OAUTH_TOKEN_URI"], json=data)
 
-    result, status = get("/callback?code=1234&state=" + state)
-    assert status == expected_status
-    assert result["error"] == expected_error
+    resp = get("/callback?code=1234&state=" + state)
+    assert resp.status == expected_status
+    assert resp.data["error"] == expected_error
 
 
 # TODO: Test with more status codes from callback...
 def test_callback_authorization_code_invalid_response(get, state, requests_mock):
     requests_mock.post(current_app.config["OAUTH_TOKEN_URI"], text="Not a JSON value")
 
-    result, status = get("/callback?code=1234&state=" + state)
-    assert status == 400
-    assert result["error"] == errors.SERVER_ERROR
+    resp = get("/callback?code=1234&state=" + state)
+    assert resp.status == 400
+    assert resp.data["error"] == errors.SERVER_ERROR
 
 
 def test_callback_authorization_code_stores_token(get, state, requests_mock):
     data = {"token_type": "Bearer", "access_token": "1234567890"}
     requests_mock.post(current_app.config["OAUTH_TOKEN_URI"], json=data)
 
-    result, _ = get("/callback?code=1234&state=" + state)
+    resp = get("/callback?code=1234&state=" + state)
 
     # Peek inside internals to check that our token got stored.
-    encrypted = db.lookup(result["client_id"])
+    encrypted = db.lookup(resp.data["client_id"])
     assert encrypted is not None
-    assert data == crypto.loads(result["client_secret"], encrypted)
+    assert data == crypto.loads(resp.data["client_secret"], encrypted)
 
 
 def test_callback_authorization_code_store_refresh_token(get, state, requests_mock):
@@ -177,26 +177,26 @@ def test_callback_authorization_code_store_refresh_token(get, state, requests_mo
     }
     requests_mock.post(current_app.config["OAUTH_TOKEN_URI"], json=token)
 
-    result, _ = get("/callback?code=1234&state=" + state)
+    resp = get("/callback?code=1234&state=" + state)
 
     expected = {"refresh_token": "abc", "scope": "foo"}
 
     # Peek inside internals to check that our token got stored.
-    encrypted = db.lookup(result["client_id"])
+    encrypted = db.lookup(resp.data["client_id"])
     assert encrypted is not None
-    assert expected == crypto.loads(result["client_secret"], encrypted)
+    assert expected == crypto.loads(resp.data["client_secret"], encrypted)
 
 
 def test_callback_authorization_code_store_unknown(get, state, requests_mock):
     data = {"token_type": "Bearer", "access_token": "123", "private": "foobar"}
     requests_mock.post(current_app.config["OAUTH_TOKEN_URI"], json=data)
 
-    result, _ = get("/callback?code=1234&state=" + state)
+    resp = get("/callback?code=1234&state=" + state)
 
     # Peek inside internals to check that our token got stored.
-    encrypted = db.lookup(result["client_id"])
+    encrypted = db.lookup(resp.data["client_id"])
     assert encrypted is not None
-    assert data == crypto.loads(result["client_secret"], encrypted)
+    assert data == crypto.loads(resp.data["client_secret"], encrypted)
 
 
 def test_callack_wrong_method(client, state):
