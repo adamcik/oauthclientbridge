@@ -6,9 +6,11 @@ import pytest
 from flask import Flask
 from flask.ctx import AppContext
 from flask.testing import FlaskClient
+from pydantic import SecretStr
 from werkzeug.datastructures import Headers
 
 from oauthclientbridge import create_app, crypto, db
+from oauthclientbridge.settings import Settings
 
 
 class ResponseTuple(NamedTuple):
@@ -24,20 +26,23 @@ class TokenTuple(NamedTuple):
 
 
 @pytest.fixture
-def app():
-    return create_app(
-        {
-            "TESTING": True,
-            "SECRET_KEY": "s3cret",
-            "OAUTH_DATABASE": ":memory:",
-            "OAUTH_CLIENT_ID": "client",
-            "OAUTH_CLIENT_SECRET": "s3cret",
-            "OAUTH_AUTHORIZATION_URI": "https://provider.example.com/auth",
-            "OAUTH_TOKEN_URI": "https://provider.example.com/token",
-            "OAUTH_REDIRECT_URI": "https://client.example.com/callback",
-            "OAUTH_CALLBACK_TEMPLATE": "{{ variables|tojson }}",
-        }
+def settings():
+    # https://github.com/pydantic/pydantic-settings/issues/201
+    return Settings(  # pyright: ignore[reportCallIssue]
+        secret_key=SecretStr("s3cret"),
+        database=":memory:",
+        client_id="client",
+        client_secret="s3cret",
+        authorization_uri="https://provider.example.com/auth",
+        token_uri="https://provider.example.com/token",
+        redirect_uri="https://client.example.com/callback",
+        callback_template="{{ variables|tojson }}",
     )
+
+
+@pytest.fixture
+def app(settings: Settings):
+    return create_app(settings)
 
 
 @pytest.fixture

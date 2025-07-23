@@ -6,8 +6,11 @@ from typing import Any
 
 import flask
 import requests
+from flask import current_app
 
-from oauthclientbridge import __version__, errors, stats
+from oauthclientbridge import __version__, errors, get_settings, stats
+
+settings = get_settings()
 
 OAuthResponse = dict[str, Any]
 URIParam = dict[str, str]
@@ -68,9 +71,7 @@ def error_handler(e: Error) -> flask.Response:
     response = flask.jsonify(result)
     if e.error == errors.INVALID_CLIENT:
         response.status_code = 401
-        response.headers["WWW-Authenticate"] = (
-            f'Basic realm="{flask.current_app.config["OAUTH_REALM"]}"'
-        )
+        response.headers["WWW-Authenticate"] = f'Basic realm="{settings.realm}"'
     elif e.retry_after:
         response.headers["Retry-After"] = int(e.retry_after + 1)
         response.status_code = 429
@@ -108,7 +109,7 @@ def nocache(response: flask.Response) -> flask.Response:
 
 def normalize_error(error: str, error_types: set[str]) -> str:
     """Translate any "bad" error types to something more usable."""
-    error = flask.current_app.config["OAUTH_FETCH_ERROR_TYPES"].get(error, error)
+    error = settings.fetch_error_types.get(error, error)
     if error not in error_types:
         return errors.SERVER_ERROR
     else:
@@ -131,27 +132,25 @@ def fetch(
     req = requests.Request("POST", uri, data=data, auth=auth)
     prepared = req.prepare()
 
-    timeout = time.time() + flask.current_app.config["OAUTH_FETCH_TOTAL_TIMEOUT"]
+    timeout = time.time() + settings.fetch_total_timeout
     retry = 0
 
     result = _error(
         errors.SERVER_ERROR, "An unknown error occurred talking to provider."
     )
 
-    for i in range(flask.current_app.config["OAUTH_FETCH_TOTAL_RETRIES"]):
+    for i in range(settings.fetch_total_retries):
         prefix = "attempt #%d %s" % (i + 1, uri)
 
         # TODO: Add jitter to backoff and/or retry after?
-        backoff = (2**i - 1) * flask.current_app.config["OAUTH_FETCH_BACKOFF_FACTOR"]
+        backoff = (2**i - 1) * settings.fetch_backoff_factor
         remaining_timeout = timeout - time.time()
 
         if (retry or backoff) > remaining_timeout:
-            flask.current_app.logger.debug("Abort %s no timeout remaining.", prefix)
+            current_app.logger.debug("Abort %s no timeout remaining.", prefix)
             break
         elif (retry or backoff) > 0:
-            flask.current_app.logger.debug(
-                "Retry %s [sleep %.3f]", prefix, retry or backoff
-            )
+            current_app.logger.debug("Retry %s [sleep %.3f]", prefix, retry or backoff)
             time.sleep(retry or backoff)
 
         result, status, retry = _fetch(prepared, remaining_timeout, endpoint)
@@ -161,21 +160,19 @@ def fetch(
 
         if status is not None and "error" in result:
             error = result["error"]
-            error = flask.current_app.config["OAUTH_FETCH_ERROR_TYPES"].get(
-                error, error
-            )
+            error = settings.fetch_error_types.get(error, error)
             if error not in errors.DESCRIPTIONS:
                 error = "invalid_error"
             stats.ClientErrorCounter.labels(error=error, **labels).inc()
 
         if status is None:
             pass  # We didn't even get a response, so try again.
-        elif status not in flask.current_app.config["OAUTH_FETCH_RETRY_STATUS_CODES"]:
+        elif status not in settings.fetch_retry_status_codes:
             break
         elif "error" not in result:
             break  # No error reported so might as well return it.
 
-        flask.current_app.logger.debug(
+        current_app.logger.debug(
             "Result %s [status %s] [retry after %s]", prefix, status, retry
         )
 
@@ -189,7 +186,7 @@ def _fetch(
     endpoint: str | None = None,
 ) -> tuple[OAuthResponse, int, int]:
     # Make sure we always have at least a minimal timeout.
-    timeout = max(1.0, min(flask.current_app.config["OAUTH_FETCH_TIMEOUT"], timeout))
+    timeout = max(1.0, min(settings.fetch_timeout, timeout))
     start_time = time.time()
 
     try:
@@ -221,7 +218,7 @@ def _fetch(
             else:
                 status_label = "connection_error"
 
-        flask.current_app.logger.warning("Fetching %r failed: %s", prepared.url, e)
+        current_app.logger.warning("Fetching %r failed: %s", prepared.url, e)
 
         # TODO: Should this be temporarily_unavailable?
 
@@ -256,7 +253,7 @@ def _decode(resp: requests.Response) -> OAuthResponse:
     try:
         return resp.json()
     except ValueError as e:
-        flask.current_app.logger.warning(
+        current_app.logger.warning(
             "Fetching %r (HTTP %s, %s) failed: %s",
             resp.url,
             resp.status_code,
@@ -264,10 +261,7 @@ def _decode(resp: requests.Response) -> OAuthResponse:
             e,
         )
 
-    if (
-        resp.status_code
-        in flask.current_app.config["OAUTH_FETCH_UNAVAILABLE_STATUS_CODES"]
-    ):
+    if resp.status_code in settings.fetch_unavailable_status_codes:
         error = errors.TEMPORARILY_UNAVAILABLE
         description = "Provider is unavailable."
     else:

@@ -2,9 +2,11 @@ import logging
 from typing import Any
 
 import flask
-from flask import Blueprint
+from flask import Blueprint, current_app
 
-from oauthclientbridge import crypto, db, errors, oauth, stats
+from oauthclientbridge import crypto, db, errors, get_settings, oauth, stats
+
+settings = get_settings()
 
 routes = Blueprint("views", __name__)
 
@@ -14,21 +16,23 @@ def authorize() -> flask.Response:
     """Store random state in session cookie and redirect to auth endpoint."""
 
     redirect_uri: str | None = flask.request.args.get("redirect_uri")
-    if redirect_uri and redirect_uri != flask.current_app.config["OAUTH_REDIRECT_URI"]:
+    if redirect_uri and redirect_uri != get_settings().redirect_uri:
         return _error(errors.INVALID_REQUEST, "Wrong redirect_uri.")
 
-    default_scope: str = " ".join(flask.current_app.config["OAUTH_SCOPES"] or [])
+    default_scope: str = " ".join(settings.scopes or [])
+    scope = flask.request.args.get("scope", default_scope)
+    state = crypto.generate_key()
 
     flask.session["client_state"] = flask.request.args.get("state")
-    flask.session["state"] = crypto.generate_key()
+    flask.session["state"] = state
 
     return oauth.redirect(
-        flask.current_app.config["OAUTH_AUTHORIZATION_URI"],
-        client_id=flask.current_app.config["OAUTH_CLIENT_ID"],
+        settings.authorization_uri,
+        client_id=settings.client_id,
         response_type="code",
-        redirect_uri=flask.current_app.config["OAUTH_REDIRECT_URI"],
-        scope=flask.request.args.get("scope", default_scope),
-        state=flask.session["state"],
+        redirect_uri=settings.redirect_uri,
+        scope=scope,
+        state=state,
     )
 
 
@@ -50,32 +54,33 @@ def callback() -> flask.Response:
         error = errors.INVALID_STATE
         desc = "State does not match callback state."
     elif "error" in flask.request.args:
-        error = flask.request.args["error"]
-        if error is not None:
-            error = oauth.normalize_error(error, oauth.AUTHORIZATION_ERRORS)
-            desc = errors.DESCRIPTIONS[error]
+        error = oauth.normalize_error(
+            flask.request.args["error"],
+            oauth.AUTHORIZATION_ERRORS,
+        )
+        desc = errors.DESCRIPTIONS[error]
     elif not flask.request.args.get("code"):
         error = errors.INVALID_REQUEST
         desc = "Authorization code missing from provider callback."
 
     if error is not None:
-        level = flask.current_app.config["OAUTH_ERROR_LOG_LEVELS"].get(error, "ERROR")
+        level = settings.error_log_levels.get(error, "ERROR")
         level = logging.getLevelNamesMapping()[level]
 
         msg = f"Callback failed {error}: {desc}"
         if error == errors.INVALID_SCOPE:
             msg += " - %r" % flask.request.args.get("scope")
-        flask.current_app.logger.log(level, msg)
+        current_app.logger.log(level, msg)
 
         return _error(error, desc, client_state)
 
     result = oauth.fetch(
-        flask.current_app.config["OAUTH_TOKEN_URI"],
-        client_id=flask.current_app.config["OAUTH_CLIENT_ID"],
-        client_secret=flask.current_app.config["OAUTH_CLIENT_SECRET"],
+        settings.token_uri,
+        client_id=settings.client_id,
+        client_secret=settings.client_secret.get_secret_value(),
         code=flask.request.args.get("code"),
         grant_type="authorization_code",
-        redirect_uri=flask.current_app.config["OAUTH_REDIRECT_URI"],
+        redirect_uri=settings.redirect_uri,
         endpoint="token",
     )
 
@@ -87,7 +92,7 @@ def callback() -> flask.Response:
         desc = "Invalid response from provider."
 
     if error is not None:
-        flask.current_app.logger.warning("Retrieving token failed: %s", result)
+        current_app.logger.warning("Retrieving token failed: %s", result)
         return _error(error, desc, client_state)
 
     if "refresh_token" in result:
@@ -99,7 +104,7 @@ def callback() -> flask.Response:
     try:
         client_id = db.insert(token)
     except db.IntegrityError:
-        flask.current_app.logger.warning("Could not get unique client id.")
+        current_app.logger.warning("Could not get unique client id.")
         return _error("integrity_error", "Database integrity error.", client_state)
 
     return _render(client_id=client_id, client_secret=client_secret, state=client_state)
@@ -169,11 +174,10 @@ def token() -> flask.Response:
         return flask.jsonify(result)
 
     refresh_result = oauth.fetch(
-        flask.current_app.config["OAUTH_REFRESH_URI"]
-        or flask.current_app.config["OAUTH_TOKEN_URI"],
-        client_id=flask.current_app.config["OAUTH_CLIENT_ID"],
-        client_secret=flask.current_app.config["OAUTH_CLIENT_SECRET"],
-        grant_type=flask.current_app.config["OAUTH_GRANT_TYPE"],
+        get_settings().refresh_uri or get_settings().token_uri,
+        client_id=get_settings().client_id,
+        client_secret=get_settings().client_secret.get_secret_value(),
+        grant_type=get_settings().grant_type,
         refresh_token=result["refresh_token"],
         endpoint="refresh",
     )
@@ -188,11 +192,11 @@ def token() -> flask.Response:
             # NOTE: This was commented out to avoid invalidating things in case
             # something went wrong upstream.
             # db.update(client_id, None)
-            flask.current_app.logger.warning("Invalid grant: %s", client_id)
+            current_app.logger.warning("Invalid grant: %s", client_id)
         elif error == errors.TEMPORARILY_UNAVAILABLE:
-            flask.current_app.logger.warning("Token refresh failed: %s", refresh_result)
+            current_app.logger.warning("Token refresh failed: %s", refresh_result)
         else:
-            flask.current_app.logger.error("Token refresh failed: %s", refresh_result)
+            current_app.logger.error("Token refresh failed: %s", refresh_result)
 
         # Client Credentials access token responses use the same errors
         # as Authorization Code Grant access token responses. As such, just
@@ -221,7 +225,7 @@ def token() -> flask.Response:
 
     # Reduce write pressure by only issuing update on changes.
     if result != modified:
-        flask.current_app.logger.warning("Updating token for: %s", client_id)
+        current_app.logger.warning("Updating token for: %s", client_id)
         db.update(client_id, crypto.dumps(client_secret, modified))
 
     # Only return what we got from the API (minus refresh_token).
@@ -269,7 +273,7 @@ def _render(
     }
     return flask.Response(
         flask.render_template_string(
-            flask.current_app.config["OAUTH_CALLBACK_TEMPLATE"],
+            settings.callback_template,
             variables=variables,
             **variables,
         ).encode("utf-8"),

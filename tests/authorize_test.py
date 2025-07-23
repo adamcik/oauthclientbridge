@@ -1,11 +1,11 @@
 import urllib.parse
 
 import pytest
-from flask import current_app
 from flask.testing import FlaskClient
 from requests_mock import Mocker
 
 from oauthclientbridge import crypto, db, errors
+from oauthclientbridge.settings import Settings
 from tests.conftest import GetClient
 
 
@@ -25,8 +25,8 @@ def test_authorize_wrong_method(client: FlaskClient):
     assert resp.status_code == 405
 
 
-def test_authorize_redirect_uri(client: FlaskClient):
-    redirect_uri = current_app.config["OAUTH_REDIRECT_URI"]
+def test_authorize_redirect_uri(client: FlaskClient, settings: Settings):
+    redirect_uri = settings.redirect_uri
     url = "/?%s" % urllib.parse.urlencode({"redirect_uri": redirect_uri})
     resp = client.get(url)
     assert resp.status_code == 302
@@ -52,10 +52,11 @@ def test_callback_authorization_client_state(
     client_state: str,
     state: str,
     requests_mock: Mocker,
+    settings: Settings,
 ):
     data = {"token_type": "Bearer", "access_token": "1234567890"}
     _ = requests_mock.post(
-        current_app.config["OAUTH_TOKEN_URI"],
+        settings.token_uri,
         json=data,
     )
 
@@ -136,9 +137,10 @@ def test_callback_authorization_code_error_handling(
     get: GetClient,
     state: str,
     requests_mock: Mocker,
+    settings: Settings,
 ):
     _ = requests_mock.post(
-        current_app.config["OAUTH_TOKEN_URI"],
+        settings.token_uri,
         json=data,
     )
 
@@ -149,10 +151,13 @@ def test_callback_authorization_code_error_handling(
 
 # TODO: Test with more status codes from callback...
 def test_callback_authorization_code_invalid_response(
-    get: GetClient, state: str, requests_mock: Mocker
+    get: GetClient,
+    state: str,
+    requests_mock: Mocker,
+    settings: Settings,
 ):
     _ = requests_mock.post(
-        current_app.config["OAUTH_TOKEN_URI"],
+        settings.token_uri,
         text="Not a JSON value",
     )
 
@@ -162,11 +167,14 @@ def test_callback_authorization_code_invalid_response(
 
 
 def test_callback_authorization_code_stores_token(
-    get: GetClient, state: str, requests_mock: Mocker
+    get: GetClient,
+    state: str,
+    requests_mock: Mocker,
+    settings: Settings,
 ):
     data = {"token_type": "Bearer", "access_token": "1234567890"}
     _ = requests_mock.post(
-        current_app.config["OAUTH_TOKEN_URI"],
+        settings.token_uri,
         json=data,
     )
 
@@ -179,7 +187,10 @@ def test_callback_authorization_code_stores_token(
 
 
 def test_callback_authorization_code_store_refresh_token(
-    get: GetClient, state: str, requests_mock: Mocker
+    get: GetClient,
+    state: str,
+    requests_mock: Mocker,
+    settings: Settings,
 ):
     token = {
         "token_type": "test",
@@ -189,7 +200,7 @@ def test_callback_authorization_code_store_refresh_token(
         "expires_in": 3600,
     }
     _ = requests_mock.post(
-        current_app.config["OAUTH_TOKEN_URI"],
+        settings.token_uri,
         json=token,
     )
 
@@ -204,11 +215,14 @@ def test_callback_authorization_code_store_refresh_token(
 
 
 def test_callback_authorization_code_store_unknown(
-    get: GetClient, state: str, requests_mock: Mocker
+    get: GetClient,
+    state: str,
+    requests_mock: Mocker,
+    settings: Settings,
 ):
     data = {"token_type": "Bearer", "access_token": "123", "private": "foobar"}
     _ = requests_mock.post(
-        current_app.config["OAUTH_TOKEN_URI"],
+        settings.token_uri,
         json=data,
     )
 

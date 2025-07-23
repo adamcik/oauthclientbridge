@@ -1,11 +1,11 @@
 import urllib.parse
 
 import pytest
-from flask import current_app
 from flask.testing import FlaskClient
 from requests_mock import Mocker
 
 from oauthclientbridge import crypto, db, errors
+from oauthclientbridge.settings import Settings
 
 from .conftest import PostClient, ResponseTuple, TokenTuple
 
@@ -56,7 +56,11 @@ def test_token_input_validation(
     assert resp.data["error_description"]
 
 
-def test_token_invalid_credentials(post: PostClient, access_token: TokenTuple):
+def test_token_invalid_credentials(
+    post: PostClient,
+    access_token: TokenTuple,
+    settings: Settings,
+):
     data = {
         "client_id": access_token.client_id,
         "client_secret": "invalid",
@@ -70,7 +74,7 @@ def test_token_invalid_credentials(post: PostClient, access_token: TokenTuple):
     assert resp.data["error_description"]
 
     assert "WWW-Authenticate" in resp.headers
-    assert resp.headers["WWW-Authenticate"] == 'Basic realm="oauthclientbridge"'
+    assert resp.headers["WWW-Authenticate"] == f'Basic realm="{settings.realm}"'
 
 
 def test_token_multiple_auth_fails(post: PostClient, access_token: TokenTuple):
@@ -126,7 +130,11 @@ def test_token_basic_auth(post: PostClient, access_token: TokenTuple):
         b"Basic xyz",  # invalid
     ],
 )
-def test_token_bad_basic_auth(post: PostClient, base64_basic_auth: str):
+def test_token_bad_basic_auth(
+    post: PostClient,
+    base64_basic_auth: str,
+    settings: Settings,
+):
     headers = {"Authorization": base64_basic_auth}
     data = {"grant_type": "client_credentials"}
 
@@ -136,7 +144,7 @@ def test_token_bad_basic_auth(post: PostClient, base64_basic_auth: str):
     assert resp.data["error"] == errors.INVALID_CLIENT
 
     assert "WWW-Authenticate" in resp.headers
-    assert resp.headers["WWW-Authenticate"] == 'Basic realm="oauthclientbridge"'
+    assert resp.headers["WWW-Authenticate"] == f'Basic realm="{settings.realm}"'
 
 
 def test_token_wrong_method(client: FlaskClient):
@@ -185,13 +193,14 @@ def test_token_refresh_post_data(
     post: PostClient,
     refresh_token: TokenTuple,
     requests_mock: Mocker,
+    settings: Settings,
 ):
     """Test that expected data gets POSTed to provider."""
 
     def match(request):
         expected: dict[str, list[str]] = {
-            "client_id": [current_app.config["OAUTH_CLIENT_ID"]],
-            "client_secret": [current_app.config["OAUTH_CLIENT_SECRET"]],
+            "client_id": [settings.client_id],
+            "client_secret": [settings.client_secret.get_secret_value()],
             "grant_type": ["refresh_token"],
             "refresh_token": [refresh_token.value["refresh_token"]],
         }
@@ -199,7 +208,7 @@ def test_token_refresh_post_data(
         return True
 
     _ = requests_mock.post(
-        current_app.config["OAUTH_TOKEN_URI"],
+        settings.token_uri,
         json={"access_token": "abc", "grant_type": "test"},
         additional_matcher=match,
     )
@@ -228,12 +237,13 @@ def test_token_with_extra_values(
     requests_mock: Mocker,
     response: dict[str, str],
     updated: dict[str, str],
+    settings: Settings,
 ):
     token = {"access_token": "abc", "token_type": "test", "expires_in": 3600}
     token.update(response)
 
     _ = requests_mock.post(
-        current_app.config["OAUTH_TOKEN_URI"],
+        settings.token_uri,
         json=token,
     )
 
@@ -257,10 +267,13 @@ def test_token_with_extra_values(
 
 
 def test_token_refresh_token_is_not_returned_from_provider(
-    post: PostClient, refresh_token: TokenTuple, requests_mock: Mocker
+    post: PostClient,
+    refresh_token: TokenTuple,
+    requests_mock: Mocker,
+    settings: Settings,
 ):
     _ = requests_mock.post(
-        current_app.config["OAUTH_TOKEN_URI"],
+        settings.token_uri,
         json={
             "access_token": "abc",
             "token_type": "test",
@@ -286,6 +299,7 @@ def test_token_only_returns_values_from_provider(
     post: PostClient,
     refresh_token: TokenTuple,
     requests_mock: Mocker,
+    settings: Settings,
 ):
     token = crypto.dumps(
         refresh_token.client_secret,
@@ -294,7 +308,7 @@ def test_token_only_returns_values_from_provider(
     _ = db.update(refresh_token.client_id, token)
 
     _ = requests_mock.post(
-        current_app.config["OAUTH_TOKEN_URI"],
+        settings.token_uri,
         json={"access_token": "abc", "token_type": "test"},
     )
 
@@ -312,10 +326,11 @@ def test_token_only_returns_values_from_provider(
     assert resp.data == expected
 
 
-def test_token_cleans_uneeded_data_from_db(
+def test_token_cleans_unneeded_data_from_db(
     post: PostClient,
     refresh_token: TokenTuple,
     requests_mock: Mocker,
+    settings: Settings,
 ):
     token = crypto.dumps(
         refresh_token.client_secret,
@@ -329,7 +344,7 @@ def test_token_cleans_uneeded_data_from_db(
     _ = db.update(refresh_token.client_id, token)
 
     _ = requests_mock.post(
-        current_app.config["OAUTH_TOKEN_URI"],
+        settings.token_uri,
         json={"access_token": "abc", "token_type": "test"},
     )
 
@@ -355,6 +370,7 @@ def test_token_only_returns_scope_from_db(
     post: PostClient,
     refresh_token: TokenTuple,
     requests_mock: Mocker,
+    settings: Settings,
 ):
     token = crypto.dumps(
         refresh_token.client_secret,
@@ -363,7 +379,7 @@ def test_token_only_returns_scope_from_db(
     _ = db.update(refresh_token.client_id, token)
 
     _ = requests_mock.post(
-        current_app.config["OAUTH_TOKEN_URI"],
+        settings.token_uri,
         json={"access_token": "abc", "token_type": "test"},
     )
 
@@ -399,12 +415,13 @@ def test_token_provider_errors(
     post: PostClient,
     refresh_token: TokenTuple,
     requests_mock: Mocker,
+    settings: Settings,
     error: str,
     expected_error: str,
     expected_status: int,
 ):
     _ = requests_mock.post(
-        current_app.config["OAUTH_TOKEN_URI"],
+        settings.token_uri,
         status_code=400,
         json={"error": error},
     )
@@ -434,10 +451,11 @@ def test_token_provider_invalid_response(
     post: PostClient,
     refresh_token: TokenTuple,
     requests_mock: Mocker,
+    settings: Settings,
     token: dict[str, str],
 ):
     _ = requests_mock.post(
-        current_app.config["OAUTH_TOKEN_URI"],
+        settings.token_uri,
         json=token,
     )
 
@@ -458,9 +476,10 @@ def test_token_provider_unavailable(
     post: PostClient,
     refresh_token: TokenTuple,
     requests_mock: Mocker,
+    settings: Settings,
 ):
     _ = requests_mock.post(
-        current_app.config["OAUTH_TOKEN_URI"],
+        settings.token_uri,
         status_code=503,
         text="Unavailable.",
     )
