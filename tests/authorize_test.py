@@ -47,10 +47,17 @@ def test_authorize_client_state(client: FlaskClient):
 
 
 def test_callback_authorization_client_state(
-    client: FlaskClient, get: GetClient, client_state: str, state, requests_mock: Mocker
+    client: FlaskClient,
+    get: GetClient,
+    client_state: str,
+    state: str,
+    requests_mock: Mocker,
 ):
     data = {"token_type": "Bearer", "access_token": "1234567890"}
-    requests_mock.post(current_app.config["OAUTH_TOKEN_URI"], json=data)
+    _ = requests_mock.post(
+        current_app.config["OAUTH_TOKEN_URI"],
+        json=data,
+    )
 
     resp = get("/callback?code=1234&state=" + state)
 
@@ -70,10 +77,7 @@ def test_callback_authorization_client_state(
         ("?state={state}", errors.INVALID_REQUEST),
         ("?state={state}&code=", errors.INVALID_REQUEST),
         ("?state={state}&error=invalid_request", errors.INVALID_REQUEST),
-        (
-            "?state={state}&error=unauthorized_client",
-            errors.UNAUTHORIZED_CLIENT,
-        ),
+        ("?state={state}&error=unauthorized_client", errors.UNAUTHORIZED_CLIENT),
         ("?state={state}&error=access_denied", errors.ACCESS_DENIED),
         (
             "?state={state}&error=unsupported_response_type",
@@ -133,7 +137,10 @@ def test_callback_authorization_code_error_handling(
     state: str,
     requests_mock: Mocker,
 ):
-    requests_mock.post(current_app.config["OAUTH_TOKEN_URI"], json=data)
+    _ = requests_mock.post(
+        current_app.config["OAUTH_TOKEN_URI"],
+        json=data,
+    )
 
     resp = get("/callback?code=1234&state=" + state)
     assert resp.status == expected_status
@@ -144,7 +151,10 @@ def test_callback_authorization_code_error_handling(
 def test_callback_authorization_code_invalid_response(
     get: GetClient, state: str, requests_mock: Mocker
 ):
-    requests_mock.post(current_app.config["OAUTH_TOKEN_URI"], text="Not a JSON value")
+    _ = requests_mock.post(
+        current_app.config["OAUTH_TOKEN_URI"],
+        text="Not a JSON value",
+    )
 
     resp = get("/callback?code=1234&state=" + state)
     assert resp.status == 400
@@ -155,7 +165,10 @@ def test_callback_authorization_code_stores_token(
     get: GetClient, state: str, requests_mock: Mocker
 ):
     data = {"token_type": "Bearer", "access_token": "1234567890"}
-    requests_mock.post(current_app.config["OAUTH_TOKEN_URI"], json=data)
+    _ = requests_mock.post(
+        current_app.config["OAUTH_TOKEN_URI"],
+        json=data,
+    )
 
     resp = get("/callback?code=1234&state=" + state)
 
@@ -175,7 +188,10 @@ def test_callback_authorization_code_store_refresh_token(
         "access_token": "123",
         "expires_in": 3600,
     }
-    requests_mock.post(current_app.config["OAUTH_TOKEN_URI"], json=token)
+    _ = requests_mock.post(
+        current_app.config["OAUTH_TOKEN_URI"],
+        json=token,
+    )
 
     resp = get("/callback?code=1234&state=" + state)
 
@@ -191,7 +207,10 @@ def test_callback_authorization_code_store_unknown(
     get: GetClient, state: str, requests_mock: Mocker
 ):
     data = {"token_type": "Bearer", "access_token": "123", "private": "foobar"}
-    requests_mock.post(current_app.config["OAUTH_TOKEN_URI"], json=data)
+    _ = requests_mock.post(
+        current_app.config["OAUTH_TOKEN_URI"],
+        json=data,
+    )
 
     resp = get("/callback?code=1234&state=" + state)
 
@@ -201,7 +220,7 @@ def test_callback_authorization_code_store_unknown(
     assert data == crypto.loads(resp.data["client_secret"], encrypted)
 
 
-def test_callack_wrong_method(client: FlaskClient, state: str):
+def test_callback_wrong_method(client: FlaskClient, state: str):
     resp = client.post("/callback?code=1234&state=" + state)
     assert resp.status_code == 405
 
