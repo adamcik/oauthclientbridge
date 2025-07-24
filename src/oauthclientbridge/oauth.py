@@ -6,10 +6,12 @@ from typing import Any
 
 import flask
 import requests
-from flask import current_app
+import structlog
 
 from oauthclientbridge import __version__, errors, get_settings, stats
 from oauthclientbridge.settings import Settings
+
+logger: structlog.BoundLogger = structlog.get_logger()
 
 OAuthResponse = dict[str, Any]
 URIParam = dict[str, str]
@@ -135,6 +137,13 @@ def fetch(
     req = requests.Request("POST", uri, data=data, auth=auth)
     prepared = req.prepare()
 
+    # Add X-Request-ID to outgoing request headers
+    request_id = flask.g.get("request_id")
+    if request_id:
+        if prepared.headers is None:
+            prepared.headers = {}
+        prepared.headers["X-Request-ID"] = request_id
+
     timeout = time.time() + settings.fetch.total_timeout
     retry = 0
 
@@ -150,10 +159,10 @@ def fetch(
         remaining_timeout = timeout - time.time()
 
         if (retry or backoff) > remaining_timeout:
-            current_app.logger.debug("Abort %s no timeout remaining.", prefix)
+            logger.debug("Abort %s no timeout remaining.", prefix)
             break
         elif (retry or backoff) > 0:
-            current_app.logger.debug("Retry %s [sleep %.3f]", prefix, retry or backoff)
+            logger.debug("Retry %s [sleep %.3f]", prefix, retry or backoff)
             time.sleep(retry or backoff)
 
         result, status, retry = _fetch(settings, prepared, remaining_timeout, endpoint)
@@ -175,9 +184,7 @@ def fetch(
         elif "error" not in result:
             break  # No error reported so might as well return it.
 
-        current_app.logger.debug(
-            "Result %s [status %s] [retry after %s]", prefix, status, retry
-        )
+        logger.debug("Result %s [status %s] [retry after %s]", prefix, status, retry)
 
     # TODO: consider returning retry after time so it can be used.
     return result
@@ -222,7 +229,7 @@ def _fetch(
             else:
                 status_label = "connection_error"
 
-        current_app.logger.warning("Fetching %r failed: %s", prepared.url, e)
+        logger.warning("Fetching %r failed: %s", prepared.url, e)
 
         # TODO: Should this be temporarily_unavailable?
 
@@ -257,7 +264,7 @@ def _decode(settings: Settings, resp: requests.Response) -> OAuthResponse:
     try:
         return resp.json()
     except ValueError as e:
-        current_app.logger.warning(
+        logger.warning(
             "Fetching %r (HTTP %s, %s) failed: %s",
             resp.url,
             resp.status_code,

@@ -2,16 +2,22 @@
 
 from importlib.metadata import version
 
+import structlog
 from flask import Flask
 from werkzeug.middleware.proxy_fix import ProxyFix
 
+from oauthclientbridge import logs
 from oauthclientbridge.settings import Settings
 
 __version__ = version("oauthclientbridge")
 
+logs.configure_structlog()
+
+logger: structlog.BoundLogger = structlog.get_logger()
 _settings: Settings | None = None
 
 
+# TODO: Move this to settings module
 def get_settings() -> Settings:
     if _settings is None:
         raise RuntimeError("Settings not initialized. Call set_settings() first.")
@@ -32,7 +38,12 @@ def create_app(settings: Settings | None = None) -> Flask:
 
     app = Flask(__name__)
 
+    # TODO: Handle cookie settings for flask
     app.secret_key = settings.secret_key.get_secret_value()
+
+    if app.debug:
+        # NOTE: Going from https->http breaks unless this is set.
+        app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
     if settings.num_proxies:
         wrapper = ProxyFix(
@@ -49,9 +60,22 @@ def create_app(settings: Settings | None = None) -> Flask:
     _ = app.register_error_handler(oauth.Error, oauth.error_handler)
     _ = app.register_error_handler(500, oauth.fallback_error_handler)
 
+    _ = app.before_request(logs.before_request_log_context)
+    _ = app.after_request(logs.after_request_log_context)
+
     _ = app.before_request(stats.record_metrics)
     _ = app.after_request(stats.finalize_metrics)
 
     app.register_blueprint(views.routes)
+
+    @app.cli.command("initdb")
+    def initdb():
+        print("Initializing %s" % settings.database.database)
+        db.initialize()
+
+    @app.cli.command("cleandb")
+    def cleandb():
+        print("Vacummed %s" % settings.database.database)
+        db.vacuum()
 
     return app

@@ -2,10 +2,13 @@ import logging
 from typing import Any
 
 import flask
-from flask import Blueprint, current_app
+import structlog
+from flask import Blueprint
 
 from oauthclientbridge import crypto, db, errors, get_settings, oauth, stats
 from oauthclientbridge.settings import Settings
+
+logger: structlog.BoundLogger = structlog.get_logger()
 
 routes = Blueprint("views", __name__)
 
@@ -66,14 +69,16 @@ def callback() -> flask.Response:
         desc = "Authorization code missing from provider callback."
 
     if error is not None:
+        msg = f"Callback failed {error}: {desc}"
+
+        # TODO: Consider just logging the request args as extra?
+        if error == errors.INVALID_SCOPE:
+            msg += " - %r" % flask.request.args.get("scope")
+
         level = settings.error_levels.get(error, "ERROR")
         level = logging.getLevelNamesMapping()[level]
 
-        msg = f"Callback failed {error}: {desc}"
-        if error == errors.INVALID_SCOPE:
-            msg += " - %r" % flask.request.args.get("scope")
-        current_app.logger.log(level, msg)
-
+        logger.log(level, msg)
         return _error(settings, error, desc, client_state)
 
     result = oauth.fetch(
@@ -94,7 +99,7 @@ def callback() -> flask.Response:
         desc = "Invalid response from provider."
 
     if error is not None:
-        current_app.logger.warning("Retrieving token failed: %s", result)
+        logger.warning("Retrieving token failed", result=result)
         return _error(settings, error, desc, client_state)
 
     if "refresh_token" in result:
@@ -106,7 +111,7 @@ def callback() -> flask.Response:
     try:
         client_id = db.insert(token)
     except db.IntegrityError:
-        current_app.logger.warning("Could not get unique client id.")
+        logger.warning("Could not get unique client id.")
         return _error(
             settings, "integrity_error", "Database integrity error.", client_state
         )
@@ -161,6 +166,8 @@ def token() -> flask.Response:
             "client_id and client_secret set to same value.",
         )
 
+    structlog.contextvars.bind_contextvars(client_id=client_id)
+
     try:
         token = db.lookup(client_id)
     except LookupError:
@@ -201,11 +208,11 @@ def token() -> flask.Response:
             # NOTE: This was commented out to avoid invalidating things in case
             # something went wrong upstream.
             # db.update(client_id, None)
-            current_app.logger.warning("Invalid grant: %s", client_id)
+            logger.warning("Invalid grant")
         elif error == errors.TEMPORARILY_UNAVAILABLE:
-            current_app.logger.warning("Token refresh failed: %s", refresh_result)
+            logger.warning("Token refresh failed", refresh_result=refresh_result)
         else:
-            current_app.logger.error("Token refresh failed: %s", refresh_result)
+            logger.error("Token refresh failed", refresh_result=refresh_result)
 
         # Client Credentials access token responses use the same errors
         # as Authorization Code Grant access token responses. As such, just
@@ -234,7 +241,7 @@ def token() -> flask.Response:
 
     # Reduce write pressure by only issuing update on changes.
     if result != modified:
-        current_app.logger.warning("Updating token for: %s", client_id)
+        logger.warning("Updating token")
         db.update(client_id, crypto.dumps(client_secret, modified))
 
     # Only return what we got from the API (minus refresh_token).
@@ -266,6 +273,7 @@ def _error(
     return response
 
 
+# TODO: Pass in the template string instead of settings.
 def _render(
     settings: Settings,
     client_id: str | None = None,
