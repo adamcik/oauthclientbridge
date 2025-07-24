@@ -21,24 +21,27 @@ Install by running:
 
     pip install OAuth-Client-Bridge
 
-See `oauthclientbridge/default_settings.py` for details about the
-configuration options. A minimal setup should set `SECRET_KEY`,
-`OAUTH_DATABASE`, `OAUTH_CLIENT_ID`, `OAUTH_CLIENT_SECRET`,
-`OAUTH_AUTHORIZATION_URI` and `OAUTH_TOKEN_URI`.
+Settings are managed by Pydantic and loaded from environment variables. Each setting is prefixed based on its category (e.g., `OAUTH_`, `DB_`, `BRIDGE_`, `FETCH_`). Refer to the `Settings` class in `src/oauthclientbridge/settings.py` for all available options and their prefixes. A minimal setup should define the following environment variables (see `.env.example` for a complete list):
 
-Once this is done you can point `OAUTH_SETTINGS` at your new
-configuration file and initialize the database:
+-   `BRIDGE_SECRET_KEY`: Secret key used for encrypting session cookies.
+-   `DB_DATABASE`: SQLite3 database path.
+-   `OAUTH_CLIENT_ID`: Client ID from your OAuth provider.
+-   `OAUTH_CLIENT_SECRET`: Client secret from your OAuth provider.
+-   `OAUTH_AUTHORIZATION_URI`: Upstream authorization URI.
+-   `OAUTH_TOKEN_URI`: Upstream token URI.
 
-    FLASK_APP=oauthclientbridge OAUTH_SETTINGS=oauth.cfg flask initdb
+Once these are set (e.g., by sourcing a `.env` file), you can initialize the database:
+
+    FLASK_APP=oauthclientbridge flask initdb
 
 Run the development server:
 
-    FLASK_APP=oauthclientbridge OAUTH_SETTINGS=oauth.cfg flask run
+    FLASK_APP=oauthclientbridge flask run
 
 Additionally you might want to run `cleandb` as a cron job to clear out
 stale data every now and then.:
 
-    FLASK_APP=oauthclientbridge OAUTH_SETTINGS=oauth.cfg flask cleandb
+    FLASK_APP=oauthclientbridge flask cleandb
 
 ## Setting up a production instance
 
@@ -46,7 +49,7 @@ stale data every now and then.:
 -   Set `SESSION_COOKIE_SECURE` to keep the state used in the redirect
     safe.
 -   Ideally also set `SESSION_COOKIE_DOMAIN` and `SESSION_COOKIE_PATH`.
--   If you are behind a proxy set `OAUTH_NUM_PROXIES` to the number of
+-   If you are behind a proxy set `BRIDGE_NUM_PROXIES` to the number of
     proxies. This ensures `X-Forwarded-For` gets respected with the
     value from the proxy.
 
@@ -84,6 +87,6 @@ To get the snippet above to work setup the bridge with the following
 template which will listen for the `postMessage` and then respond with
 the results.:
 
-    OAUTH_CALLBACK_TEMPLATE
+        BRIDGE_CALLBACK_TEMPLATE
 
   [upstream documentation]: http://flask.pocoo.org/docs/latest/deploying/
