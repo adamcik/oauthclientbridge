@@ -41,9 +41,7 @@ def create_app(settings: Settings | None = None) -> Flask:
         )
         app.wsgi_app = wrapper
 
-    from oauthclientbridge import db, logging, oauth, stats, views
-
-    logging.configure()
+    from oauthclientbridge import db, oauth, stats, views
 
     _ = app.teardown_appcontext(db.close)
 

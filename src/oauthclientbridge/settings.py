@@ -83,64 +83,6 @@ class DatabaseSettings(BaseSettings):
     """SQlite3 database PRAGMAs to run at connection time for database."""
 
 
-class LoggingSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="LOG_")
-
-    file: str | None = None
-    """Additional log file for application level logging, set to None to disable."""
-
-    file_level: str = "INFO"
-    """Log level for file logging."""
-
-    file_format: str = (
-        "%(asctime)s %(levelname)s: %(message)s " "[in %(pathname)s:%(lineno)d]"
-    )
-    """Log format for file logging."""
-
-    file_max_bytes: int = 0
-    """Max bytes to pass to the RotatingFileHandler logging handler."""
-
-    file_backup_count: int = 0
-    """Number of backups that the RotatingFileHandler should keep."""
-
-    email: list[str] = Field(default_factory=list)
-    """List of addresses to send logging emails to, leave empty to disable."""
-
-    email_level: str = "ERROR"
-    """Log level for email logging."""
-
-    email_format: str = """%(message)s
-
-Remote address:   %(request_remote_address)s
-Time:             %(asctime)s
-Message type:     %(levelname)s
-Path:             %(request_path)s
-Location:         %(pathname)s:%(lineno)d
-Module:           %(module)s
-Function:         %(funcName)s
-"""
-    """Log format for email logging."""
-
-    email_host: str = "localhost"
-    """SMTP host to use for email logging."""
-
-    email_from: str = "oauthclientbridge@localhost"
-    """From address to user for email logging."""
-
-    email_subject: str = "oauthclientbridge: %(request_base_url)s"
-    """Subject line to use for email logging."""
-
-    error_levels: dict[str, str] = Field(
-        default_factory=lambda: {
-            "access_denied": "INFO",
-            "invalid_state": "WARNING",
-            "invalid_request": "WARNING",
-            "temporarily_unavailable": "INFO",
-        }
-    )
-    """Log levels to use for errors in callback flow."""
-
-
 class Settings(BaseSettings):
     """
     Application settings for oauthclientbridge.
@@ -179,7 +121,16 @@ class Settings(BaseSettings):
     num_proxies: int = 0
     """Number proxies to expect in front of us. Used for handling X-Forwarded-For"""
 
+    error_levels: dict[str, str] = Field(
+        default_factory=lambda: {
+            "access_denied": "INFO",
+            "invalid_state": "WARNING",
+            "invalid_request": "WARNING",
+            "temporarily_unavailable": "INFO",
+        }
+    )
+    """Log levels to use for errors in callback flow."""
+
     oauth: OAuthSettings = Field(default_factory=lambda: OAuthSettings())  # pyright: ignore[reportCallIssue]
     fetch: FetchSettings = Field(default_factory=lambda: FetchSettings())  # pyright: ignore[reportCallIssue]
     database: DatabaseSettings = Field(default_factory=lambda: DatabaseSettings())  # pyright: ignore[reportCallIssue]
-    logging: LoggingSettings = Field(default_factory=lambda: LoggingSettings())  # pyright: ignore[reportCallIssue]

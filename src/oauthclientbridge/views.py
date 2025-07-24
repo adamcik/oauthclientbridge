@@ -66,7 +66,7 @@ def callback() -> flask.Response:
         desc = "Authorization code missing from provider callback."
 
     if error is not None:
-        level = settings.logging.error_levels.get(error, "ERROR")
+        level = settings.error_levels.get(error, "ERROR")
         level = logging.getLevelNamesMapping()[level]
 
         msg = f"Callback failed {error}: {desc}"
