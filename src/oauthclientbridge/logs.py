@@ -5,13 +5,16 @@ import uuid
 import structlog
 from flask import Response, g, request
 
+logger: structlog.BoundLogger = structlog.get_logger()
 
-def configure_structlog() -> None:
-    # TODO: Double check how we want these logs setup.
-    processors = [
+
+def configure_structlog(level=logging.INFO) -> None:
+    timestamper = structlog.processors.TimeStamper(fmt="iso", utc=False)
+
+    shared_processors = [
         structlog.stdlib.add_logger_name,
         structlog.stdlib.add_log_level,
-        structlog.processors.TimeStamper(fmt="iso"),
+        timestamper,
         structlog.stdlib.PositionalArgumentsFormatter(),
         structlog.processors.StackInfoRenderer(),
         structlog.dev.set_exc_info,
@@ -26,29 +29,38 @@ def configure_structlog() -> None:
         structlog.contextvars.merge_contextvars,
     ]
 
-    if sys.stdout.isatty():
-        # Development configuration: human-readable output
-        processors += [
-            structlog.dev.ConsoleRenderer(),
-        ]
-    else:
-        processors += [
-            structlog.processors.dict_tracebacks,
-            structlog.processors.JSONRenderer(),
-        ]
-
     structlog.configure(
-        processors=processors,
+        processors=shared_processors
+        + [
+            structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
+        ],
         logger_factory=structlog.stdlib.LoggerFactory(),
         wrapper_class=structlog.stdlib.BoundLogger,
         cache_logger_on_first_use=True,
     )
 
-    logging.basicConfig(
-        format="%(message)s",
-        stream=sys.stdout,
-        level=logging.DEBUG,
+    formatter = structlog.stdlib.ProcessorFormatter(
+        foreign_pre_chain=shared_processors,
+        processors=[
+            structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+        ]
+        + [
+            structlog.dev.ConsoleRenderer(),
+        ]
+        if sys.stdout.isatty()
+        else [
+            structlog.processors.dict_tracebacks,
+            structlog.processors.JSONRenderer(),
+        ],
     )
+
+    handler = logging.StreamHandler()
+    handler.setFormatter(formatter)
+
+    root_logger = logging.getLogger()
+    root_logger.addHandler(handler)
+
+    root_logger.setLevel(level)
 
 
 def before_request_log_context():
