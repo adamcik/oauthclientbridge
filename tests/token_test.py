@@ -74,7 +74,7 @@ def test_token_invalid_credentials(
     assert resp.data["error_description"]
 
     assert "WWW-Authenticate" in resp.headers
-    assert resp.headers["WWW-Authenticate"] == f'Basic realm="{settings.auth_realm}"'
+    assert resp.headers["WWW-Authenticate"] == 'Basic realm="oauthclientbridge"'
 
 
 def test_token_multiple_auth_fails(post: PostClient, access_token: TokenTuple):
@@ -144,7 +144,7 @@ def test_token_bad_basic_auth(
     assert resp.data["error"] == errors.INVALID_CLIENT
 
     assert "WWW-Authenticate" in resp.headers
-    assert resp.headers["WWW-Authenticate"] == f'Basic realm="{settings.auth_realm}"'
+    assert resp.headers["WWW-Authenticate"] == 'Basic realm="oauthclientbridge"'
 
 
 def test_token_wrong_method(client: FlaskClient):
