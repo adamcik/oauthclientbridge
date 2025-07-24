@@ -7,6 +7,7 @@ from flask import Response, g, request
 
 
 def configure_structlog() -> None:
+    # TODO: Double check how we want these logs setup.
     processors = [
         structlog.stdlib.add_logger_name,
         structlog.stdlib.add_log_level,

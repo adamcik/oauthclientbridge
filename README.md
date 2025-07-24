@@ -21,16 +21,23 @@ Install by running:
 
     pip install OAuth-Client-Bridge
 
-Settings are managed by Pydantic and loaded from environment variables. Each setting is prefixed based on its category (e.g., `OAUTH_`, `DB_`, `BRIDGE_`, `FETCH_`). Refer to the `Settings` class in `src/oauthclientbridge/settings.py` for all available options and their prefixes. A minimal setup should define the following environment variables (see `.env.example` for a complete list):
+Settings are managed by Pydantic and loaded from environment variables. Each
+setting is prefixed based on its category (e.g., `OAUTH_`, `DB_`, `BRIDGE_`,
+`FETCH_`). Refer to the `Settings` class in `src/oauthclientbridge/settings.py`
+for all available options and their prefixes. Flask-specific settings (e.g.,
+`SECRET_KEY`, `SESSION_COOKIE_SECURE`) are loaded directly by Flask from
+environment variables prefixed with `FLASK_`. A minimal setup should define the
+following environment variables (see `.env.example`):
 
--   `BRIDGE_SECRET_KEY`: Secret key used for encrypting session cookies.
+-   `FLASK_SECRET_KEY`: Secret key used for encrypting session cookies.
 -   `DB_DATABASE`: SQLite3 database path.
 -   `OAUTH_CLIENT_ID`: Client ID from your OAuth provider.
 -   `OAUTH_CLIENT_SECRET`: Client secret from your OAuth provider.
 -   `OAUTH_AUTHORIZATION_URI`: Upstream authorization URI.
 -   `OAUTH_TOKEN_URI`: Upstream token URI.
 
-Once these are set (e.g., by sourcing a `.env` file), you can initialize the database:
+Once these are set (e.g., by sourcing a `.env` file), you can initialize the
+database:
 
     FLASK_APP=oauthclientbridge flask initdb
 
@@ -46,9 +53,9 @@ stale data every now and then.:
 ## Setting up a production instance
 
 -   Always use HTTPS since we are passing access tokens around.
--   Set `SESSION_COOKIE_SECURE` to keep the state used in the redirect
-    safe.
--   Ideally also set `SESSION_COOKIE_DOMAIN` and `SESSION_COOKIE_PATH`.
+-   Set `FLASK_SESSION_COOKIE_SECURE` to `True` to ensure cookies are only sent
+    over HTTPS.
+-   Ideally also set `FLASK_SESSION_COOKIE_DOMAIN` and `FLASK_SESSION_COOKIE_PATH`.
 -   If you are behind a proxy set `BRIDGE_NUM_PROXIES` to the number of
     proxies. This ensures `X-Forwarded-For` gets respected with the
     value from the proxy.

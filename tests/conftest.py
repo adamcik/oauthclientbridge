@@ -33,7 +33,6 @@ class TokenTuple(NamedTuple):
 def settings():
     # https://github.com/pydantic/pydantic-settings/issues/201
     return Settings(  # pyright: ignore[reportCallIssue]
-        secret_key=SecretStr("s3cret"),
         callback_template="{{ variables|tojson }}",
         database=DatabaseSettings(  # pyright: ignore[reportCallIssue]
             database=":memory:",
@@ -50,7 +49,9 @@ def settings():
 
 @pytest.fixture
 def app(settings: Settings):
-    return create_app(settings)
+    app = create_app(settings)
+    app.secret_key = "test-secret-key"
+    return app
 
 
 @pytest.fixture

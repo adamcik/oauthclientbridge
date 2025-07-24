@@ -90,9 +90,6 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="BRIDGE_")
 
-    secret_key: SecretStr
-    """Secret key used for encrypting session cookies used in initial OAuth flow."""
-
     auth_realm: str = "oauthclientbridge"
     """Realm to present for basic auth."""
 

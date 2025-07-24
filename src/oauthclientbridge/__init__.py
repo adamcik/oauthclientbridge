@@ -38,12 +38,7 @@ def create_app(settings: Settings | None = None) -> Flask:
 
     app = Flask(__name__)
 
-    # TODO: Handle cookie settings for flask
-    app.secret_key = settings.secret_key.get_secret_value()
-
-    if app.debug:
-        # NOTE: Going from https->http breaks unless this is set.
-        app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+    app.config.from_prefixed_env()
 
     if settings.num_proxies:
         wrapper = ProxyFix(
