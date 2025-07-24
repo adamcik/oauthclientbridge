@@ -6,10 +6,10 @@ class OAuthSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="OAUTH_")
 
     client_id: str
-    """Client ID provided by upstream OAuth provider, MUST be set."""
+    """Client ID provided by upstream OAuth provider."""
 
     client_secret: SecretStr
-    """Client secret provided by upstream OAuth provider, MUST be set."""
+    """Client secret provided by upstream OAuth provider."""
 
     grant_type: str = "refresh_token"
     """Type of grant to request from upstream."""
@@ -18,10 +18,10 @@ class OAuthSettings(BaseSettings):
     """List of OAuth scopes to request from the upstream provider:"""
 
     authorization_uri: str
-    """Upstream authorization URI to redirect users to, MUST be set."""
+    """Upstream authorization URI to redirect users to."""
 
     token_uri: str
-    """Upstream token URI. MUST be set."""
+    """Upstream token URI."""
 
     refresh_uri: str | None = None
     """Upstream refresh URI. Will fallback to the token URI if not set."""
@@ -74,7 +74,7 @@ class DatabaseSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="DB_")
 
     database: str
-    """SQLite3 database to store tokens information in, MUST be set."""
+    """SQLite3 database to store tokens information in."""
 
     timeout: float = 5
     """SQlite3 database timeout to use at "connection" time."""
@@ -149,10 +149,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="BRIDGE_")
 
     secret_key: SecretStr
-    """
-    Secret key used for encrypting session cookies used in initial OAuth flow,
-     MUST be set.
-    """
+    """Secret key used for encrypting session cookies used in initial OAuth flow."""
 
     auth_realm: str = "oauthclientbridge"
     """Realm to present for basic auth."""
