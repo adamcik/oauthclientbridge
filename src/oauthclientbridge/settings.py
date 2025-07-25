@@ -1,4 +1,4 @@
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -83,6 +83,28 @@ class DatabaseSettings(BaseSettings):
     """SQlite3 database PRAGMAs to run at connection time for database."""
 
 
+class SentrySettings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="SENTRY_")
+
+    enabled: bool = False
+    """Whether to enable Sentry."""
+
+    dsn: SecretStr | None = None
+    """Sentry DSN."""
+
+    sample_rate: float = 1.0
+    """The sample rate for error events."""
+
+    traces_sample_rate: float = 0.0
+    """The sample rate for performance monitoring traces."""
+
+    @model_validator(mode="after")
+    def check_dsn_if_enabled(self) -> "SentrySettings":
+        if self.enabled and self.dsn is None:
+            raise ValueError("SENTRY_DSN must be set if SENTRY_ENABLED is True")
+        return self
+
+
 class Settings(BaseSettings):
     """
     Application settings for oauthclientbridge.
@@ -131,3 +153,4 @@ class Settings(BaseSettings):
     oauth: OAuthSettings = Field(default_factory=lambda: OAuthSettings())  # pyright: ignore[reportCallIssue]
     fetch: FetchSettings = Field(default_factory=lambda: FetchSettings())  # pyright: ignore[reportCallIssue]
     database: DatabaseSettings = Field(default_factory=lambda: DatabaseSettings())  # pyright: ignore[reportCallIssue]
+    sentry: SentrySettings = Field(default_factory=lambda: SentrySettings())  # pyright: ignore[reportCallIssue]
