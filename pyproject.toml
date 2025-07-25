@@ -27,10 +27,15 @@ classifiers = [
 repository = "https://github.com/adamcik/oauthclientbridge"
 
 [dependency-groups]
+sentry = [
+  "sentry-sdk~=2.33.2",
+  "structlog-sentry~=2.2.1",
+]
 dev = [
   { include-group = "test" },
   { include-group = "typing" },
   { include-group = "lint" },
+  { include-group = "sentry" },
 ]
 typing = ["types-requests", "basedpyright"]
 test = ["pytest", "pytest-cov", "requests_mock"]
