@@ -9,10 +9,10 @@ from flask import Response, g, request
 logger: structlog.BoundLogger = structlog.get_logger()
 
 
-def configure_structlog(level=logging.INFO) -> None:
+def configure_structlog(level=logging.INFO, colors: bool = True) -> None:
     timestamper = structlog.processors.TimeStamper(fmt="iso", utc=False)
 
-    shared_processors = [
+    shared_processors: list[structlog.types.Processor] = [
         structlog.stdlib.add_logger_name,
         structlog.stdlib.add_log_level,
         timestamper,
@@ -28,6 +28,7 @@ def configure_structlog(level=logging.INFO) -> None:
             ]
         ),
         structlog.contextvars.merge_contextvars,
+        structlog.stdlib.ExtraAdder(),
     ]
 
     try:
@@ -49,19 +50,24 @@ def configure_structlog(level=logging.INFO) -> None:
         cache_logger_on_first_use=True,
     )
 
+    processors: list[structlog.types.Processor] = [
+        structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+    ]
+    if sys.stdout.isatty():
+        processors.append(structlog.dev.ConsoleRenderer(colors=colors))
+    else:
+        processors.extend(
+            [
+                structlog.processors.dict_tracebacks,
+                structlog.processors.JSONRenderer(),
+            ]
+        )
+
     formatter = structlog.stdlib.ProcessorFormatter(
+        # These run ONLY on `logging` entries from stdlib.
         foreign_pre_chain=shared_processors,
-        processors=[
-            structlog.stdlib.ProcessorFormatter.remove_processors_meta,
-        ]
-        + [
-            structlog.dev.ConsoleRenderer(),
-        ]
-        if sys.stdout.isatty()
-        else [
-            structlog.processors.dict_tracebacks,
-            structlog.processors.JSONRenderer(),
-        ],
+        # These run on ALL entries after the pre_chain is done.
+        processors=processors,
     )
 
     handler = logging.StreamHandler()
