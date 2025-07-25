@@ -30,6 +30,15 @@ def configure_structlog(level=logging.INFO) -> None:
         structlog.contextvars.merge_contextvars,
     ]
 
+    try:
+        from structlog_sentry import SentryProcessor
+
+        shared_processors.append(
+            SentryProcessor(level=logging.INFO, event_level=logging.ERROR)
+        )
+    except ImportError:
+        pass
+
     structlog.configure(
         processors=shared_processors
         + [
