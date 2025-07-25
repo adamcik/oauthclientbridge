@@ -39,3 +39,9 @@ lint = ["ruff"]
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.ruff]
+extend-select = ["I"]
+
+[tool.ruff.lint.isort]
+known-local-folder = ["src"]
