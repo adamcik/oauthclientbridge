@@ -1,5 +1,6 @@
 import logging
 import sys
+import time
 import uuid
 
 import structlog
@@ -62,25 +63,40 @@ def configure_structlog(level=logging.INFO) -> None:
 
     root_logger.setLevel(level)
 
+    werkzeug_logger = logging.getLogger("werkzeug")
+    werkzeug_logger.disabled = True
+
 
 def before_request_log_context():
     structlog.contextvars.clear_contextvars()
 
     g.request_id = str(uuid.uuid4())
-    structlog.contextvars.bind_contextvars(
+    g.start_time = time.perf_counter_ns()
+
+    _ = structlog.contextvars.bind_contextvars(
         request_id=g.request_id,
-        request_info={
-            "path": request.path,
-            "base_url": request.base_url,
-            "method": request.method,
-            "remote_address": request.remote_addr,
-        },
     )
 
 
 def after_request_log_context(response: Response) -> Response:
+    http_version = request.environ.get("SERVER_PROTOCOL")
+
     if hasattr(g, "request_id"):
         response.headers["X-Request-ID"] = g.request_id
+
+    logger.info(
+        f"""{request.remote_addr} - "{request.method} {request.path} {http_version}" {response.status_code}""",
+        duration_ms=(time.perf_counter_ns() - g.start_time) / 1e6,
+        response_size=len(response.data),
+        http={
+            "url": str(request.url),
+            "status_code": response.status_code,
+            "method": request.method,
+            "version": http_version,
+        },
+        remote_addr=request.remote_addr,
+        remote_user=request.remote_user,
+    )
 
     structlog.contextvars.clear_contextvars()
     return response
