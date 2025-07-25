@@ -177,7 +177,9 @@
             nix2containerPkgs = nix2container.packages.${system}.nix2container;
 
             pythonSet = pythonSets.${system};
-            venv = pythonSet.mkVirtualEnv "oauthclientbridge-env" workspace.deps.default;
+            venv = pythonSet.mkVirtualEnv "oauthclientbridge-env" {
+              oauthclientbridge = [ "sentry" ];
+            };
 
             python = pkgs.python312;
 
@@ -308,7 +310,7 @@
           );
 
           venv = editablePythonSet.mkVirtualEnv "oauthclientbridge-dev-env" {
-            oauthclientbridge = [ "dev" ];
+            oauthclientbridge = [ "dev" "sentry" ];
           };
         in
         {
