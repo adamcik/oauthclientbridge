@@ -6,12 +6,11 @@ import structlog
 from flask import Flask
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from oauthclientbridge import logs, sentry
+from oauthclientbridge import logs
 from oauthclientbridge.settings import Settings
 
 __version__ = version("oauthclientbridge")
 
-logs.init()
 
 logger: structlog.BoundLogger = structlog.get_logger()
 _settings: Settings | None = None
@@ -35,8 +34,6 @@ def create_app(settings: Settings | None = None) -> Flask:
         settings = Settings()  # pyright: ignore[reportCallIssue]
 
     set_settings(settings)
-
-    sentry.init(settings.sentry)
 
     app = Flask(__name__)
 
