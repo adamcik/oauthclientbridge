@@ -27,18 +27,32 @@ classifiers = [
 repository = "https://github.com/adamcik/oauthclientbridge"
 
 [dependency-groups]
-sentry = [
-  "sentry-sdk~=2.33.2",
-  "structlog-sentry~=2.2.1",
+sentry = ["sentry-sdk~=2.33.2", "structlog-sentry~=2.2.1"]
+otel = [
+  "opentelemetry-sdk~=1.35.0",
+  "opentelemetry-api~=1.35.0",
+  "opentelemetry-exporter-otlp-proto-grpc~=1.35.0",
 ]
 dev = [
   { include-group = "test" },
   { include-group = "typing" },
   { include-group = "lint" },
   { include-group = "sentry" },
+  { include-group = "otel" },
 ]
-typing = ["types-requests", "basedpyright"]
-test = ["pytest", "pytest-cov", "requests_mock", "sentry-sdk"]
+typing = [
+  "types-requests",
+  "basedpyright",
+  { include-group = "sentry" },
+  { include-group = "otel" },
+]
+test = [
+  "pytest",
+  "pytest-cov",
+  "requests_mock",
+  { include-group = "sentry" },
+  { include-group = "otel" },
+]
 lint = ["ruff"]
 
 [build-system]

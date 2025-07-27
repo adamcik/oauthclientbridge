@@ -310,7 +310,7 @@
           );
 
           venv = editablePythonSet.mkVirtualEnv "oauthclientbridge-dev-env" {
-            oauthclientbridge = [ "dev" "sentry" ];
+            oauthclientbridge = [ "dev" ];
           };
         in
         {
