@@ -272,6 +272,7 @@ test = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "requests-mock" },
+    { name = "sentry-sdk" },
 ]
 typing = [
     { name = "basedpyright" },
@@ -297,6 +298,7 @@ dev = [
     { name = "pytest-cov" },
     { name = "requests-mock" },
     { name = "ruff" },
+    { name = "sentry-sdk" },
     { name = "sentry-sdk", specifier = "~=2.33.2" },
     { name = "structlog-sentry", specifier = "~=2.2.1" },
     { name = "types-requests" },
@@ -310,6 +312,7 @@ test = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "requests-mock" },
+    { name = "sentry-sdk" },
 ]
 typing = [
     { name = "basedpyright" },
