@@ -55,7 +55,7 @@ def app(settings: Settings):
 
 
 @pytest.fixture
-def app_context(app: Flask):
+def app_context(app: Flask, settings: Settings):
     with app.app_context() as ctx:
         db.initialize()
         yield ctx

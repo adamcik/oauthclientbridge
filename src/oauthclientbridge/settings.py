@@ -1,5 +1,7 @@
+from flask import current_app
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from werkzeug.local import LocalProxy
 
 
 class OAuthSettings(BaseSettings):
@@ -154,3 +156,8 @@ class Settings(BaseSettings):
     fetch: FetchSettings = Field(default_factory=lambda: FetchSettings())  # pyright: ignore[reportCallIssue]
     database: DatabaseSettings = Field(default_factory=lambda: DatabaseSettings())  # pyright: ignore[reportCallIssue]
     sentry: SentrySettings = Field(default_factory=lambda: SentrySettings())  # pyright: ignore[reportCallIssue]
+
+
+current_settings: LocalProxy[Settings] = LocalProxy(
+    lambda: current_app.config["SETTINGS"]
+)

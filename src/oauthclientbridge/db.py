@@ -6,7 +6,8 @@ from typing import Iterator
 
 from flask import current_app, g
 
-from oauthclientbridge import get_settings, stats
+from oauthclientbridge import stats
+from oauthclientbridge.settings import current_settings
 
 Error = sqlite3.Error
 IntegrityError = sqlite3.IntegrityError
@@ -26,16 +27,14 @@ def initialize() -> None:
 def get() -> sqlite3.Connection:
     """Get singleton SQLite database connection."""
     if getattr(g, "_oauth_database", None) is None:
-        settings = get_settings()
-
         connection = sqlite3.connect(
-            settings.database.database,
-            timeout=settings.database.timeout,
+            current_settings.database.database,
+            timeout=current_settings.database.timeout,
             isolation_level=None,
         )
         g._oauth_database = connection
         g._oauth_database.text_factory = lambda v: v
-        for pragma in settings.database.pragmas:
+        for pragma in current_settings.database.pragmas:
             g._oauth_database.execute(pragma)
 
     return g._oauth_database

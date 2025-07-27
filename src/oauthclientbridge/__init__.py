@@ -13,31 +13,12 @@ __version__ = version("oauthclientbridge")
 
 
 logger: structlog.BoundLogger = structlog.get_logger()
-_settings: Settings | None = None
 
 
-# TODO: Move this to settings module
-def get_settings() -> Settings:
-    if _settings is None:
-        raise RuntimeError("Settings not initialized. Call set_settings() first.")
-    return _settings
-
-
-def set_settings(settings: Settings) -> None:
-    global _settings
-    _settings = settings
-
-
-def create_app(settings: Settings | None = None) -> Flask:
-    if settings is None:
-        # https://github.com/pydantic/pydantic-settings/issues/201
-        settings = Settings()  # pyright: ignore[reportCallIssue]
-
-    set_settings(settings)
-
+def create_app(settings: Settings) -> Flask:
     app = Flask(__name__)
-
-    app.config.from_prefixed_env()
+    app.config["SETTINGS"] = settings
+    _ = app.config.from_prefixed_env()
 
     if settings.num_proxies:
         wrapper = ProxyFix(

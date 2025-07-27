@@ -5,8 +5,8 @@ import flask
 import structlog
 from flask import Blueprint
 
-from oauthclientbridge import crypto, db, errors, get_settings, oauth, sentry, stats
-from oauthclientbridge.settings import Settings
+from oauthclientbridge import crypto, db, errors, oauth, sentry, stats
+from oauthclientbridge.settings import current_settings
 
 logger: structlog.BoundLogger = structlog.get_logger()
 
@@ -16,13 +16,11 @@ routes = Blueprint("views", __name__)
 @routes.route("/")
 def authorize() -> flask.Response:
     """Store random state in session cookie and redirect to auth endpoint."""
-    settings = get_settings()
-
     redirect_uri: str | None = flask.request.args.get("redirect_uri")
-    if redirect_uri and redirect_uri != settings.oauth.redirect_uri:
-        return _error(settings, errors.INVALID_REQUEST, "Wrong redirect_uri.")
+    if redirect_uri and redirect_uri != current_settings.oauth.redirect_uri:
+        return _error(errors.INVALID_REQUEST, "Wrong redirect_uri.")
 
-    default_scope: str = " ".join(settings.oauth.scopes or [])
+    default_scope: str = " ".join(current_settings.oauth.scopes or [])
     scope = flask.request.args.get("scope", default_scope)
     state = crypto.generate_key()
 
@@ -30,10 +28,10 @@ def authorize() -> flask.Response:
     flask.session["state"] = state
 
     return oauth.redirect(
-        settings.oauth.authorization_uri,
-        client_id=settings.oauth.client_id,
+        current_settings.oauth.authorization_uri,
+        client_id=current_settings.oauth.client_id,
         response_type="code",
-        redirect_uri=settings.oauth.redirect_uri,
+        redirect_uri=current_settings.oauth.redirect_uri,
         scope=scope,
         state=state,
     )
@@ -42,8 +40,6 @@ def authorize() -> flask.Response:
 @routes.route("/callback")
 def callback() -> flask.Response:
     """Validate callback and trade in code for a token."""
-    settings = get_settings()
-
     error: str | None = None
     desc: str | None = None
     client_state: str | None = flask.session.pop("client_state", None)
@@ -75,19 +71,19 @@ def callback() -> flask.Response:
         if error == errors.INVALID_SCOPE:
             msg += " - %r" % flask.request.args.get("scope")
 
-        level = settings.error_levels.get(error, "ERROR")
+        level = current_settings.error_levels.get(error, "ERROR")
         level = logging.getLevelNamesMapping()[level]
 
         logger.log(level, msg)
-        return _error(settings, error, desc, client_state)
+        return _error(error, desc, client_state)
 
     result = oauth.fetch(
-        settings.oauth.token_uri,
-        client_id=settings.oauth.client_id,
-        client_secret=settings.oauth.client_secret.get_secret_value(),
+        current_settings.oauth.token_uri,
+        client_id=current_settings.oauth.client_id,
+        client_secret=current_settings.oauth.client_secret.get_secret_value(),
         code=flask.request.args.get("code"),
         grant_type="authorization_code",
-        redirect_uri=settings.oauth.redirect_uri,
+        redirect_uri=current_settings.oauth.redirect_uri,
         endpoint="token",
     )
 
@@ -100,7 +96,7 @@ def callback() -> flask.Response:
 
     if error is not None:
         logger.warning("Retrieving token failed", result=result)
-        return _error(settings, error, desc, client_state)
+        return _error(error, desc, client_state)
 
     if "refresh_token" in result:
         result = oauth.scrub_refresh_token(result)
@@ -115,19 +111,14 @@ def callback() -> flask.Response:
         db.insert(client_id, token)
     except db.IntegrityError:
         logger.warning("Could not get unique client id.")
-        return _error(
-            settings, "integrity_error", "Database integrity error.", client_state
-        )
+        return _error("integrity_error", "Database integrity error.", client_state)
 
-    return _render(
-        settings, client_id=client_id, client_secret=client_secret, state=client_state
-    )
+    return _render(client_id=client_id, client_secret=client_secret, state=client_state)
 
 
 @routes.route("/token", methods=["POST"])
 def token() -> flask.Response:
     """Validate token request, refreshing when needed."""
-    settings = get_settings()
     # TODO: allow all methods and raise invalid_request for !POST?
 
     if flask.request.form.get("grant_type") != "client_credentials":
@@ -191,13 +182,11 @@ def token() -> flask.Response:
     if "refresh_token" not in result:
         return flask.jsonify(result)
 
-    settings = get_settings()
-
     refresh_result = oauth.fetch(
-        settings.oauth.refresh_uri or settings.oauth.token_uri,
-        client_id=settings.oauth.client_id,
-        client_secret=settings.oauth.client_secret.get_secret_value(),
-        grant_type=settings.oauth.grant_type,
+        current_settings.oauth.refresh_uri or current_settings.oauth.token_uri,
+        client_id=current_settings.oauth.client_id,
+        client_secret=current_settings.oauth.client_secret.get_secret_value(),
+        grant_type=current_settings.oauth.grant_type,
         refresh_token=result["refresh_token"],
         endpoint="refresh",
     )
@@ -258,7 +247,6 @@ def metrics() -> flask.Response:
 
 
 def _error(
-    settings: Settings,
     error_code: str,
     error: str | None = None,
     state: str | None = None,
@@ -272,14 +260,13 @@ def _error(
         endpoint=stats.endpoint(), status=stats.status(status), error=error_code
     ).inc()
 
-    response = _render(settings, error=error_code, description=error, state=state)
+    response = _render(error=error_code, description=error, state=state)
     response.status_code = status
     return response
 
 
 # TODO: Pass in the template string instead of settings.
 def _render(
-    settings: Settings,
     client_id: str | None = None,
     client_secret: str | None = None,
     state: str | None = None,
@@ -296,7 +283,7 @@ def _render(
     }
     return flask.Response(
         flask.render_template_string(
-            settings.callback_template,
+            current_settings.callback_template,
             variables=variables,
             **variables,
         ).encode("utf-8"),

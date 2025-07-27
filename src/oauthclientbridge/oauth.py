@@ -8,8 +8,8 @@ import flask
 import requests
 import structlog
 
-from oauthclientbridge import __version__, errors, get_settings, stats
-from oauthclientbridge.settings import Settings
+from oauthclientbridge import __version__, errors, stats
+from oauthclientbridge.settings import current_settings
 
 logger: structlog.BoundLogger = structlog.get_logger()
 
@@ -61,8 +61,6 @@ class Error(Exception):
 
 def error_handler(e: Error) -> flask.Response:
     """Create a well formed JSON response with status and auth headers."""
-    settings = get_settings()
-
     result = {"error": e.error}
     if e.description is not None:
         result["error_description"] = e.description
@@ -74,7 +72,9 @@ def error_handler(e: Error) -> flask.Response:
     response = flask.jsonify(result)
     if e.error == errors.INVALID_CLIENT:
         response.status_code = 401
-        response.headers["WWW-Authenticate"] = f'Basic realm="{settings.auth_realm}"'
+        response.headers["WWW-Authenticate"] = (
+            f'Basic realm="{current_settings.auth_realm}"'
+        )
     elif e.retry_after:
         response.headers["Retry-After"] = int(e.retry_after + 1)
         response.status_code = 429
@@ -112,7 +112,7 @@ def nocache(response: flask.Response) -> flask.Response:
 
 def normalize_error(error: str, error_types: set[str]) -> str:
     """Translate any "bad" error types to something more usable."""
-    error = get_settings().fetch.error_types.get(error, error)
+    error = current_settings.fetch.error_types.get(error, error)
     if error not in error_types:
         return errors.SERVER_ERROR
     else:
@@ -132,8 +132,6 @@ def fetch(
     uri: str, auth: str | None = None, endpoint: str | None = None, **data
 ) -> OAuthResponse:
     """Perform post given URI with auth and provided data."""
-    settings = get_settings()
-
     req = requests.Request("POST", uri, data=data, auth=auth)
     prepared = req.prepare()
 
@@ -144,18 +142,18 @@ def fetch(
             prepared.headers = {}
         prepared.headers["X-Request-ID"] = request_id
 
-    timeout = time.time() + settings.fetch.total_timeout
+    timeout = time.time() + current_settings.fetch.total_timeout
     retry = 0
 
     result = _error(
         errors.SERVER_ERROR, "An unknown error occurred talking to provider."
     )
 
-    for i in range(settings.fetch.total_retries):
+    for i in range(current_settings.fetch.total_retries):
         prefix = "attempt #%d %s" % (i + 1, uri)
 
         # TODO: Add jitter to backoff and/or retry after?
-        backoff = (2**i - 1) * settings.fetch.backoff_factor
+        backoff = (2**i - 1) * current_settings.fetch.backoff_factor
         remaining_timeout = timeout - time.time()
 
         if (retry or backoff) > remaining_timeout:
@@ -165,21 +163,21 @@ def fetch(
             logger.debug("Retry %s [sleep %.3f]", prefix, retry or backoff)
             time.sleep(retry or backoff)
 
-        result, status, retry = _fetch(settings, prepared, remaining_timeout, endpoint)
+        result, status, retry = _fetch(prepared, remaining_timeout, endpoint)
 
         labels = {"endpoint": endpoint, "status": stats.status(status)}
         stats.ClientRetryHistogram.labels(**labels).observe(i)
 
         if status is not None and "error" in result:
             error = result["error"]
-            error = settings.fetch.error_types.get(error, error)
+            error = current_settings.fetch.error_types.get(error, error)
             if error not in errors.DESCRIPTIONS:
                 error = "invalid_error"
             stats.ClientErrorCounter.labels(error=error, **labels).inc()
 
         if status is None:
             pass  # We didn't even get a response, so try again.
-        elif status not in settings.fetch.retry_status_codes:
+        elif status not in current_settings.fetch.retry_status_codes:
             break
         elif "error" not in result:
             break  # No error reported so might as well return it.
@@ -191,13 +189,12 @@ def fetch(
 
 
 def _fetch(
-    settings: Settings,
     prepared: requests.PreparedRequest,
     timeout: float,
     endpoint: str | None = None,
 ) -> tuple[OAuthResponse, int, int]:
     # Make sure we always have at least a minimal timeout.
-    timeout = max(1.0, min(settings.fetch.timeout, timeout))
+    timeout = max(1.0, min(current_settings.fetch.timeout, timeout))
     start_time = time.time()
 
     try:
@@ -243,7 +240,7 @@ def _fetch(
         request_latency = time.time() - start_time
         status_label = stats.status(resp.status_code)
 
-        result = _decode(settings, resp)
+        result = _decode(resp)
         status_code = resp.status_code
         length = len(resp.content)
         retry_after = _parse_retry(resp.headers.get("retry-after"))
@@ -256,7 +253,7 @@ def _fetch(
     return result, status_code, retry_after
 
 
-def _decode(settings: Settings, resp: requests.Response) -> OAuthResponse:
+def _decode(resp: requests.Response) -> OAuthResponse:
     # Per OAuth spec all responses should be JSON, but this isn't always
     # the case. For instance 502 errors and a gateway that does not correctly
     # create a fake JSON error response.
@@ -272,7 +269,7 @@ def _decode(settings: Settings, resp: requests.Response) -> OAuthResponse:
             e,
         )
 
-    if resp.status_code in settings.fetch.unavailable_status_codes:
+    if resp.status_code in current_settings.fetch.unavailable_status_codes:
         error = errors.TEMPORARILY_UNAVAILABLE
         description = "Provider is unavailable."
     else:
