@@ -1,23 +1,21 @@
 import logging
+from typing import Any
 
 from oauthclientbridge.settings import SentrySettings
 
 logger = logging.getLogger(__name__)
 
-_initialized = False
+try:
+    import sentry_sdk
+except ImportError:
+    sentry_sdk = None
 
 
 def configure_sentry(settings: SentrySettings) -> None:
     if not settings.enabled:
         return
 
-    global _initialized
-    if _initialized:
-        raise RuntimeError("Sentry should only be initialized once")
-
-    try:
-        import sentry_sdk
-    except ImportError:
+    if sentry_sdk is None:
         logger.error(
             "Sentry is enabled, but 'sentry-sdk' is not installed. "
             "Please install it with 'pip install oauthclientbridge[sentry]'."
@@ -38,4 +36,17 @@ def configure_sentry(settings: SentrySettings) -> None:
         _experiments={"enable_logs": True},
     )
 
-    _initialized = True
+
+def set_tag(key: str, value: str) -> None:
+    if sentry_sdk:
+        sentry_sdk.set_tag(key, value)
+
+
+def set_tags(tags: dict[str, Any]) -> None:
+    if sentry_sdk:
+        sentry_sdk.set_tags(tags)
+
+
+def set_user(user_data: dict[str, Any] | None) -> None:
+    if sentry_sdk:
+        sentry_sdk.set_user(user_data)

@@ -146,7 +146,8 @@ def client_state(client: FlaskClient):
 def _test_token(**data: str | int):
     client_secret = crypto.generate_key()
     token = crypto.dumps(client_secret, data)
-    client_id = db.insert(token)
+    client_id = db.generate_id()
+    db.insert(client_id, token)
     return TokenTuple(client_id, client_secret, data)
 
 

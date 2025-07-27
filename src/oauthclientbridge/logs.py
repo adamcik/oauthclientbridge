@@ -6,6 +6,8 @@ import uuid
 import structlog
 from flask import Response, g, request
 
+from oauthclientbridge import sentry
+
 logger: structlog.BoundLogger = structlog.get_logger()
 
 
@@ -87,6 +89,8 @@ def before_request_log_context():
 
     g.request_id = str(uuid.uuid4())
     g.start_time = time.perf_counter_ns()
+
+    sentry.set_tags({"request_id": g.request_id})
 
     _ = structlog.contextvars.bind_contextvars(
         request_id=g.request_id,

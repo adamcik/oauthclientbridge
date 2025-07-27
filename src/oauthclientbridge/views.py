@@ -5,7 +5,7 @@ import flask
 import structlog
 from flask import Blueprint
 
-from oauthclientbridge import crypto, db, errors, get_settings, oauth, stats
+from oauthclientbridge import crypto, db, errors, get_settings, oauth, sentry, stats
 from oauthclientbridge.settings import Settings
 
 logger: structlog.BoundLogger = structlog.get_logger()
@@ -108,8 +108,11 @@ def callback() -> flask.Response:
     client_secret = crypto.generate_key()
     token = crypto.dumps(client_secret, result)
 
+    client_id = db.generate_id()
+    sentry.set_user({"client_id": client_id})
+
     try:
-        client_id = db.insert(token)
+        db.insert(client_id, token)
     except db.IntegrityError:
         logger.warning("Could not get unique client id.")
         return _error(
@@ -167,6 +170,7 @@ def token() -> flask.Response:
         )
 
     structlog.contextvars.bind_contextvars(client_id=client_id)
+    sentry.set_user({"client_id": client_id})
 
     try:
         token = db.lookup(client_id)

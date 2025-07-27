@@ -81,17 +81,14 @@ def _prepare_token(token: bytes | None) -> str | None:
     return None if token is None else token.decode("ascii")
 
 
-def insert(token: bytes) -> str:
+def insert(client_id: str, token: bytes) -> None:
     """Store encrypted token and return what client_id it was stored under."""
-    client_id = generate_id()
 
     with cursor(name="insert_token", transaction=True) as c:
-        # TODO: Retry creating client_id if it already exists?
         c.execute(
             "INSERT INTO tokens (client_id, token) VALUES (?, ?)",
             (client_id, _prepare_token(token)),
         )
-    return client_id
 
 
 def lookup(client_id: str) -> bytes | None:
