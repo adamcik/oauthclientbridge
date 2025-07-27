@@ -11,7 +11,7 @@ from oauthclientbridge import sentry
 logger: structlog.BoundLogger = structlog.get_logger()
 
 
-def configure_structlog(level=logging.INFO, colors: bool = True) -> None:
+def init(level=logging.INFO, colors: bool = True) -> None:
     timestamper = structlog.processors.TimeStamper(fmt="iso", utc=False)
 
     shared_processors: list[structlog.types.Processor] = [

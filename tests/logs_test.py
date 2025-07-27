@@ -7,12 +7,7 @@ import pytest
 import structlog
 from flask import Flask
 
-from oauthclientbridge.logs import (
-    after_request_log_context,
-    before_request_log_context,
-    configure_structlog,
-    logger,
-)
+from oauthclientbridge import logs
 
 
 @pytest.fixture(autouse=True)
@@ -28,7 +23,7 @@ def reset_logging_handlers():
 def test_configure_structlog_json_output(capsys, monkeypatch):
     # Simulate non-TTY for JSON output
     monkeypatch.setattr(sys.stdout, "isatty", lambda: False)
-    configure_structlog(level=logging.DEBUG, colors=False)
+    logs.init(level=logging.DEBUG, colors=False)
 
     # Test standard logging
     std_logger = logging.getLogger("test_std_logger")
@@ -59,15 +54,15 @@ def test_configure_structlog_json_output(capsys, monkeypatch):
 
 def test_flask_request_logging(capsys, monkeypatch):
     monkeypatch.setattr(sys.stdout, "isatty", lambda: False)
-    configure_structlog(level=logging.DEBUG, colors=False)
+    logs.init(level=logging.DEBUG, colors=False)
 
     app = Flask(__name__)
-    app.before_request(before_request_log_context)
-    app.after_request(after_request_log_context)
+    app.before_request(logs.before_request_log_context)
+    app.after_request(logs.after_request_log_context)
 
     @app.route("/")
     def index():
-        logger.info("Inside Flask app route.")
+        logs.logger.info("Inside Flask app route.")
         return "Hello, World!"
 
     with app.test_client() as client:
@@ -107,7 +102,7 @@ def test_flask_request_logging(capsys, monkeypatch):
 def test_configure_structlog_console_colors(capsys, monkeypatch):
     # Simulate TTY for console output with colors
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
-    configure_structlog(level=logging.DEBUG, colors=True)
+    logs.init(level=logging.DEBUG, colors=True)
 
     test_structlog_logger = structlog.get_logger()
     test_structlog_logger.info("This is a colored structlog message.")

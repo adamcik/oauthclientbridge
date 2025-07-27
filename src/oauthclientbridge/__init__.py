@@ -11,7 +11,7 @@ from oauthclientbridge.settings import Settings
 
 __version__ = version("oauthclientbridge")
 
-logs.configure_structlog()
+logs.init()
 
 logger: structlog.BoundLogger = structlog.get_logger()
 _settings: Settings | None = None
@@ -36,7 +36,7 @@ def create_app(settings: Settings | None = None) -> Flask:
 
     set_settings(settings)
 
-    sentry.configure_sentry(settings.sentry)
+    sentry.init(settings.sentry)
 
     app = Flask(__name__)
 

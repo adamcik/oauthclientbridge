@@ -11,7 +11,7 @@ except ImportError:
     sentry_sdk = None
 
 
-def configure_sentry(settings: SentrySettings) -> None:
+def init(settings: SentrySettings) -> None:
     if not settings.enabled:
         return
 
