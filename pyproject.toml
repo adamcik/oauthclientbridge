@@ -45,7 +45,7 @@ lint = ["ruff"]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-[tool.ruff]
+[tool.ruff.lint]
 extend-select = ["I"]
 
 [tool.ruff.lint.isort]
