@@ -1,10 +1,31 @@
-from typing import Any, NoReturn
+from typing import Any, NoReturn, Protocol
 
 import structlog
 
 from oauthclientbridge.settings import OtelExporterProtocol, OtelSettings
 
 logger: structlog.BoundLogger = structlog.get_logger()
+
+
+class Tracer(Protocol):
+    def start_transaction(self, name: str, **kwargs: Any) -> Any: ...
+    def start_span(self, name: str, **kwargs: Any) -> Any: ...
+
+
+class NoOpSpan:
+    def __enter__(self) -> "NoOpSpan":
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        pass
+
+
+class NoOpTracer:
+    def start_transaction(self, name: str, **kwargs: Any) -> Any:
+        return NoOpSpan()
+
+    def start_span(self, name: str, **kwargs: Any) -> Any:
+        return NoOpSpan()
 
 
 def _assert_never(value: NoReturn) -> NoReturn:

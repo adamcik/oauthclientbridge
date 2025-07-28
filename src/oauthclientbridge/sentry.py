@@ -11,7 +11,7 @@ except ImportError:
     sentry_sdk = None
 
 
-def init(settings: SentrySettings) -> None:
+def init(settings: SentrySettings, otel_enabled: bool = False) -> None:
     if not settings.enabled:
         return
 
@@ -33,6 +33,7 @@ def init(settings: SentrySettings) -> None:
             FlaskIntegration(),
             LoggingIntegration(event_level=None, level=None),
         ],
+        instrumenter="otel" if otel_enabled else None,
         _experiments={"enable_logs": True},
     )
 

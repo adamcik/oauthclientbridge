@@ -4,8 +4,11 @@ from typing import NoReturn
 import structlog
 
 from oauthclientbridge.settings import OtelSettings
+from oauthclientbridge.telemetry.traces import NoOpTracer, Tracer
 
 logger: structlog.BoundLogger = structlog.get_logger()
+
+tracer: Tracer = NoOpTracer()
 
 _otel_available = bool(importlib.util.find_spec("opentelemetry"))
 
@@ -15,7 +18,10 @@ def _assert_never(value: NoReturn) -> NoReturn:
 
 
 def init(settings: OtelSettings) -> None:
+    global tracer
+
     if not settings.enabled:
+        tracer = NoOpTracer()
         return
 
     if not _otel_available:
@@ -23,6 +29,7 @@ def init(settings: OtelSettings) -> None:
             "OpenTelemetry is enabled, but its dependencies are not installed. "
             "Please install them with 'pip install oauthclientbridge[opentelemetry]'."
         )
+        tracer = NoOpTracer()
         return
 
     from opentelemetry.instrumentation.flask import FlaskInstrumentor
