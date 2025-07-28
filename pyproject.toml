@@ -27,7 +27,7 @@ classifiers = [
 repository = "https://github.com/adamcik/oauthclientbridge"
 
 [dependency-groups]
-sentry = ["sentry-sdk~=2.33.2", "structlog-sentry~=2.2.1"]
+sentry = ["sentry-sdk[opentelemetry]~=2.33.2", "structlog-sentry~=2.2.1"]
 otel = [
   "opentelemetry-sdk~=1.35.0",
   "opentelemetry-api~=1.35.0",

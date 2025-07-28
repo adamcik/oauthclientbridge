@@ -307,7 +307,7 @@ dev = [
     { name = "pytest-cov" },
     { name = "requests-mock" },
     { name = "ruff" },
-    { name = "sentry-sdk" },
+    { name = "sentry-sdk", extra = ["opentelemetry"] },
     { name = "structlog-sentry" },
     { name = "types-requests" },
 ]
@@ -325,7 +325,7 @@ otel = [
     { name = "opentelemetry-sdk" },
 ]
 sentry = [
-    { name = "sentry-sdk" },
+    { name = "sentry-sdk", extra = ["opentelemetry"] },
     { name = "structlog-sentry" },
 ]
 test = [
@@ -340,7 +340,7 @@ test = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "requests-mock" },
-    { name = "sentry-sdk" },
+    { name = "sentry-sdk", extra = ["opentelemetry"] },
     { name = "structlog-sentry" },
 ]
 typing = [
@@ -353,7 +353,7 @@ typing = [
     { name = "opentelemetry-instrumentation-sqlite3" },
     { name = "opentelemetry-instrumentation-system-metrics" },
     { name = "opentelemetry-sdk" },
-    { name = "sentry-sdk" },
+    { name = "sentry-sdk", extra = ["opentelemetry"] },
     { name = "structlog-sentry" },
     { name = "types-requests" },
 ]
@@ -385,7 +385,7 @@ dev = [
     { name = "pytest-cov" },
     { name = "requests-mock" },
     { name = "ruff" },
-    { name = "sentry-sdk", specifier = "~=2.33.2" },
+    { name = "sentry-sdk", extras = ["opentelemetry"], specifier = "~=2.33.2" },
     { name = "structlog-sentry", specifier = "~=2.2.1" },
     { name = "types-requests" },
 ]
@@ -401,7 +401,7 @@ otel = [
     { name = "opentelemetry-sdk", specifier = "~=1.35.0" },
 ]
 sentry = [
-    { name = "sentry-sdk", specifier = "~=2.33.2" },
+    { name = "sentry-sdk", extras = ["opentelemetry"], specifier = "~=2.33.2" },
     { name = "structlog-sentry", specifier = "~=2.2.1" },
 ]
 test = [
@@ -416,7 +416,7 @@ test = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "requests-mock" },
-    { name = "sentry-sdk", specifier = "~=2.33.2" },
+    { name = "sentry-sdk", extras = ["opentelemetry"], specifier = "~=2.33.2" },
     { name = "structlog-sentry", specifier = "~=2.2.1" },
 ]
 typing = [
@@ -429,7 +429,7 @@ typing = [
     { name = "opentelemetry-instrumentation-sqlite3", specifier = "~=0.56b0" },
     { name = "opentelemetry-instrumentation-system-metrics", specifier = "~=0.56b0" },
     { name = "opentelemetry-sdk", specifier = "~=1.35.0" },
-    { name = "sentry-sdk", specifier = "~=2.33.2" },
+    { name = "sentry-sdk", extras = ["opentelemetry"], specifier = "~=2.33.2" },
     { name = "structlog-sentry", specifier = "~=2.2.1" },
     { name = "types-requests" },
 ]
@@ -445,6 +445,20 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/99/c9/4509bfca6bb43220ce7f863c9f791e0d5001c2ec2b5867d48586008b3d96/opentelemetry_api-1.35.0.tar.gz", hash = "sha256:a111b959bcfa5b4d7dffc2fbd6a241aa72dd78dd8e79b5b1662bda896c5d2ffe", size = 64778, upload-time = "2025-07-11T12:23:28.804Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/1d/5a/3f8d078dbf55d18442f6a2ecedf6786d81d7245844b2b20ce2b8ad6f0307/opentelemetry_api-1.35.0-py3-none-any.whl", hash = "sha256:c4ea7e258a244858daf18474625e9cc0149b8ee354f37843415771a40c25ee06", size = 65566, upload-time = "2025-07-11T12:23:07.944Z" },
+]
+
+[[package]]
+name = "opentelemetry-distro"
+version = "0.56b0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-instrumentation" },
+    { name = "opentelemetry-sdk" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/78/59/cee0f566bb271818ae78460a334d52494487f615bb600f685a8211d35a60/opentelemetry_distro-0.56b0.tar.gz", hash = "sha256:87b82e2c53a4d617b9faaa7960395f73ed158bfebec790923abac0796974fe2d", size = 2582, upload-time = "2025-07-11T12:26:17.761Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c6/e6/9acc96f6b2ab14146e9bb7f79cfae702da58592be1dc9b7053d5b5b85d37/opentelemetry_distro-0.56b0-py3-none-any.whl", hash = "sha256:9a9f8da1b0f2397d9b26de95e62c65eed2a162fe9435c57050f22132cd917752", size = 3345, upload-time = "2025-07-11T12:25:18.152Z" },
 ]
 
 [[package]]
@@ -862,6 +876,11 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/b0/82/dfe4a91fd38e048fbb55ca6c072710408e8802015aa27cde18e8684bb1e9/sentry_sdk-2.33.2.tar.gz", hash = "sha256:e85002234b7b8efac9b74c2d91dbd4f8f3970dc28da8798e39530e65cb740f94", size = 335804, upload-time = "2025-07-22T10:41:18.578Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c2/dc/4d825d5eb6e924dfcc6a91c8185578a7b0a5c41fd2416a6f49c8226d6ef9/sentry_sdk-2.33.2-py2.py3-none-any.whl", hash = "sha256:8d57a3b4861b243aa9d558fda75509ad487db14f488cbdb6c78c614979d77632", size = 356692, upload-time = "2025-07-22T10:41:16.531Z" },
+]
+
+[package.optional-dependencies]
+opentelemetry = [
+    { name = "opentelemetry-distro" },
 ]
 
 [[package]]
