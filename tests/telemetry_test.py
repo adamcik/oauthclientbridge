@@ -1,3 +1,5 @@
+from typing import Generator
+
 import pytest
 from opentelemetry import trace
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
@@ -6,16 +8,19 @@ from structlog.testing import capture_logs
 
 from oauthclientbridge import telemetry
 from oauthclientbridge.settings import OtelSettings
-from oauthclientbridge.telemetry import traces
 
 
 @pytest.fixture
-def in_memory_exporter():
+def captraces() -> Generator[InMemorySpanExporter, None, None]:
     exporter = InMemorySpanExporter()
     processor = SimpleSpanProcessor(exporter)
-    yield exporter, processor
-    exporter.clear()
-    traces.shutdown_traces()
+
+    settings = OtelSettings(enabled=True, exporter_protocol=None)
+    telemetry.init(settings, span_processor=processor)
+
+    yield exporter
+
+    processor.shutdown()
 
 
 def test_init_otel_disabled() -> None:
@@ -37,20 +42,31 @@ def test_init_otel_enabled_no_deps(monkeypatch: pytest.MonkeyPatch) -> None:
     assert logs[0].get("log_level") == "error"
 
 
-def test_init_traces_with_in_memory_exporter(
-    in_memory_exporter: tuple[InMemorySpanExporter, SimpleSpanProcessor],
+def test_telemetry_tracer_otel_enabled(
+    captraces: InMemorySpanExporter,
 ) -> None:
-    exporter, processor = in_memory_exporter
-    settings = OtelSettings(
-        enabled=True, exporter_protocol=None
-    )  # Protocol doesn't matter here as we pass the exporter directly
-    traces.init_traces(settings, span_processor=processor)
+    with telemetry.tracer.start_transaction("test-transaction"):
+        with telemetry.tracer.start_span("test-span-1"):
+            pass
+        with telemetry.tracer.start_span("test-span-2"):
+            pass
 
-    # Generate a span and verify it's captured by the in-memory exporter
+    finished_spans = captraces.get_finished_spans()
+    assert len(finished_spans) == 3  # transaction + 2 spans
+    assert "test-transaction" in [span.name for span in finished_spans]
+    assert "test-span-1" in [span.name for span in finished_spans]
+    assert "test-span-2" in [span.name for span in finished_spans]
+
+
+def test_init_traces_with_in_memory_exporter(
+    captraces: InMemorySpanExporter,
+) -> None:
+    # This test now primarily verifies that init_traces can be called and spans are captured
+    # The actual setup is handled by captraces fixture
     tracer = trace.get_tracer(__name__)
     with tracer.start_as_current_span("test-span"):
         pass
 
-    finished_spans = exporter.get_finished_spans()
+    finished_spans = captraces.get_finished_spans()
     assert len(finished_spans) == 1
     assert finished_spans[0].name == "test-span"

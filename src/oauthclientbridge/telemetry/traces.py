@@ -12,6 +12,14 @@ class Tracer(Protocol):
     def start_span(self, name: str, **kwargs: Any) -> Any: ...
 
 
+class NoOpSpan:
+    def __enter__(self) -> "NoOpSpan":
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        pass
+
+
 def _assert_never(value: NoReturn) -> NoReturn:
     raise AssertionError(f"Unhandled type: {value} ({type(value).__name__})")
 
@@ -28,9 +36,10 @@ def init_traces(settings: OtelSettings, span_processor: Any | None = None) -> No
     )
 
     resource = Resource.create({SERVICE_NAME: settings.service_name})
-
     provider = TracerProvider(resource=resource)
+
     if span_processor is None:
+        # TODO: Extract this into a helper function
         span_exporter: SpanExporter | None
         match settings.exporter_protocol:
             case OtelExporterProtocol.OTLP_GRPC:
@@ -43,27 +52,11 @@ def init_traces(settings: OtelSettings, span_processor: Any | None = None) -> No
                 )
             case _:  # pyright: ignore[reportUnreachable]
                 _assert_never(settings.exporter_protocol)
+
         span_processor = BatchSpanProcessor(span_exporter)
+
     provider.add_span_processor(span_processor)
-
     trace.set_tracer_provider(provider)
-
-
-def shutdown_traces() -> None:
-    from opentelemetry import trace
-    from opentelemetry.sdk.trace import TracerProvider
-
-    provider = trace.get_tracer_provider()
-    if isinstance(provider, TracerProvider):
-        provider.shutdown()
-
-
-class NoOpSpan:
-    def __enter__(self) -> "NoOpSpan":
-        return self
-
-    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        pass
 
 
 class NoOpTracer:

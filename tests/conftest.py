@@ -1,4 +1,5 @@
 import base64
+import importlib
 import json
 from typing import Any, NamedTuple, Protocol
 
@@ -165,3 +166,11 @@ def refresh_token() -> TokenTuple:
     return _test_token(
         refresh_token="abc",
     )
+
+
+@pytest.fixture(autouse=True)
+def otel_reset_provider():
+    import opentelemetry.trace
+
+    _ = importlib.reload(opentelemetry.trace)
+    yield
