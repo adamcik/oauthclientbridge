@@ -112,6 +112,8 @@ def after_request_log_context(response: Response) -> Response:
             "status_code": response.status_code,
             "method": request.method,
             "version": http_version,
+            "user_agent": request.headers.get("User-Agent"),
+            "referer": request.headers.get("Referer"),
         },
         remote_addr=request.remote_addr,
         remote_user=request.remote_user,
