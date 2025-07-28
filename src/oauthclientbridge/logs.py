@@ -15,6 +15,7 @@ def init(level=logging.INFO, colors: bool = True) -> None:
     timestamper = structlog.processors.TimeStamper(fmt="iso", utc=False)
 
     shared_processors: list[structlog.types.Processor] = [
+        structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_logger_name,
         structlog.stdlib.add_log_level,
         timestamper,
@@ -29,7 +30,6 @@ def init(level=logging.INFO, colors: bool = True) -> None:
                 structlog.processors.CallsiteParameter.FUNC_NAME,
             ]
         ),
-        structlog.contextvars.merge_contextvars,
         structlog.stdlib.ExtraAdder(),
     ]
 
