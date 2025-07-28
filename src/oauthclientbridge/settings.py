@@ -1,3 +1,5 @@
+from enum import StrEnum, auto
+
 from flask import current_app
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -107,6 +109,38 @@ class SentrySettings(BaseSettings):
         return self
 
 
+class OtelExporterProtocol(StrEnum):
+    OTLP_GRPC = auto()
+    CONSOLE = auto()
+
+
+class OtelSettings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="OTEL_")
+
+    enabled: bool = False
+    """Whether to enable OpenTelemetry."""
+
+    exporter_protocol: OtelExporterProtocol | None = OtelExporterProtocol.OTLP_GRPC
+    """OpenTelemetry exporter protocol (e.g., 'otlp_grpc', 'console')."""
+
+    endpoint: str | None = "http://localhost:4317"
+    """OpenTelemetry collector endpoint."""
+
+    service_name: str = "oauthclientbridge"
+    """Service name for OpenTelemetry traces and metrics."""
+
+    @model_validator(mode="after")
+    def check_endpoint_if_otlp_grpc(self) -> "OtelSettings":
+        if (
+            self.exporter_protocol == OtelExporterProtocol.OTLP_GRPC
+            and self.endpoint is None
+        ):
+            raise ValueError(
+                "OTEL_ENDPOINT must be set if OTEL_EXPORTER_PROTOCOL is OTLP_GRPC"
+            )
+        return self
+
+
 class Settings(BaseSettings):
     """
     Application settings for oauthclientbridge.
@@ -156,6 +190,7 @@ class Settings(BaseSettings):
     fetch: FetchSettings = Field(default_factory=lambda: FetchSettings())  # pyright: ignore[reportCallIssue]
     database: DatabaseSettings = Field(default_factory=lambda: DatabaseSettings())  # pyright: ignore[reportCallIssue]
     sentry: SentrySettings = Field(default_factory=lambda: SentrySettings())  # pyright: ignore[reportCallIssue]
+    otel: OtelSettings = Field(default_factory=lambda: OtelSettings())  # pyright: ignore[reportCallIssue]
 
 
 current_settings: LocalProxy[Settings] = LocalProxy(
