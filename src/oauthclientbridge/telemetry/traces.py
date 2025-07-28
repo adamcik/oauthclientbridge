@@ -74,18 +74,6 @@ class NoOpTracer:
         return NoOpSpan()
 
 
-class SentryTracer:
-    def start_transaction(self, name: str, **kwargs: Any) -> Any:
-        import sentry_sdk
-
-        return sentry_sdk.start_transaction(name=name, **kwargs)
-
-    def start_span(self, name: str, **kwargs: Any) -> Any:
-        import sentry_sdk
-
-        return sentry_sdk.start_span(op=name, description=name, **kwargs)
-
-
 class OtelTracer:
     def start_transaction(self, name: str, **kwargs: Any) -> Any:
         from opentelemetry import trace

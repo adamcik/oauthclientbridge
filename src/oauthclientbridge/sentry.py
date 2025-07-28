@@ -2,6 +2,7 @@ import logging
 from typing import Any
 
 from oauthclientbridge.settings import SentrySettings
+from oauthclientbridge.telemetry.traces import NoOpSpan
 
 logger = logging.getLogger(__name__)
 
@@ -51,3 +52,15 @@ def set_tags(tags: dict[str, Any]) -> None:
 def set_user(user_data: dict[str, Any] | None) -> None:
     if sentry_sdk:
         sentry_sdk.set_user(user_data)
+
+
+class SentryTracer:
+    def start_transaction(self, name: str, **kwargs: Any) -> Any:
+        if sentry_sdk:
+            return sentry_sdk.start_transaction(name=name, **kwargs)
+        return NoOpSpan()
+
+    def start_span(self, name: str, **kwargs: Any) -> Any:
+        if sentry_sdk:
+            return sentry_sdk.start_span(op=name, description=name, **kwargs)
+        return NoOpSpan()

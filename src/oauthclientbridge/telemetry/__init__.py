@@ -2,8 +2,9 @@ import importlib.util
 
 import structlog
 
+from oauthclientbridge.sentry import SentryTracer
 from oauthclientbridge.settings import OtelSettings
-from oauthclientbridge.telemetry.traces import NoOpTracer, Tracer
+from oauthclientbridge.telemetry.traces import NoOpTracer, OtelTracer, Tracer
 
 logger: structlog.BoundLogger = structlog.get_logger()
 
@@ -36,12 +37,8 @@ def init(settings: OtelSettings, sentry_enabled: bool = False) -> None:
 
 def _select_tracer(settings: OtelSettings, sentry_enabled: bool) -> Tracer:
     if settings.enabled and _otel_available:
-        from oauthclientbridge.telemetry.traces import OtelTracer
-
         return OtelTracer()
     elif sentry_enabled and _sentry_available:
-        from oauthclientbridge.telemetry.traces import SentryTracer
-
         return SentryTracer()
     else:
         return NoOpTracer()
