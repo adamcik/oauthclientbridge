@@ -12,22 +12,6 @@ class Tracer(Protocol):
     def start_span(self, name: str, **kwargs: Any) -> Any: ...
 
 
-class NoOpSpan:
-    def __enter__(self) -> "NoOpSpan":
-        return self
-
-    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        pass
-
-
-class NoOpTracer:
-    def start_transaction(self, name: str, **kwargs: Any) -> Any:
-        return NoOpSpan()
-
-    def start_span(self, name: str, **kwargs: Any) -> Any:
-        return NoOpSpan()
-
-
 def _assert_never(value: NoReturn) -> NoReturn:
     raise AssertionError(f"Unhandled type: {value} ({type(value).__name__})")
 
@@ -72,3 +56,45 @@ def shutdown_traces() -> None:
     provider = trace.get_tracer_provider()
     if isinstance(provider, TracerProvider):
         provider.shutdown()
+
+
+class NoOpSpan:
+    def __enter__(self) -> "NoOpSpan":
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        pass
+
+
+class NoOpTracer:
+    def start_transaction(self, name: str, **kwargs: Any) -> Any:
+        return NoOpSpan()
+
+    def start_span(self, name: str, **kwargs: Any) -> Any:
+        return NoOpSpan()
+
+
+class SentryTracer:
+    def start_transaction(self, name: str, **kwargs: Any) -> Any:
+        import sentry_sdk
+
+        return sentry_sdk.start_transaction(name=name, **kwargs)
+
+    def start_span(self, name: str, **kwargs: Any) -> Any:
+        import sentry_sdk
+
+        return sentry_sdk.start_span(op=name, description=name, **kwargs)
+
+
+class OtelTracer:
+    def start_transaction(self, name: str, **kwargs: Any) -> Any:
+        from opentelemetry import trace
+
+        tracer = trace.get_tracer(__name__)
+        return tracer.start_as_current_span(name, **kwargs)
+
+    def start_span(self, name: str, **kwargs: Any) -> Any:
+        from opentelemetry import trace
+
+        tracer = trace.get_tracer(__name__)
+        return tracer.start_as_current_span(name, **kwargs)
