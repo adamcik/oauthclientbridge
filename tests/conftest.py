@@ -33,12 +33,12 @@ class TokenTuple(NamedTuple):
 @pytest.fixture
 def settings():
     # https://github.com/pydantic/pydantic-settings/issues/201
-    return Settings(  # pyright: ignore[reportCallIssue]
+    return Settings(
         callback_template="{{ variables|tojson }}",
-        database=DatabaseSettings(  # pyright: ignore[reportCallIssue]
+        database=DatabaseSettings(
             database=":memory:",
         ),
-        oauth=OAuthSettings(  # pyright: ignore[reportCallIssue]
+        oauth=OAuthSettings(
             client_id="client",
             client_secret=SecretStr("s3cret"),
             authorization_uri="https://provider.example.com/auth",
@@ -163,14 +163,14 @@ def access_token() -> TokenTuple:
 
 @pytest.fixture
 def refresh_token() -> TokenTuple:
-    return _test_token(
-        refresh_token="abc",
-    )
+    return _test_token(refresh_token="abc")
 
 
 @pytest.fixture(autouse=True)
 def otel_reset_provider():
+    """Reset the tracer provider before each test to avoid state leakage."""
     import opentelemetry.trace
 
     _ = importlib.reload(opentelemetry.trace)
+
     yield
