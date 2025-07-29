@@ -2,25 +2,16 @@ import logging
 import sys
 import time
 import uuid
+from typing import Any
 
 import structlog
 from flask import Response, g, request
 from opentelemetry import trace
+from opentelemetry.instrumentation.flask import get_global_response_propagator
 
 from oauthclientbridge import sentry
 
 logger: structlog.BoundLogger = structlog.get_logger()
-
-
-def add_otel_context_processor(_, __, event_dict):
-    span_context = trace.get_current_span().get_span_context()
-    if span_context.is_valid:
-        event_dict["otelTraceID"] = format(span_context.trace_id, "032x")
-        event_dict["otelSpanID"] = format(span_context.span_id, "016x")
-        event_dict["otelTraceSampled"] = bool(
-            span_context.trace_flags & trace.TraceFlags.SAMPLED
-        )
-    return event_dict
 
 
 def init(level=logging.INFO, colors: bool = True) -> None:
@@ -97,6 +88,17 @@ def init(level=logging.INFO, colors: bool = True) -> None:
     werkzeug_logger.disabled = True
 
 
+def add_otel_context_processor(_, __, event_dict: dict[str, Any]) -> dict[str, Any]:
+    span_context = trace.get_current_span().get_span_context()
+    if span_context.is_valid:
+        event_dict["otel"] = {
+            "trace_id": format(span_context.trace_id, "032x"),
+            "span_id": format(span_context.span_id, "016x"),
+            "trace_sampled": bool(span_context.trace_flags & trace.TraceFlags.SAMPLED),
+        }
+    return event_dict
+
+
 def before_request_log_context():
     structlog.contextvars.clear_contextvars()
 
@@ -126,7 +128,7 @@ def after_request_log_context(response: Response) -> Response:
     logger.info(
         f"""{request.remote_addr} - "{request.method} {request.path} {http_version}" {response.status_code}""",
         duration_ms=(time.perf_counter_ns() - g.start_time) / 1e6,
-        response_size=len(response.data),
+        response_bytes=len(response.data),
         http={
             "url": str(request.url),
             "status_code": response.status_code,
@@ -137,6 +139,7 @@ def after_request_log_context(response: Response) -> Response:
         },
         remote_addr=request.remote_addr,
         remote_user=request.remote_user,
+        test=get_global_response_propagator(),
     )
 
     structlog.contextvars.clear_contextvars()
