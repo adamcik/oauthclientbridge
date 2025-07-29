@@ -8,6 +8,7 @@ from flask import current_app, g
 
 from oauthclientbridge import stats
 from oauthclientbridge.settings import current_settings
+from oauthclientbridge.telemetry import tracer
 
 Error = sqlite3.Error
 IntegrityError = sqlite3.IntegrityError
@@ -53,17 +54,18 @@ def cursor(name: str, transaction: bool = False) -> Iterator[sqlite3.Cursor]:
             c = connection.cursor()
             with contextlib.closing(c):
                 with stats.DBLatencyHistorgram.labels(query=name).time():
-                    try:
-                        if transaction:
-                            c.execute("BEGIN")
-                        yield c
-                    except Exception:
-                        if transaction:
-                            connection.rollback()
-                        raise
-                    else:
-                        if transaction:
-                            connection.commit()
+                    with tracer.start_span(f"db.{name}"):
+                        try:
+                            if transaction:
+                                c.execute("BEGIN")
+                            yield c
+                        except Exception:
+                            if transaction:
+                                connection.rollback()
+                            raise
+                        else:
+                            if transaction:
+                                connection.commit()
     except sqlite3.Error as e:
         # https://www.python.org/dev/peps/pep-0249/#exceptions for values.
         error = re.sub(r"(?!^)([A-Z])", r"_\1", e.__class__.__name__).lower()
