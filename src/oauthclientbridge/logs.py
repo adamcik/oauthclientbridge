@@ -5,10 +5,20 @@ import uuid
 
 import structlog
 from flask import Response, g, request
+from opentelemetry import trace
 
 from oauthclientbridge import sentry
 
 logger: structlog.BoundLogger = structlog.get_logger()
+
+
+def add_otel_context_processor(_, __, event_dict):
+    span_context = trace.get_current_span().get_span_context()
+    if span_context.is_valid:
+        event_dict["otelTraceID"] = format(span_context.trace_id, "032x")
+        event_dict["otelSpanID"] = format(span_context.span_id, "016x")
+        event_dict["otelTraceSampled"] = span_context.trace_flags.is_sampled()
+    return event_dict
 
 
 def init(level=logging.INFO, colors: bool = True) -> None:
@@ -31,6 +41,7 @@ def init(level=logging.INFO, colors: bool = True) -> None:
             ]
         ),
         structlog.stdlib.ExtraAdder(),
+        add_otel_context_processor,
     ]
 
     try:
@@ -87,8 +98,15 @@ def init(level=logging.INFO, colors: bool = True) -> None:
 def before_request_log_context():
     structlog.contextvars.clear_contextvars()
 
-    g.request_id = str(uuid.uuid4())
     g.start_time = time.perf_counter_ns()
+
+    span_context = trace.get_current_span().get_span_context()
+    if span_context.is_valid:
+        # Use the OpenTelemetry trace_id as the request_id
+        g.request_id = format(span_context.trace_id, "032x")
+    else:
+        # Fallback to a new UUID if no valid span context
+        g.request_id = str(uuid.uuid4())
 
     sentry.set_tags({"request_id": g.request_id})
 

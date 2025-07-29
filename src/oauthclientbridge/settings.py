@@ -114,12 +114,14 @@ class OtelExporterProtocol(StrEnum):
     CONSOLE = auto()
 
 
-class OtelSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="OTEL_")
+class TelemetrySettings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="TELEMETRY_")
 
     enabled: bool = False
     """Whether to enable OpenTelemetry."""
 
+    # TODO: Consider having a sub-object per exporter type instead?
+    # This could also allow for passing in an exporter instance?
     exporter_protocol: OtelExporterProtocol | None = OtelExporterProtocol.OTLP_GRPC
     """OpenTelemetry exporter protocol (e.g., 'otlp_grpc', 'console')."""
 
@@ -130,7 +132,7 @@ class OtelSettings(BaseSettings):
     """Service name for OpenTelemetry traces and metrics."""
 
     @model_validator(mode="after")
-    def check_endpoint_if_otlp_grpc(self) -> "OtelSettings":
+    def check_endpoint_if_otlp_grpc(self) -> "TelemetrySettings":
         if (
             self.exporter_protocol == OtelExporterProtocol.OTLP_GRPC
             and self.endpoint is None
@@ -190,7 +192,7 @@ class Settings(BaseSettings):
     fetch: FetchSettings = Field(default_factory=lambda: FetchSettings())  # pyright: ignore[reportCallIssue]
     database: DatabaseSettings = Field(default_factory=lambda: DatabaseSettings())  # pyright: ignore[reportCallIssue]
     sentry: SentrySettings = Field(default_factory=lambda: SentrySettings())  # pyright: ignore[reportCallIssue]
-    otel: OtelSettings = Field(default_factory=lambda: OtelSettings())  # pyright: ignore[reportCallIssue]
+    otel: TelemetrySettings = Field(default_factory=lambda: TelemetrySettings())  # pyright: ignore[reportCallIssue]
 
 
 current_settings: LocalProxy[Settings] = LocalProxy(

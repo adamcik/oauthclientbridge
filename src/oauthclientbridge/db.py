@@ -5,13 +5,15 @@ import uuid
 from typing import Iterator
 
 from flask import current_app, g
+from opentelemetry import trace
 
 from oauthclientbridge import stats
 from oauthclientbridge.settings import current_settings
-from oauthclientbridge.telemetry import tracer
 
 Error = sqlite3.Error
 IntegrityError = sqlite3.IntegrityError
+
+tracer = trace.get_tracer(__name__)
 
 
 def generate_id() -> str:
@@ -54,7 +56,7 @@ def cursor(name: str, transaction: bool = False) -> Iterator[sqlite3.Cursor]:
             c = connection.cursor()
             with contextlib.closing(c):
                 with stats.DBLatencyHistorgram.labels(query=name).time():
-                    with tracer.start_span(f"db.{name}"):
+                    with tracer.start_as_current_span(f"db.{name}"):
                         try:
                             if transaction:
                                 c.execute("BEGIN")

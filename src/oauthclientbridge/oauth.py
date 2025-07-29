@@ -7,12 +7,13 @@ from typing import Any
 import flask
 import requests
 import structlog
+from opentelemetry import trace
 
 from oauthclientbridge import __version__, errors, stats
 from oauthclientbridge.settings import current_settings
-from oauthclientbridge.telemetry import tracer
 
 logger: structlog.BoundLogger = structlog.get_logger()
+tracer = trace.get_tracer(__name__)
 
 OAuthResponse = dict[str, Any]
 URIParam = dict[str, str]
@@ -132,7 +133,7 @@ def scrub_refresh_token(token: OAuthResponse) -> OAuthResponse:
 # TODO: Turn endpoint into a StrEnum
 def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResponse:
     """Perform post given URI with auth and provided data."""
-    with tracer.start_span(f"oauth.fetch.{endpoint}"):
+    with tracer.start_as_current_span(f"oauth.fetch.{endpoint}"):
         req = requests.Request("POST", uri, data=data, auth=auth)
         prepared = req.prepare()
 

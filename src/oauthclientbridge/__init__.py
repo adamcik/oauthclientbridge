@@ -6,7 +6,7 @@ import structlog
 from flask import Flask
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from oauthclientbridge import logs
+from oauthclientbridge import logs, telemetry
 from oauthclientbridge.settings import Settings
 
 __version__ = version("oauthclientbridge")
@@ -42,6 +42,8 @@ def create_app(settings: Settings) -> Flask:
     _ = app.after_request(stats.finalize_metrics)
 
     app.register_blueprint(views.routes)
+
+    telemetry.instrument_app(app)
 
     @app.cli.command("initdb")
     def initdb():
