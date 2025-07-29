@@ -10,6 +10,7 @@ import structlog
 
 from oauthclientbridge import __version__, errors, stats
 from oauthclientbridge.settings import current_settings
+from oauthclientbridge.telemetry import tracer
 
 logger: structlog.BoundLogger = structlog.get_logger()
 
@@ -128,70 +129,72 @@ def scrub_refresh_token(token: OAuthResponse) -> OAuthResponse:
     return {k: v for k, v in token.items() if k not in remove}
 
 
-def fetch(
-    uri: str, auth: str | None = None, endpoint: str | None = None, **data
-) -> OAuthResponse:
+# TODO: Turn endpoint into a StrEnum
+def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResponse:
     """Perform post given URI with auth and provided data."""
-    req = requests.Request("POST", uri, data=data, auth=auth)
-    prepared = req.prepare()
+    with tracer.start_span(f"oauth.fetch.{endpoint}"):
+        req = requests.Request("POST", uri, data=data, auth=auth)
+        prepared = req.prepare()
 
-    # Add X-Request-ID to outgoing request headers
-    request_id = flask.g.get("request_id")
-    if request_id:
-        if prepared.headers is None:
-            prepared.headers = {}
-        prepared.headers["X-Request-ID"] = request_id
+        # Add X-Request-ID to outgoing request headers
+        request_id = flask.g.get("request_id")
+        if request_id:
+            if prepared.headers is None:
+                prepared.headers = {}
+            prepared.headers["X-Request-ID"] = request_id
 
-    timeout = time.time() + current_settings.fetch.total_timeout
-    retry = 0
+        timeout = time.time() + current_settings.fetch.total_timeout
+        retry = 0
 
-    result = _error(
-        errors.SERVER_ERROR, "An unknown error occurred talking to provider."
-    )
+        result = _error(
+            errors.SERVER_ERROR, "An unknown error occurred talking to provider."
+        )
 
-    for i in range(current_settings.fetch.total_retries):
-        prefix = "attempt #%d %s" % (i + 1, uri)
+        for i in range(current_settings.fetch.total_retries):
+            prefix = "attempt #%d %s" % (i + 1, uri)
 
-        # TODO: Add jitter to backoff and/or retry after?
-        backoff = (2**i - 1) * current_settings.fetch.backoff_factor
-        remaining_timeout = timeout - time.time()
+            # TODO: Add jitter to backoff and/or retry after?
+            backoff = (2**i - 1) * current_settings.fetch.backoff_factor
+            remaining_timeout = timeout - time.time()
 
-        if (retry or backoff) > remaining_timeout:
-            logger.debug("Abort %s no timeout remaining.", prefix)
-            break
-        elif (retry or backoff) > 0:
-            logger.debug("Retry %s [sleep %.3f]", prefix, retry or backoff)
-            time.sleep(retry or backoff)
+            if (retry or backoff) > remaining_timeout:
+                logger.debug("Abort %s no timeout remaining.", prefix)
+                break
+            elif (retry or backoff) > 0:
+                logger.debug("Retry %s [sleep %.3f]", prefix, retry or backoff)
+                time.sleep(retry or backoff)
 
-        result, status, retry = _fetch(prepared, remaining_timeout, endpoint)
+            result, status, retry = _fetch(prepared, remaining_timeout, endpoint)
 
-        labels = {"endpoint": endpoint, "status": stats.status(status)}
-        stats.ClientRetryHistogram.labels(**labels).observe(i)
+            labels = {"endpoint": endpoint, "status": stats.status(status)}
+            stats.ClientRetryHistogram.labels(**labels).observe(i)
 
-        if status is not None and "error" in result:
-            error = result["error"]
-            error = current_settings.fetch.error_types.get(error, error)
-            if error not in errors.DESCRIPTIONS:
-                error = "invalid_error"
-            stats.ClientErrorCounter.labels(error=error, **labels).inc()
+            if status is not None and "error" in result:
+                error = result["error"]
+                error = current_settings.fetch.error_types.get(error, error)
+                if error not in errors.DESCRIPTIONS:
+                    error = "invalid_error"
+                stats.ClientErrorCounter.labels(error=error, **labels).inc()
 
-        if status is None:
-            pass  # We didn't even get a response, so try again.
-        elif status not in current_settings.fetch.retry_status_codes:
-            break
-        elif "error" not in result:
-            break  # No error reported so might as well return it.
+            if status is None:
+                pass  # We didn't even get a response, so try again.
+            elif status not in current_settings.fetch.retry_status_codes:
+                break
+            elif "error" not in result:
+                break  # No error reported so might as well return it.
 
-        logger.debug("Result %s [status %s] [retry after %s]", prefix, status, retry)
+            logger.debug(
+                "Result %s [status %s] [retry after %s]", prefix, status, retry
+            )
 
-    # TODO: consider returning retry after time so it can be used.
-    return result
+        # TODO: consider returning retry after time so it can be used.
+        return result
 
 
 def _fetch(
     prepared: requests.PreparedRequest,
     timeout: float,
-    endpoint: str | None = None,
+    endpoint: str,
 ) -> tuple[OAuthResponse, int, int]:
     # Make sure we always have at least a minimal timeout.
     timeout = max(1.0, min(current_settings.fetch.timeout, timeout))
