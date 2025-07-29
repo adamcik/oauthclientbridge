@@ -21,17 +21,17 @@ def init(
     span_processor: Any | None = None,
     app: Flask | None = None,
 ) -> None:
-    if settings.enabled and not _otel_available:
-        logger.error(
-            "OpenTelemetry is enabled, but its dependencies are not installed. "
-            "Please install them with 'pip install oauthclientbridge[opentelemetry]'."
-        )
-
     global tracer
     tracer = _select_tracer(settings, sentry_enabled)
 
     if not settings.enabled or not _otel_available:
+        logger.error(
+            "OpenTelemetry is enabled, but its dependencies are not installed. "
+            "Please install them with 'pip install oauthclientbridge[opentelemetry]'."
+        )
         return
+
+    logger.debug("Initializing OpenTelemetry", settings=settings)
 
     from oauthclientbridge.telemetry.metrics import init_metrics
     from oauthclientbridge.telemetry.traces import init_traces
@@ -55,7 +55,7 @@ def _select_tracer(settings: OtelSettings, sentry_enabled: bool) -> Tracer:
 
 
 # TODO: Move this to a separate module instrumentation
-def _init_instrumentation(app: Flask) -> None:
+def _init_instrumentation(app: Flask | None) -> None:
     from opentelemetry.instrumentation.flask import FlaskInstrumentor
     from opentelemetry.instrumentation.logging import LoggingInstrumentor
     from opentelemetry.instrumentation.requests import RequestsInstrumentor
@@ -64,7 +64,8 @@ def _init_instrumentation(app: Flask) -> None:
         SystemMetricsInstrumentor,
     )
 
-    FlaskInstrumentor().instrument_app(app)
+    if app:
+        FlaskInstrumentor().instrument_app(app)
     RequestsInstrumentor().instrument()
     SQLite3Instrumentor().instrument()
     LoggingInstrumentor().instrument()
