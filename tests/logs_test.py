@@ -1,7 +1,6 @@
 import json
 import logging
 import sys
-import uuid
 
 import pytest
 import structlog
@@ -69,7 +68,6 @@ def test_flask_request_logging(capsys, monkeypatch):
         response = client.get("/")
         assert response.status_code == 200
         assert b"Hello, World!" in response.data
-        assert "X-Request-ID" in response.headers
 
     captured = capsys.readouterr()
     log_lines = captured.err.strip().splitlines()
@@ -82,21 +80,14 @@ def test_flask_request_logging(capsys, monkeypatch):
 
     # Assertions for the log from inside the route
     assert route_log["event"] == "Inside Flask app route."
-    assert "request_id" in route_log
-    try:
-        uuid.UUID(route_log["request_id"])
-    except ValueError:
-        pytest.fail("request_id in route_log is not a valid UUID")
 
     # Assertions for the log from after_request
-    assert "request_id" in request_log
     assert request_log["http"]["status_code"] == 200
     assert request_log["http"]["method"] == "GET"
     assert request_log["http"]["url"].endswith("/")
     assert "duration_ms" in request_log
     assert "response_bytes" in request_log
     assert request_log["response_bytes"] == len(b"Hello, World!")
-    assert request_log["request_id"] == response.headers["X-Request-ID"]
 
 
 def test_configure_structlog_console_colors(capsys, monkeypatch):

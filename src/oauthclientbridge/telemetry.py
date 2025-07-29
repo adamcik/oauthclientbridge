@@ -73,7 +73,11 @@ def init_tracing(
         propagators.append(SentryPropagator())
 
     trace.set_tracer_provider(provider)
+
+    # Handle incoming and outgoing request headers
     set_global_textmap(CompositePropagator(propagators))
+
+    # Set traceresponse header
     set_global_response_propagator(TraceResponsePropagator())
 
 

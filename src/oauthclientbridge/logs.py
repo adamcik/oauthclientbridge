@@ -1,15 +1,12 @@
 import logging
 import sys
 import time
-import uuid
 from typing import Any
 
 import structlog
 from flask import Response, g, request
 from opentelemetry import trace
-from opentelemetry.instrumentation.flask import get_global_response_propagator
-
-from oauthclientbridge import sentry
+from structlog.types import EventDict
 
 logger: structlog.BoundLogger = structlog.get_logger()
 
@@ -88,7 +85,7 @@ def init(level=logging.INFO, colors: bool = True) -> None:
     werkzeug_logger.disabled = True
 
 
-def add_otel_context_processor(_, __, event_dict: dict[str, Any]) -> dict[str, Any]:
+def add_otel_context_processor(_: Any, __: str, event_dict: EventDict) -> EventDict:
     span_context = trace.get_current_span().get_span_context()
     if span_context.is_valid:
         event_dict["otel"] = {
@@ -104,26 +101,9 @@ def before_request_log_context():
 
     g.start_time = time.perf_counter_ns()
 
-    span_context = trace.get_current_span().get_span_context()
-    if span_context.is_valid:
-        # Use the OpenTelemetry trace_id as the request_id
-        g.request_id = format(span_context.trace_id, "032x")
-    else:
-        # Fallback to a new UUID if no valid span context
-        g.request_id = str(uuid.uuid4())
-
-    sentry.set_tags({"request_id": g.request_id})
-
-    _ = structlog.contextvars.bind_contextvars(
-        request_id=g.request_id,
-    )
-
 
 def after_request_log_context(response: Response) -> Response:
     http_version = request.environ.get("SERVER_PROTOCOL")
-
-    if hasattr(g, "request_id"):
-        response.headers["X-Request-ID"] = g.request_id
 
     logger.info(
         f"""{request.remote_addr} - "{request.method} {request.path} {http_version}" {response.status_code}""",
@@ -139,7 +119,6 @@ def after_request_log_context(response: Response) -> Response:
         },
         remote_addr=request.remote_addr,
         remote_user=request.remote_user,
-        test=get_global_response_propagator(),
     )
 
     structlog.contextvars.clear_contextvars()

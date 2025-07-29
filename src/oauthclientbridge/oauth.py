@@ -137,13 +137,6 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
         req = requests.Request("POST", uri, data=data, auth=auth)
         prepared = req.prepare()
 
-        # Add X-Request-ID to outgoing request headers
-        request_id = flask.g.get("request_id")
-        if request_id:
-            if prepared.headers is None:
-                prepared.headers = {}
-            prepared.headers["X-Request-ID"] = request_id
-
         timeout = time.time() + current_settings.fetch.total_timeout
         retry = 0
 
