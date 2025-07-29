@@ -94,8 +94,8 @@ def test_flask_request_logging(capsys, monkeypatch):
     assert request_log["http"]["method"] == "GET"
     assert request_log["http"]["url"].endswith("/")
     assert "duration_ms" in request_log
-    assert "response_size" in request_log
-    assert request_log["response_size"] == len(b"Hello, World!")
+    assert "response_bytes" in request_log
+    assert request_log["response_bytes"] == len(b"Hello, World!")
     assert request_log["request_id"] == response.headers["X-Request-ID"]
 
 
