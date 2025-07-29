@@ -7,6 +7,5 @@ logs.init()
 sentry.init(settings.sentry)
 
 telemetry.init_tracing(settings.otel)
-telemetry.init_instrumentation()
 
 app = create_app(settings)

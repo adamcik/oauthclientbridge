@@ -20,6 +20,11 @@ from opentelemetry.sdk.trace.export import (
 
 from oauthclientbridge.settings import OtelExporterProtocol, TelemetrySettings
 
+_flask_instrumentor = FlaskInstrumentor()
+_requests_instrumentor = RequestsInstrumentor()
+_sqlite3_instrumentor = SQLite3Instrumentor()
+_system_metrics_instrumentor = SystemMetricsInstrumentor()
+
 
 def init_tracing(
     settings: TelemetrySettings,
@@ -57,17 +62,17 @@ def init_tracing(
     trace.set_tracer_provider(provider)
 
 
-def init_instrumentation() -> None:
-    RequestsInstrumentor().instrument()
-    SQLite3Instrumentor().instrument()
-    SystemMetricsInstrumentor().instrument()
+def instrument() -> None:
+    _requests_instrumentor.instrument()
+    _sqlite3_instrumentor.instrument()
+    _system_metrics_instrumentor.instrument()
 
     # TODO: See how this would interact with structlog
-    # LoggingInstrumentor().instrument()
+    # _logging_instrumentor.instrument()
 
 
 def instrument_app(app: Flask) -> None:
-    FlaskInstrumentor().instrument_app(app)
+    _flask_instrumentor.instrument_app(app)
 
 
 def _assert_never(value: NoReturn) -> NoReturn:

@@ -14,11 +14,15 @@ __version__ = version("oauthclientbridge")
 
 logger: structlog.BoundLogger = structlog.get_logger()
 
+telemetry.instrument()
+
 
 def create_app(settings: Settings) -> Flask:
     app = Flask(__name__)
     app.config["SETTINGS"] = settings
     _ = app.config.from_prefixed_env()
+
+    telemetry.instrument_app(app)
 
     if settings.num_proxies:
         wrapper = ProxyFix(
@@ -42,8 +46,6 @@ def create_app(settings: Settings) -> Flask:
     _ = app.after_request(stats.finalize_metrics)
 
     app.register_blueprint(views.routes)
-
-    telemetry.instrument_app(app)
 
     @app.cli.command("initdb")
     def initdb():
