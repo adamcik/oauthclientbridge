@@ -2,6 +2,7 @@ import importlib.util
 from typing import Any
 
 import structlog
+from flask import Flask
 
 from oauthclientbridge.settings import OtelSettings
 from oauthclientbridge.telemetry.traces import NoOpTracer, Tracer
@@ -37,7 +38,6 @@ def init(
 
     init_traces(settings, span_processor=span_processor)
     init_metrics()
-    _init_instrumentation()
     _init_instrumentation(app)
 
 
@@ -55,7 +55,6 @@ def _select_tracer(settings: OtelSettings, sentry_enabled: bool) -> Tracer:
 
 
 # TODO: Move this to a separate module instrumentation
-def _init_instrumentation() -> None:
 def _init_instrumentation(app: Flask) -> None:
     from opentelemetry.instrumentation.flask import FlaskInstrumentor
     from opentelemetry.instrumentation.logging import LoggingInstrumentor
@@ -65,7 +64,6 @@ def _init_instrumentation(app: Flask) -> None:
         SystemMetricsInstrumentor,
     )
 
-    FlaskInstrumentor().instrument()
     FlaskInstrumentor().instrument_app(app)
     RequestsInstrumentor().instrument()
     SQLite3Instrumentor().instrument()
