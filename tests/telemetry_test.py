@@ -16,7 +16,9 @@ def captraces() -> Generator[InMemorySpanExporter, None, None]:
     exporter = InMemorySpanExporter()
     processor = SimpleSpanProcessor(exporter)
 
-    settings = TelemetrySettings(enabled=True, exporter_protocol=None)
+    settings = TelemetrySettings(
+        exporter=None
+    )  # Use None for exporter to avoid real exporter setup
     init_tracing(settings, span_processor=processor)
 
     yield exporter

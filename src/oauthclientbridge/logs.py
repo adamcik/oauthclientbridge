@@ -17,7 +17,9 @@ def add_otel_context_processor(_, __, event_dict):
     if span_context.is_valid:
         event_dict["otelTraceID"] = format(span_context.trace_id, "032x")
         event_dict["otelSpanID"] = format(span_context.span_id, "016x")
-        event_dict["otelTraceSampled"] = span_context.trace_flags.is_sampled()
+        event_dict["otelTraceSampled"] = bool(
+            span_context.trace_flags & trace.TraceFlags.SAMPLED
+        )
     return event_dict
 
 

@@ -16,40 +16,34 @@ from opentelemetry.sdk.trace import SpanProcessor, TracerProvider
 from opentelemetry.sdk.trace.export import (
     BatchSpanProcessor,
     ConsoleSpanExporter,
-    SpanExporter,
 )
 
 from oauthclientbridge.settings import OtelExporterProtocol, TelemetrySettings
 
 
 def init_tracing(
-    settings: TelemetrySettings, span_processor: SpanProcessor | None = None
+    settings: TelemetrySettings,
+    span_processor: SpanProcessor | None = None,
 ) -> None:
-    if not settings.enabled:
-        return
-
-    resource = Resource.create({SERVICE_NAME: settings.service_name})
-    provider = TracerProvider(resource=resource)
-
     if span_processor is None:
-        # TODO: Extract this into a helper function
-        span_exporter: SpanExporter | None
-        match settings.exporter_protocol:
+        match settings.exporter:
             case OtelExporterProtocol.OTLP_GRPC:
-                span_exporter = OTLPSpanExporter(endpoint=settings.endpoint)
-            case OtelExporterProtocol.CONSOLE:
-                span_exporter = ConsoleSpanExporter()
-            case None:
-                raise ValueError(
-                    "TELEMETRY_EXPORTER_PROTOCOL must be set if no span_processor "
-                    "is provided and no exporter protocol is set."
+                span_processor = BatchSpanProcessor(
+                    OTLPSpanExporter(endpoint=settings.endpoint)
                 )
+            case OtelExporterProtocol.CONSOLE:
+                span_processor = BatchSpanProcessor(ConsoleSpanExporter())
+            case None:
+                span_processor = None
             case _:
-                _assert_never(settings.exporter_protocol)
+                _assert_never(settings.exporter)
 
-        span_processor = BatchSpanProcessor(span_exporter)
+    provider = TracerProvider(
+        resource=Resource.create({SERVICE_NAME: settings.service_name})
+    )
 
-    provider.add_span_processor(span_processor)
+    if span_processor:
+        provider.add_span_processor(span_processor)
 
     if importlib.util.find_spec("sentry_sdk"):
         from sentry_sdk.integrations.opentelemetry.propagator import SentryPropagator

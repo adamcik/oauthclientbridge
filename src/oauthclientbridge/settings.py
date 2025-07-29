@@ -117,13 +117,10 @@ class OtelExporterProtocol(StrEnum):
 class TelemetrySettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="TELEMETRY_")
 
-    enabled: bool = False
-    """Whether to enable OpenTelemetry."""
-
     # TODO: Consider having a sub-object per exporter type instead?
     # This could also allow for passing in an exporter instance?
-    exporter_protocol: OtelExporterProtocol | None = OtelExporterProtocol.OTLP_GRPC
-    """OpenTelemetry exporter protocol (e.g., 'otlp_grpc', 'console')."""
+    exporter: OtelExporterProtocol | None = None
+    """OpenTelemetry exporter (e.g., OTLP_GRPC, CONSOLE)."""
 
     endpoint: str | None = "http://localhost:4317"
     """OpenTelemetry collector endpoint."""
@@ -133,10 +130,7 @@ class TelemetrySettings(BaseSettings):
 
     @model_validator(mode="after")
     def check_endpoint_if_otlp_grpc(self) -> "TelemetrySettings":
-        if (
-            self.exporter_protocol == OtelExporterProtocol.OTLP_GRPC
-            and self.endpoint is None
-        ):
+        if self.exporter == OtelExporterProtocol.OTLP_GRPC and self.endpoint is None:
             raise ValueError(
                 "OTEL_ENDPOINT must be set if OTEL_EXPORTER_PROTOCOL is OTLP_GRPC"
             )
