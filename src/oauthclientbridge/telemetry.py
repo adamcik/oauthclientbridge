@@ -3,20 +3,28 @@ from typing import NoReturn
 
 from flask import Flask
 from opentelemetry import trace
+from opentelemetry.baggage.propagation import W3CBaggagePropagator
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.flask import FlaskInstrumentor
+from opentelemetry.instrumentation.propagators import (
+    TraceResponsePropagator,
+    set_global_response_propagator,
+)
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.instrumentation.sqlite3 import SQLite3Instrumentor
 from opentelemetry.instrumentation.system_metrics import (
     SystemMetricsInstrumentor,
 )
 from opentelemetry.propagate import set_global_textmap
+from opentelemetry.propagators.composite import CompositePropagator
+from opentelemetry.propagators.textmap import TextMapPropagator
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 from opentelemetry.sdk.trace import SpanProcessor, TracerProvider
 from opentelemetry.sdk.trace.export import (
     BatchSpanProcessor,
     ConsoleSpanExporter,
 )
+from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 from oauthclientbridge.settings import OtelExporterProtocol, TelemetrySettings
 
@@ -43,6 +51,11 @@ def init_tracing(
             case _:
                 _assert_never(settings.exporter)
 
+    propagators: list[TextMapPropagator] = [
+        TraceContextTextMapPropagator(),
+        W3CBaggagePropagator(),
+    ]
+
     provider = TracerProvider(
         resource=Resource.create({SERVICE_NAME: settings.service_name})
     )
@@ -57,9 +70,11 @@ def init_tracing(
         )
 
         provider.add_span_processor(SentrySpanProcessor())
-        set_global_textmap(SentryPropagator())
+        propagators.append(SentryPropagator())
 
     trace.set_tracer_provider(provider)
+    set_global_textmap(CompositePropagator(propagators))
+    set_global_response_propagator(TraceResponsePropagator())
 
 
 def instrument() -> None:
