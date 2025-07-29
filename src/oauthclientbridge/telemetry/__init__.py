@@ -18,6 +18,7 @@ def init(
     settings: OtelSettings,
     sentry_enabled: bool = False,
     span_processor: Any | None = None,
+    app: Flask | None = None,
 ) -> None:
     if settings.enabled and not _otel_available:
         logger.error(
@@ -37,6 +38,7 @@ def init(
     init_traces(settings, span_processor=span_processor)
     init_metrics()
     _init_instrumentation()
+    _init_instrumentation(app)
 
 
 def _select_tracer(settings: OtelSettings, sentry_enabled: bool) -> Tracer:
@@ -54,6 +56,7 @@ def _select_tracer(settings: OtelSettings, sentry_enabled: bool) -> Tracer:
 
 # TODO: Move this to a separate module instrumentation
 def _init_instrumentation() -> None:
+def _init_instrumentation(app: Flask) -> None:
     from opentelemetry.instrumentation.flask import FlaskInstrumentor
     from opentelemetry.instrumentation.logging import LoggingInstrumentor
     from opentelemetry.instrumentation.requests import RequestsInstrumentor
@@ -63,6 +66,7 @@ def _init_instrumentation() -> None:
     )
 
     FlaskInstrumentor().instrument()
+    FlaskInstrumentor().instrument_app(app)
     RequestsInstrumentor().instrument()
     SQLite3Instrumentor().instrument()
     LoggingInstrumentor().instrument()
