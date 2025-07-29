@@ -284,6 +284,14 @@ source = { editable = "." }
 dependencies = [
     { name = "cryptography" },
     { name = "flask" },
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-exporter-otlp-proto-grpc" },
+    { name = "opentelemetry-instrumentation-flask" },
+    { name = "opentelemetry-instrumentation-logging" },
+    { name = "opentelemetry-instrumentation-requests" },
+    { name = "opentelemetry-instrumentation-sqlite3" },
+    { name = "opentelemetry-instrumentation-system-metrics" },
+    { name = "opentelemetry-sdk" },
     { name = "prometheus-client" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -295,14 +303,6 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "basedpyright" },
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-exporter-otlp-proto-grpc" },
-    { name = "opentelemetry-instrumentation-flask" },
-    { name = "opentelemetry-instrumentation-logging" },
-    { name = "opentelemetry-instrumentation-requests" },
-    { name = "opentelemetry-instrumentation-sqlite3" },
-    { name = "opentelemetry-instrumentation-system-metrics" },
-    { name = "opentelemetry-sdk" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "requests-mock" },
@@ -314,29 +314,11 @@ dev = [
 lint = [
     { name = "ruff" },
 ]
-otel = [
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-exporter-otlp-proto-grpc" },
-    { name = "opentelemetry-instrumentation-flask" },
-    { name = "opentelemetry-instrumentation-logging" },
-    { name = "opentelemetry-instrumentation-requests" },
-    { name = "opentelemetry-instrumentation-sqlite3" },
-    { name = "opentelemetry-instrumentation-system-metrics" },
-    { name = "opentelemetry-sdk" },
-]
 sentry = [
     { name = "sentry-sdk", extra = ["opentelemetry"] },
     { name = "structlog-sentry" },
 ]
 test = [
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-exporter-otlp-proto-grpc" },
-    { name = "opentelemetry-instrumentation-flask" },
-    { name = "opentelemetry-instrumentation-logging" },
-    { name = "opentelemetry-instrumentation-requests" },
-    { name = "opentelemetry-instrumentation-sqlite3" },
-    { name = "opentelemetry-instrumentation-system-metrics" },
-    { name = "opentelemetry-sdk" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "requests-mock" },
@@ -345,14 +327,6 @@ test = [
 ]
 typing = [
     { name = "basedpyright" },
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-exporter-otlp-proto-grpc" },
-    { name = "opentelemetry-instrumentation-flask" },
-    { name = "opentelemetry-instrumentation-logging" },
-    { name = "opentelemetry-instrumentation-requests" },
-    { name = "opentelemetry-instrumentation-sqlite3" },
-    { name = "opentelemetry-instrumentation-system-metrics" },
-    { name = "opentelemetry-sdk" },
     { name = "sentry-sdk", extra = ["opentelemetry"] },
     { name = "structlog-sentry" },
     { name = "types-requests" },
@@ -362,6 +336,14 @@ typing = [
 requires-dist = [
     { name = "cryptography", specifier = "~=45.0.5" },
     { name = "flask", specifier = "~=3.1.1" },
+    { name = "opentelemetry-api", specifier = "~=1.35.0" },
+    { name = "opentelemetry-exporter-otlp-proto-grpc", specifier = "~=1.35.0" },
+    { name = "opentelemetry-instrumentation-flask", specifier = "~=0.56b0" },
+    { name = "opentelemetry-instrumentation-logging", specifier = "~=0.56b0" },
+    { name = "opentelemetry-instrumentation-requests", specifier = "~=0.56b0" },
+    { name = "opentelemetry-instrumentation-sqlite3", specifier = "~=0.56b0" },
+    { name = "opentelemetry-instrumentation-system-metrics", specifier = "~=0.56b0" },
+    { name = "opentelemetry-sdk", specifier = "~=1.35.0" },
     { name = "prometheus-client", specifier = "~=0.22.1" },
     { name = "pydantic", specifier = "~=2.11.7" },
     { name = "pydantic-settings", specifier = "~=2.10.1" },
@@ -373,14 +355,6 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "basedpyright" },
-    { name = "opentelemetry-api", specifier = "~=1.35.0" },
-    { name = "opentelemetry-exporter-otlp-proto-grpc", specifier = "~=1.35.0" },
-    { name = "opentelemetry-instrumentation-flask", specifier = "~=0.56b0" },
-    { name = "opentelemetry-instrumentation-logging", specifier = "~=0.56b0" },
-    { name = "opentelemetry-instrumentation-requests", specifier = "~=0.56b0" },
-    { name = "opentelemetry-instrumentation-sqlite3", specifier = "~=0.56b0" },
-    { name = "opentelemetry-instrumentation-system-metrics", specifier = "~=0.56b0" },
-    { name = "opentelemetry-sdk", specifier = "~=1.35.0" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "requests-mock" },
@@ -390,29 +364,11 @@ dev = [
     { name = "types-requests" },
 ]
 lint = [{ name = "ruff" }]
-otel = [
-    { name = "opentelemetry-api", specifier = "~=1.35.0" },
-    { name = "opentelemetry-exporter-otlp-proto-grpc", specifier = "~=1.35.0" },
-    { name = "opentelemetry-instrumentation-flask", specifier = "~=0.56b0" },
-    { name = "opentelemetry-instrumentation-logging", specifier = "~=0.56b0" },
-    { name = "opentelemetry-instrumentation-requests", specifier = "~=0.56b0" },
-    { name = "opentelemetry-instrumentation-sqlite3", specifier = "~=0.56b0" },
-    { name = "opentelemetry-instrumentation-system-metrics", specifier = "~=0.56b0" },
-    { name = "opentelemetry-sdk", specifier = "~=1.35.0" },
-]
 sentry = [
     { name = "sentry-sdk", extras = ["opentelemetry"], specifier = "~=2.33.2" },
     { name = "structlog-sentry", specifier = "~=2.2.1" },
 ]
 test = [
-    { name = "opentelemetry-api", specifier = "~=1.35.0" },
-    { name = "opentelemetry-exporter-otlp-proto-grpc", specifier = "~=1.35.0" },
-    { name = "opentelemetry-instrumentation-flask", specifier = "~=0.56b0" },
-    { name = "opentelemetry-instrumentation-logging", specifier = "~=0.56b0" },
-    { name = "opentelemetry-instrumentation-requests", specifier = "~=0.56b0" },
-    { name = "opentelemetry-instrumentation-sqlite3", specifier = "~=0.56b0" },
-    { name = "opentelemetry-instrumentation-system-metrics", specifier = "~=0.56b0" },
-    { name = "opentelemetry-sdk", specifier = "~=1.35.0" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "requests-mock" },
@@ -421,14 +377,6 @@ test = [
 ]
 typing = [
     { name = "basedpyright" },
-    { name = "opentelemetry-api", specifier = "~=1.35.0" },
-    { name = "opentelemetry-exporter-otlp-proto-grpc", specifier = "~=1.35.0" },
-    { name = "opentelemetry-instrumentation-flask", specifier = "~=0.56b0" },
-    { name = "opentelemetry-instrumentation-logging", specifier = "~=0.56b0" },
-    { name = "opentelemetry-instrumentation-requests", specifier = "~=0.56b0" },
-    { name = "opentelemetry-instrumentation-sqlite3", specifier = "~=0.56b0" },
-    { name = "opentelemetry-instrumentation-system-metrics", specifier = "~=0.56b0" },
-    { name = "opentelemetry-sdk", specifier = "~=1.35.0" },
     { name = "sentry-sdk", extras = ["opentelemetry"], specifier = "~=2.33.2" },
     { name = "structlog-sentry", specifier = "~=2.2.1" },
     { name = "types-requests" },

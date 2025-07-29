@@ -11,6 +11,14 @@ dependencies = [
   "pydantic~=2.11.7",
   "pydantic-settings~=2.10.1",
   "structlog~=25.4.0",
+  "opentelemetry-sdk~=1.35.0",
+  "opentelemetry-api~=1.35.0",
+  "opentelemetry-exporter-otlp-proto-grpc~=1.35.0",
+  "opentelemetry-instrumentation-flask~=0.56b0",
+  "opentelemetry-instrumentation-requests~=0.56b0",
+  "opentelemetry-instrumentation-sqlite3~=0.56b0",
+  "opentelemetry-instrumentation-logging~=0.56b0",
+  "opentelemetry-instrumentation-system-metrics~=0.56b0",
 ]
 name = "oauthclientbridge"
 version = "2.0.0"
@@ -28,36 +36,14 @@ repository = "https://github.com/adamcik/oauthclientbridge"
 
 [dependency-groups]
 sentry = ["sentry-sdk[opentelemetry]~=2.33.2", "structlog-sentry~=2.2.1"]
-otel = [
-  "opentelemetry-sdk~=1.35.0",
-  "opentelemetry-api~=1.35.0",
-  "opentelemetry-exporter-otlp-proto-grpc~=1.35.0",
-  "opentelemetry-instrumentation-flask~=0.56b0",
-  "opentelemetry-instrumentation-requests~=0.56b0",
-  "opentelemetry-instrumentation-sqlite3~=0.56b0",
-  "opentelemetry-instrumentation-logging~=0.56b0",
-  "opentelemetry-instrumentation-system-metrics~=0.56b0",
-]
 dev = [
   { include-group = "test" },
   { include-group = "typing" },
   { include-group = "lint" },
   { include-group = "sentry" },
-  { include-group = "otel" },
 ]
-typing = [
-  "types-requests",
-  "basedpyright",
-  { include-group = "sentry" },
-  { include-group = "otel" },
-]
-test = [
-  "pytest",
-  "pytest-cov",
-  "requests_mock",
-  { include-group = "sentry" },
-  { include-group = "otel" },
-]
+typing = ["types-requests", "basedpyright", { include-group = "sentry" }]
+test = ["pytest", "pytest-cov", "requests_mock", { include-group = "sentry" }]
 lint = ["ruff"]
 
 [build-system]
