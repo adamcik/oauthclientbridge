@@ -14,10 +14,6 @@ from werkzeug.local import LocalProxy
 
 
 class CustomSettingsSource(EnvSettingsSource):
-    def __init__(self, settings_cls, fields: dict[str, type]):
-        super().__init__(settings_cls)
-        self.fields = fields
-
     def prepare_field_value(
         self,
         field_name: str,
@@ -25,10 +21,13 @@ class CustomSettingsSource(EnvSettingsSource):
         value: Any,
         value_is_complex: bool,
     ) -> Any:
-        if field_name in self.fields:
+        if getattr(field.annotation, "__origin__", None) in (list, set):
             if isinstance(value, str):
                 parts = [part.strip() for part in value.split(",")]
-                return self.fields[field_name]([part for part in parts if part])
+                return getattr(field.annotation, "__origin__")(
+                    [part for part in parts if part]
+                )
+
         return super().prepare_field_value(
             field_name,
             field,
@@ -37,7 +36,25 @@ class CustomSettingsSource(EnvSettingsSource):
         )
 
 
-class OAuthSettings(BaseSettings):
+class CustomBaseSettings(BaseSettings):
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ):
+        return (
+            init_settings,
+            CustomSettingsSource(settings_cls),
+            dotenv_settings,
+            file_secret_settings,
+        )
+
+
+class OAuthSettings(CustomBaseSettings):
     model_config = SettingsConfigDict(env_prefix="OAUTH_")
 
     client_id: str
@@ -68,7 +85,7 @@ class OAuthSettings(BaseSettings):
     """
 
 
-class FetchSettings(BaseSettings):
+class FetchSettings(CustomBaseSettings):
     model_config = SettingsConfigDict(env_prefix="FETCH_")
 
     total_timeout: float = 20.0
@@ -105,7 +122,7 @@ class FetchSettings(BaseSettings):
     """Backoff factor to use for not hammering the oauth server too much."""
 
 
-class DatabaseSettings(BaseSettings):
+class DatabaseSettings(CustomBaseSettings):
     model_config = SettingsConfigDict(env_prefix="DB_")
 
     database: str
@@ -118,7 +135,7 @@ class DatabaseSettings(BaseSettings):
     """SQlite3 database PRAGMAs to run at connection time for database."""
 
 
-class SentrySettings(BaseSettings):
+class SentrySettings(CustomBaseSettings):
     model_config = SettingsConfigDict(env_prefix="SENTRY_")
 
     enabled: bool = False
@@ -150,7 +167,7 @@ class TelemetryComponent(StrEnum):
     METRICS = "metrics"
 
 
-class TelemetrySettings(BaseSettings):
+class TelemetrySettings(CustomBaseSettings):
     model_config = SettingsConfigDict(env_prefix="TELEMETRY_")
 
     components: set[TelemetryComponent] = Field(
@@ -179,30 +196,8 @@ class TelemetrySettings(BaseSettings):
             )
         return self
 
-    @classmethod
-    def settings_customise_sources(
-        cls,
-        settings_cls: type[BaseSettings],
-        init_settings: PydanticBaseSettingsSource,
-        env_settings: PydanticBaseSettingsSource,
-        dotenv_settings: PydanticBaseSettingsSource,
-        file_secret_settings: PydanticBaseSettingsSource,
-    ):
-        return (
-            init_settings,
-            CustomSettingsSource(
-                settings_cls,
-                fields={
-                    "components": set,
-                    "exporters": set,
-                },
-            ),
-            dotenv_settings,
-            file_secret_settings,
-        )
 
-
-class Settings(BaseSettings):
+class Settings(CustomBaseSettings):
     """
     Application settings for oauthclientbridge.
     """
