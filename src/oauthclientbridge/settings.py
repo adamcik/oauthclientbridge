@@ -1,4 +1,4 @@
-from enum import StrEnum, auto
+from enum import StrEnum
 
 from flask import current_app
 from pydantic import Field, SecretStr, model_validator
@@ -110,13 +110,13 @@ class SentrySettings(BaseSettings):
 
 
 class OtelExporterProtocol(StrEnum):
-    OTLP_GRPC = auto()
-    CONSOLE = auto()
+    OTLP_GRPC = "otlp_grpc"
+    CONSOLE = "console"
 
 
 class TelemetryComponent(StrEnum):
-    TRACING = auto()
-    METRICS = auto()
+    TRACING = "tracing"
+    METRICS = "metrics"
 
 
 class TelemetrySettings(BaseSettings):
