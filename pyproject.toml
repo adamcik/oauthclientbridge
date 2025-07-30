@@ -19,6 +19,7 @@ dependencies = [
   "opentelemetry-instrumentation-sqlite3~=0.56b0",
   "opentelemetry-instrumentation-logging~=0.56b0",
   "opentelemetry-instrumentation-system-metrics~=0.56b0",
+  "opentelemetry-exporter-otlp~=1.35.0",
 ]
 name = "oauthclientbridge"
 version = "2.0.0"
