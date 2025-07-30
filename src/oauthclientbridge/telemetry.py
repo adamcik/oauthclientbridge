@@ -23,6 +23,7 @@ from opentelemetry.sdk.trace import SpanProcessor, TracerProvider
 from opentelemetry.sdk.trace.export import (
     BatchSpanProcessor,
     ConsoleSpanExporter,
+    SimpleSpanProcessor,
 )
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
@@ -38,30 +39,28 @@ def init_tracing(
     settings: TelemetrySettings,
     span_processor: SpanProcessor | None = None,
 ) -> None:
-    if span_processor is None:
-        match settings.exporter:
-            case OtelExporterProtocol.OTLP_GRPC:
-                span_processor = BatchSpanProcessor(
-                    OTLPSpanExporter(endpoint=settings.endpoint)
-                )
-            case OtelExporterProtocol.CONSOLE:
-                span_processor = BatchSpanProcessor(ConsoleSpanExporter())
-            case None:
-                span_processor = None
-            case _:
-                _assert_never(settings.exporter)
-
-    propagators: list[TextMapPropagator] = [
-        TraceContextTextMapPropagator(),
-        W3CBaggagePropagator(),
-    ]
-
     provider = TracerProvider(
         resource=Resource.create({SERVICE_NAME: settings.service_name})
     )
 
     if span_processor:
         provider.add_span_processor(span_processor)
+
+    for exporter_protocol in settings.exporters:
+        match exporter_protocol:
+            case OtelExporterProtocol.OTLP_GRPC:
+                provider.add_span_processor(
+                    BatchSpanProcessor(OTLPSpanExporter(endpoint=settings.endpoint))
+                )
+            case OtelExporterProtocol.CONSOLE:
+                provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
+            case _:
+                _assert_never(exporter_protocol)
+
+    propagators: list[TextMapPropagator] = [
+        TraceContextTextMapPropagator(),
+        W3CBaggagePropagator(),
+    ]
 
     if importlib.util.find_spec("sentry_sdk"):
         from sentry_sdk.integrations.opentelemetry.propagator import SentryPropagator

@@ -4,8 +4,10 @@ from oauthclientbridge.settings import Settings
 settings = Settings()
 
 logs.init()
+
 sentry.init(settings.sentry)
 
+telemetry.instrument()
 telemetry.init_tracing(settings.otel)
 
 app = create_app(settings)

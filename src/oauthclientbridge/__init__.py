@@ -14,8 +14,6 @@ __version__ = version("oauthclientbridge")
 
 logger: structlog.BoundLogger = structlog.get_logger()
 
-telemetry.instrument()
-
 
 def create_app(settings: Settings) -> Flask:
     app = Flask(__name__)
