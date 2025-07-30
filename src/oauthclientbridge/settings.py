@@ -1,9 +1,40 @@
 from enum import StrEnum
+from typing import Any
 
 from flask import current_app
 from pydantic import Field, SecretStr, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic.fields import FieldInfo
+from pydantic_settings import (
+    BaseSettings,
+    EnvSettingsSource,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+)
 from werkzeug.local import LocalProxy
+
+
+class CustomSettingsSource(EnvSettingsSource):
+    def __init__(self, settings_cls, fields: dict[str, type]):
+        super().__init__(settings_cls)
+        self.fields = fields
+
+    def prepare_field_value(
+        self,
+        field_name: str,
+        field: FieldInfo,
+        value: Any,
+        value_is_complex: bool,
+    ) -> Any:
+        if field_name in self.fields:
+            if isinstance(value, str):
+                parts = [part.strip() for part in value.split(",")]
+                return self.fields[field_name]([part for part in parts if part])
+        return super().prepare_field_value(
+            field_name,
+            field,
+            value,
+            value_is_complex,
+        )
 
 
 class OAuthSettings(BaseSettings):
@@ -123,11 +154,15 @@ class TelemetrySettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="TELEMETRY_")
 
     components: set[TelemetryComponent] = Field(
-        default_factory=lambda: {TelemetryComponent.TRACING}
+        default_factory=lambda: {TelemetryComponent.TRACING},
+        json_schema_extra={"env_vars_parse_as_json": False},
     )
     """Set of OpenTelemetry components to enable (e.g., TRACING, METRICS)."""
 
-    exporters: set[OtelExporterProtocol] = Field(default_factory=set)
+    exporters: set[OtelExporterProtocol] = Field(
+        default_factory=set,
+        json_schema_extra={"env_vars_parse_as_json": False},
+    )
     """Set of OpenTelemetry exporters to use (e.g., OTLP_GRPC, CONSOLE)."""
 
     endpoint: str | None = "http://localhost:4317"
@@ -143,6 +178,28 @@ class TelemetrySettings(BaseSettings):
                 "OTEL_ENDPOINT must be set if OTLP_GRPC is in TELEMETRY_EXPORTERS"
             )
         return self
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ):
+        return (
+            init_settings,
+            CustomSettingsSource(
+                settings_cls,
+                fields={
+                    "components": set,
+                    "exporters": set,
+                },
+            ),
+            dotenv_settings,
+            file_secret_settings,
+        )
 
 
 class Settings(BaseSettings):
