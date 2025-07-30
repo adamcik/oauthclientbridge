@@ -27,7 +27,10 @@ from opentelemetry.sdk.trace.export import (
 )
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
-from oauthclientbridge.settings import OtelExporterProtocol, TelemetrySettings
+from oauthclientbridge.settings import (
+    TelemetryExporter,
+    TelemetrySettings,
+)
 
 _flask_instrumentor = FlaskInstrumentor()
 _requests_instrumentor = RequestsInstrumentor()
@@ -48,11 +51,11 @@ def init_tracing(
 
     for exporter_protocol in settings.exporters:
         match exporter_protocol:
-            case OtelExporterProtocol.OTLP_GRPC:
+            case TelemetryExporter.OTLP_GRPC:
                 provider.add_span_processor(
                     BatchSpanProcessor(OTLPSpanExporter(endpoint=settings.endpoint))
                 )
-            case OtelExporterProtocol.CONSOLE:
+            case TelemetryExporter.CONSOLE:
                 provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
             case _:
                 _assert_never(exporter_protocol)

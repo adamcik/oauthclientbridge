@@ -5,8 +5,11 @@ from opentelemetry import trace
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
-from oauthclientbridge.settings import OtelExporterProtocol, TelemetrySettings
+from oauthclientbridge.settings import (
 from oauthclientbridge.telemetry import init_tracing
+    TelemetryComponent,
+    TelemetrySettings,
+)
 
 tracer = trace.get_tracer(__name__)
 
@@ -16,8 +19,12 @@ def captraces() -> Generator[InMemorySpanExporter, None, None]:
     exporter = InMemorySpanExporter()
     processor = SimpleSpanProcessor(exporter)
 
-    settings = TelemetrySettings(exporters={OtelExporterProtocol.CONSOLE})
-    init_tracing(settings, span_processor=processor)
+    init_tracing(
+        TelemetrySettings(
+            components={TelemetryComponent.TRACING},
+        ),
+        span_processor=processor,
+    )
 
     yield exporter
 

@@ -157,7 +157,7 @@ class SentrySettings(CustomBaseSettings):
         return self
 
 
-class OtelExporterProtocol(StrEnum):
+class TelemetryExporter(StrEnum):
     OTLP_GRPC = "otlp_grpc"
     CONSOLE = "console"
 
@@ -176,7 +176,7 @@ class TelemetrySettings(CustomBaseSettings):
     )
     """Set of OpenTelemetry components to enable (e.g., TRACING, METRICS)."""
 
-    exporters: set[OtelExporterProtocol] = Field(
+    exporters: set[TelemetryExporter] = Field(
         default_factory=set,
         json_schema_extra={"env_vars_parse_as_json": False},
     )
@@ -190,7 +190,7 @@ class TelemetrySettings(CustomBaseSettings):
 
     @model_validator(mode="after")
     def check_endpoint_if_otlp_grpc(self) -> "TelemetrySettings":
-        if OtelExporterProtocol.OTLP_GRPC in self.exporters and self.endpoint is None:
+        if TelemetryExporter.OTLP_GRPC in self.exporters and self.endpoint is None:
             raise ValueError(
                 "OTEL_ENDPOINT must be set if OTLP_GRPC is in TELEMETRY_EXPORTERS"
             )
