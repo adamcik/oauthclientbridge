@@ -11,7 +11,7 @@ def test_telemetry_settings_defaults() -> None:
     assert settings.service_name == "oauthclientbridge"
 
 
-def test_telemetry_settings_otlp_grpc_no_endpoint_raises_error() -> None:
+def test_telemetry_settings_invalid_if_exporter_and_no_endpoint() -> None:
     with pytest.raises(ValidationError) as excinfo:
         TelemetrySettings(
             exporters={TelemetryExporter.OTLP_GRPC},
@@ -22,7 +22,7 @@ def test_telemetry_settings_otlp_grpc_no_endpoint_raises_error() -> None:
     )
 
 
-def test_telemetry_settings_otlp_grpc_with_endpoint() -> None:
+def test_telemetry_settings_valid_if_exporter_and_endpoint() -> None:
     settings = TelemetrySettings(
         exporters={TelemetryExporter.OTLP_GRPC},
         endpoint="http://my-collector:4317",
@@ -31,6 +31,6 @@ def test_telemetry_settings_otlp_grpc_with_endpoint() -> None:
     assert settings.endpoint == "http://my-collector:4317"
 
 
-def test_telemetry_settings_custom_service_name() -> None:
+def test_telemetry_settings_valid_if_no_exporter_and_no_endpoint() -> None:
     settings = TelemetrySettings(service_name="my-custom-service")
     assert settings.service_name == "my-custom-service"
