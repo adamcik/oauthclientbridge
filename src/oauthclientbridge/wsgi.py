@@ -9,5 +9,6 @@ sentry.init(settings.sentry)
 
 telemetry.instrument()
 telemetry.init_tracing(settings.otel)
+telemetry.init_metrics(settings.otel)
 
 app = create_app(settings)

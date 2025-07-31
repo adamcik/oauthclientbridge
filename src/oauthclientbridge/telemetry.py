@@ -4,6 +4,7 @@ from typing import NoReturn
 from flask import Flask
 from opentelemetry import trace
 from opentelemetry.baggage.propagation import W3CBaggagePropagator
+from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.flask import FlaskInstrumentor
 from opentelemetry.instrumentation.propagators import (
@@ -15,9 +16,16 @@ from opentelemetry.instrumentation.sqlite3 import SQLite3Instrumentor
 from opentelemetry.instrumentation.system_metrics import (
     SystemMetricsInstrumentor,
 )
+from opentelemetry.metrics import set_meter_provider
 from opentelemetry.propagate import set_global_textmap
 from opentelemetry.propagators.composite import CompositePropagator
 from opentelemetry.propagators.textmap import TextMapPropagator
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import (
+    ConsoleMetricExporter,
+    MetricReader,
+    PeriodicExportingMetricReader,
+)
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 from opentelemetry.sdk.trace import SpanProcessor, TracerProvider
 from opentelemetry.sdk.trace.export import (
@@ -28,6 +36,7 @@ from opentelemetry.sdk.trace.export import (
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 from oauthclientbridge.settings import (
+    TelemetryComponent,
     TelemetryExporter,
     TelemetrySettings,
 )
@@ -42,6 +51,8 @@ def init_tracing(
     settings: TelemetrySettings,
     span_processor: SpanProcessor | None = None,
 ) -> None:
+    if TelemetryComponent.TRACING not in settings.components:
+        return
     provider = TracerProvider(
         resource=Resource.create({SERVICE_NAME: settings.service_name})
     )
@@ -98,3 +109,49 @@ def instrument_app(app: Flask) -> None:
 
 def _assert_never(value: NoReturn) -> NoReturn:
     raise AssertionError(f"Unhandled type: {value} ({type(value).__name__})")
+
+
+def init_metrics(
+    settings: TelemetrySettings,
+    metric_reader: MetricReader | None = None,
+) -> None:
+    if TelemetryComponent.METRICS not in settings.components:
+        return
+
+    resource = Resource.create({SERVICE_NAME: settings.service_name})
+
+    readers: list[MetricReader] = []
+    if metric_reader:
+        readers.append(metric_reader)
+
+    for exporter_protocol in settings.exporters:
+        match exporter_protocol:
+            case TelemetryExporter.OTLP_GRPC:
+                exporter = OTLPMetricExporter(endpoint=settings.endpoint)
+                readers.append(
+                    PeriodicExportingMetricReader(
+                        exporter,
+                        export_interval_millis=int(
+                            settings.metric_export_interval_seconds * 1000
+                        ),
+                    )
+                )
+            case TelemetryExporter.CONSOLE:
+                exporter = ConsoleMetricExporter()
+                readers.append(
+                    PeriodicExportingMetricReader(
+                        exporter,
+                        export_interval_millis=int(
+                            settings.metric_export_interval_seconds * 1000
+                        ),
+                    )
+                )
+            case _:
+                _assert_never(exporter_protocol)
+
+    set_meter_provider(
+        MeterProvider(
+            resource=resource,
+            metric_readers=readers,
+        )
+    )

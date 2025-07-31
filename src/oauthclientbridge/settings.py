@@ -188,6 +188,9 @@ class TelemetrySettings(CustomBaseSettings):
     service_name: str = "oauthclientbridge"
     """Service name for OpenTelemetry traces and metrics."""
 
+    metric_export_interval_seconds: float = 60.0
+    """Interval in seconds for exporting metrics."""
+
     @model_validator(mode="after")
     def check_endpoint_if_otlp_grpc(self) -> "TelemetrySettings":
         if TelemetryExporter.OTLP_GRPC in self.exporters and self.endpoint is None:

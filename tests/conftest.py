@@ -169,8 +169,10 @@ def refresh_token() -> TokenTuple:
 @pytest.fixture(autouse=True)
 def otel_reset_provider():
     """Reset the tracer provider before each test to avoid state leakage."""
+    import opentelemetry.metrics
     import opentelemetry.trace
 
     _ = importlib.reload(opentelemetry.trace)
+    _ = importlib.reload(opentelemetry.metrics)
 
     yield
