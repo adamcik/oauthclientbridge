@@ -11,12 +11,14 @@ from oauthclientbridge import logs
 
 @pytest.fixture(autouse=True)
 def reset_logging_handlers():
-    """Fixture to reset logging handlers before each test."""
+    """Fixture to reset logging handlers after each test."""
+    yield
+
     root_logger = logging.getLogger()
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
+
     structlog.reset_defaults()
-    yield
 
 
 def test_configure_structlog_json_output(capsys, monkeypatch):
