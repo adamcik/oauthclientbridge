@@ -258,3 +258,47 @@ def test_endpoint_propagates_outgoing_traceparent(
     assert len(history) == 1
     assert "traceparent" in history[0].headers
     assert_trace_header(TRACE_ID, history[0].headers["traceparent"])
+
+
+def test_flask_metrics(client: FlaskClient, capmetrics: InMemoryMetricReader) -> None:
+    client.get("/")
+
+    metrics_data = capmetrics.get_metrics_data()
+    assert metrics_data is not None
+
+    scope_metrics = metrics_data.resource_metrics[0].scope_metrics
+
+    flask_scope = next(
+        s
+        for s in scope_metrics
+        if s.scope.name == "opentelemetry.instrumentation.flask"
+    )
+
+    assert any(m.name == "http.server.duration" for m in flask_scope.metrics)
+    assert any(m.name == "http.server.active_requests" for m in flask_scope.metrics)
+
+
+def test_requests_metrics(
+    requests_mock: Mocker,
+    instrumented,
+    capmetrics: InMemoryMetricReader,
+) -> None:
+    requests_mock.get("http://example.com/test", status_code=200)
+
+    requests.get("http://example.com/test")
+
+    metrics_data = capmetrics.get_metrics_data()
+    assert metrics_data is not None
+
+    scope_metrics = metrics_data.resource_metrics[0].scope_metrics
+
+    requests_scope = next(
+        s
+        for s in scope_metrics
+        if s.scope.name == "opentelemetry.instrumentation.requests"
+    )
+
+    assert any(m.name == "http.client.duration" for m in requests_scope.metrics)
+
+
+# NOTE: As of 2025-08-01 the sqlite3 otel instrumentation does not support metrics.
