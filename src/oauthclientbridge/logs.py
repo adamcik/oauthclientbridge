@@ -1,11 +1,10 @@
 import logging
 import sys
 import time
-from typing import Any
+from typing import Any, cast
 
 import structlog
 from flask import Response, g, request
-from opentelemetry import trace
 from structlog.types import EventDict
 
 logger: structlog.BoundLogger = structlog.get_logger()
@@ -31,7 +30,6 @@ def init(level=logging.INFO, colors: bool = True) -> None:
             ]
         ),
         structlog.stdlib.ExtraAdder(),
-        add_otel_context_processor,
     ]
 
     try:
@@ -54,7 +52,8 @@ def init(level=logging.INFO, colors: bool = True) -> None:
     )
 
     processors: list[structlog.types.Processor] = [
-        structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+        add_otel_context_processor,
+        # structlog.stdlib.ProcessorFormatter.remove_processors_meta,
     ]
     if sys.stdout.isatty():
         processors.append(structlog.dev.ConsoleRenderer(colors=colors))
@@ -86,13 +85,17 @@ def init(level=logging.INFO, colors: bool = True) -> None:
 
 
 def add_otel_context_processor(_: Any, __: str, event_dict: EventDict) -> EventDict:
-    span_context = trace.get_current_span().get_span_context()
-    if span_context.is_valid:
-        event_dict["otel"] = {
-            "trace_id": format(span_context.trace_id, "032x"),
-            "span_id": format(span_context.span_id, "016x"),
-            "trace_sampled": bool(span_context.trace_flags & trace.TraceFlags.SAMPLED),
-        }
+    if "_record" not in event_dict:
+        return event_dict
+
+    record = cast(logging.LogRecord, event_dict["_record"])
+    if hasattr(record, "otelTraceID"):
+        event_dict["otelTraceID"] = getattr(record, "otelTraceID")
+        event_dict["otelSpanID"] = getattr(record, "otelSpanID")
+        event_dict["otelTraceSampled"] = getattr(record, "otelTraceSampled")
+        if hasattr(record, "otelServiceName"):
+            event_dict["otelServiceName"] = getattr(record, "otelServiceName")
+
     return event_dict
 
 

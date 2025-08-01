@@ -5,8 +5,11 @@ import sys
 import pytest
 import structlog
 from flask import Flask
+from opentelemetry import trace
 
 from oauthclientbridge import logs
+
+tracer = trace.get_tracer(__name__)
 
 
 @pytest.fixture(autouse=True)
@@ -19,6 +22,9 @@ def reset_logging_handlers():
         root_logger.removeHandler(handler)
 
     structlog.reset_defaults()
+
+
+# TODO: Add a test using stdlib logging, with extra=... to make sure that also works.
 
 
 def test_configure_structlog_json_output(capsys, monkeypatch):
@@ -77,6 +83,8 @@ def test_flask_request_logging(capsys, monkeypatch):
     # There should be two log lines: one from inside the route, one from after_request
     assert len(log_lines) == 2
 
+    # TODO: This is fragile as it assume the order is static, we should just
+    # convert all the lines and then search for the right one.
     route_log = json.loads(log_lines[0])
     request_log = json.loads(log_lines[1])
 
@@ -106,3 +114,39 @@ def test_configure_structlog_console_colors(capsys, monkeypatch):
     # This is a basic check, more robust checks might involve parsing ANSI codes
     assert "\x1b[32m" in captured.err  # Check for green color code (info level)
     assert "This is a colored structlog message." in captured.err
+
+
+def test_structlog_logging_trace_id_injection(instrumented, capsys) -> None:
+    logs.init()
+
+    with tracer.start_as_current_span("test") as span:
+        structlog.get_logger().info("This is a structlog log entry")
+
+    records = parse_logs(capsys)
+    assert len(records) == 1
+    assert_has_otel_records(records[0], span)
+
+
+def test_stdlib_logging_trace_id_injection(instrumented, capsys) -> None:
+    logs.init()
+
+    with tracer.start_as_current_span("test") as span:
+        logging.getLogger(__name__).info("This is a standard log entry")
+
+    records = parse_logs(capsys)
+    assert len(records) == 1
+    assert_has_otel_records(records[0], span)
+
+
+def parse_logs(capsys):
+    return [json.loads(line) for line in capsys.readouterr().err.splitlines()]
+
+
+def assert_has_otel_records(record, span: trace.Span):
+    assert "otelTraceID" in record
+    assert "otelSpanID" in record
+    assert "otelTraceSampled" in record
+    assert "otelServiceName" in record
+
+    assert record["otelTraceID"] == format(span.get_span_context().trace_id, "032x")
+    assert record["otelSpanID"] == format(span.get_span_context().span_id, "016x")

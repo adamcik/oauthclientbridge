@@ -8,6 +8,7 @@ from opentelemetry.baggage.propagation import W3CBaggagePropagator
 from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.flask import FlaskInstrumentor
+from opentelemetry.instrumentation.logging import LoggingInstrumentor
 from opentelemetry.instrumentation.propagators import (
     TraceResponsePropagator,
     set_global_response_propagator,
@@ -49,7 +50,7 @@ def instrument():
         SQLite3Instrumentor(),
         RequestsInstrumentor(),
         SystemMetricsInstrumentor(),
-        # LoggingInstrumentor(), # TODO: Figure out if this makes sense
+        LoggingInstrumentor(),
     ]
 
     for inst in instrumentors:
