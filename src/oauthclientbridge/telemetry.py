@@ -1,5 +1,6 @@
+import contextlib
 import importlib.util
-from typing import NoReturn
+from typing import assert_never
 
 from flask import Flask
 from opentelemetry import trace
@@ -41,10 +42,30 @@ from oauthclientbridge.settings import (
     TelemetrySettings,
 )
 
-_flask_instrumentor = FlaskInstrumentor()
-_requests_instrumentor = RequestsInstrumentor()
-_sqlite3_instrumentor = SQLite3Instrumentor()
-_system_metrics_instrumentor = SystemMetricsInstrumentor()
+
+@contextlib.contextmanager
+def instrument():
+    instrumentors = [
+        SQLite3Instrumentor(),
+        RequestsInstrumentor(),
+        SystemMetricsInstrumentor(),
+        # LoggingInstrumentor(), # TODO: Figure out if this makes sense
+    ]
+
+    for inst in instrumentors:
+        inst.instrument()
+
+    try:
+        yield
+    finally:
+        for inst in instrumentors:
+            inst.uninstrument()
+
+
+def instrument_app(app: Flask) -> None:
+    # TODO: See if we can do this with global flask instrument without breaking
+    # server or tests.
+    FlaskInstrumentor().instrument_app(app)
 
 
 def init_tracing(
@@ -69,7 +90,7 @@ def init_tracing(
             case TelemetryExporter.CONSOLE:
                 provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
             case _:
-                _assert_never(exporter_protocol)
+                assert_never(exporter_protocol)
 
     propagators: list[TextMapPropagator] = [
         TraceContextTextMapPropagator(),
@@ -92,23 +113,6 @@ def init_tracing(
 
     # Set traceresponse header
     set_global_response_propagator(TraceResponsePropagator())
-
-
-def instrument() -> None:
-    _requests_instrumentor.instrument()
-    _sqlite3_instrumentor.instrument()
-    _system_metrics_instrumentor.instrument()
-
-    # TODO: See how this would interact with structlog
-    # _logging_instrumentor.instrument()
-
-
-def instrument_app(app: Flask) -> None:
-    _flask_instrumentor.instrument_app(app)
-
-
-def _assert_never(value: NoReturn) -> NoReturn:
-    raise AssertionError(f"Unhandled type: {value} ({type(value).__name__})")
 
 
 def init_metrics(
@@ -147,7 +151,7 @@ def init_metrics(
                     )
                 )
             case _:
-                _assert_never(exporter_protocol)
+                assert_never(exporter_protocol)
 
     set_meter_provider(
         MeterProvider(
