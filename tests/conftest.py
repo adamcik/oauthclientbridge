@@ -1,5 +1,4 @@
 import base64
-import importlib
 import json
 from typing import Any, NamedTuple, Protocol
 
@@ -7,6 +6,9 @@ import pytest
 from flask import Flask
 from flask.ctx import AppContext
 from flask.testing import FlaskClient
+from opentelemetry.sdk.metrics.export import InMemoryMetricReader
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from pydantic import SecretStr
 from werkzeug.datastructures import Headers
 
@@ -15,7 +17,53 @@ from oauthclientbridge.settings import (
     DatabaseSettings,
     OAuthSettings,
     Settings,
+    TelemetryComponent,
+    TelemetrySettings,
 )
+from oauthclientbridge.telemetry import init_metrics, init_tracing, instrument
+
+
+@pytest.fixture(scope="session", autouse=True)
+def otel_setup():
+    """Sets up global OpenTelemetry providers for testing using init_tracing and init_metrics."""
+    # Tracing setup
+    span_exporter = InMemorySpanExporter()
+    span_processor = SimpleSpanProcessor(span_exporter)
+
+    # Metrics setup
+    metric_reader = InMemoryMetricReader()
+
+    settings = TelemetrySettings(
+        components={TelemetryComponent.TRACING, TelemetryComponent.METRICS},
+    )
+
+    init_tracing(settings, span_processor=span_processor)
+    init_metrics(settings, metric_reader=metric_reader)
+
+    yield span_exporter, metric_reader
+
+    span_processor.shutdown()
+    metric_reader.shutdown()
+
+
+@pytest.fixture
+def instrumented():
+    with instrument():
+        yield
+
+
+@pytest.fixture
+def captraces(otel_setup):
+    span_exporter, _ = otel_setup
+    span_exporter.clear()
+    return span_exporter
+
+
+@pytest.fixture
+def capmetrics(otel_setup):
+    _, metric_reader = otel_setup
+    _ = metric_reader.get_metrics_data()
+    return metric_reader
 
 
 class ResponseTuple(NamedTuple):
@@ -78,13 +126,17 @@ def cursor(app_context: AppContext):
 
 
 class GetClient(Protocol):
-    def __call__(self, path: str) -> ResponseTuple: ...
+    def __call__(
+        self,
+        path: str,
+        headers: dict[str, str] | None = None,
+    ) -> ResponseTuple: ...
 
 
 @pytest.fixture
 def get(client: FlaskClient) -> GetClient:
-    def _get(path: str):
-        resp = client.get(path)
+    def _get(path: str, headers: dict[str, str] | None = None):
+        resp = client.get(path, headers=None)
         return ResponseTuple(
             json.loads(resp.text),
             resp.status_code,
@@ -164,15 +216,3 @@ def access_token() -> TokenTuple:
 @pytest.fixture
 def refresh_token() -> TokenTuple:
     return _test_token(refresh_token="abc")
-
-
-@pytest.fixture(autouse=True)
-def otel_reset_provider():
-    """Reset the tracer provider before each test to avoid state leakage."""
-    import opentelemetry.metrics
-    import opentelemetry.trace
-
-    _ = importlib.reload(opentelemetry.trace)
-    _ = importlib.reload(opentelemetry.metrics)
-
-    yield
