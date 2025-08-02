@@ -69,7 +69,7 @@ def test_flask_request_logging(capsys, monkeypatch):
 
     @app.route("/")
     def index():
-        logs.logger.info("Inside Flask app route.")
+        app.logger.info("Inside Flask app route.")
         return "Hello, World!"
 
     with app.test_client() as client:
@@ -77,27 +77,18 @@ def test_flask_request_logging(capsys, monkeypatch):
         assert response.status_code == 200
         assert b"Hello, World!" in response.data
 
-    captured = capsys.readouterr()
-    log_lines = captured.err.strip().splitlines()
+    records = parse_logs(capsys)
 
-    # There should be two log lines: one from inside the route, one from after_request
-    assert len(log_lines) == 2
+    app_record = next(r for r in records if r["logger"] == "tests.logs_test")
+    assert app_record["event"] == "Inside Flask app route."
 
-    # TODO: This is fragile as it assume the order is static, we should just
-    # convert all the lines and then search for the right one.
-    route_log = json.loads(log_lines[0])
-    request_log = json.loads(log_lines[1])
-
-    # Assertions for the log from inside the route
-    assert route_log["event"] == "Inside Flask app route."
-
-    # Assertions for the log from after_request
-    assert request_log["http"]["status_code"] == 200
-    assert request_log["http"]["method"] == "GET"
-    assert request_log["http"]["url"].endswith("/")
-    assert "duration_ms" in request_log
-    assert "response_bytes" in request_log
-    assert request_log["response_bytes"] == len(b"Hello, World!")
+    http_record = next(r for r in records if r["logger"] == "oauthclientbridge.http")
+    assert http_record["http"]["status_code"] == 200
+    assert http_record["http"]["method"] == "GET"
+    assert http_record["http"]["url"].endswith("/")
+    assert "duration_ms" in http_record
+    assert "response_bytes" in http_record
+    assert http_record["response_bytes"] == len(b"Hello, World!")
 
 
 def test_configure_structlog_console_colors(capsys, monkeypatch):

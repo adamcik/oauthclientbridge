@@ -7,7 +7,7 @@ import structlog
 from flask import Response, g, request
 from structlog.types import EventDict
 
-logger: structlog.BoundLogger = structlog.get_logger()
+access_logger: structlog.BoundLogger = structlog.get_logger("oauthclientbridge.http")
 
 
 def init(level=logging.INFO, colors: bool = True) -> None:
@@ -53,7 +53,7 @@ def init(level=logging.INFO, colors: bool = True) -> None:
 
     processors: list[structlog.types.Processor] = [
         add_otel_context_processor,
-        # structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+        structlog.stdlib.ProcessorFormatter.remove_processors_meta,
     ]
     if sys.stdout.isatty():
         processors.append(structlog.dev.ConsoleRenderer(colors=colors))
@@ -108,7 +108,7 @@ def before_request_log_context():
 def after_request_log_context(response: Response) -> Response:
     http_version = request.environ.get("SERVER_PROTOCOL")
 
-    logger.info(
+    access_logger.info(
         f"""{request.remote_addr} - "{request.method} {request.path} {http_version}" {response.status_code}""",
         duration_ms=(time.perf_counter_ns() - g.start_time) / 1e6,
         response_bytes=len(response.data),
