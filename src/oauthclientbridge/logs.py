@@ -35,32 +35,20 @@ from oauthclientbridge.settings import LogSettings
 access_logger: structlog.BoundLogger = structlog.get_logger("oauthclientbridge.http")
 logger: structlog.BoundLogger = structlog.get_logger()
 
-HTTP_REQUST_DURATION = "http.server.request.duration"
-HTTP_REQUEST_BODY_SIZE = "http.server.request.body.size"
-HTTP_RESPONSE_BODY_SIZE = "http.server.response.body.size"
+# NOTE: I'm not sure if these are the right constants to use, to they seem to be
+# close to the conventions for other things.
+HTTP_REQUST_DURATION = "http.request.duration"
+HTTP_REQUEST_BODY_SIZE = "http.request.body.size"
+HTTP_RESPONSE_BODY_SIZE = "http.response.body.size"
 
 
 class AccessLogFormatter(string.Formatter):
     def get_field(self, field_name, args, kwargs):
-        if isinstance(field_name, int):
-            return args[field_name]
-
         if field_name in kwargs:
-            return kwargs[field_name], field_name
-
-        data = kwargs
-        for part in field_name.split("."):
-            if isinstance(data, dict) and part in data:
-                data = data[part]
-            else:
-                return "{" + field_name + "}", field_name
-
-        return data, field_name
-
-    def get_value(self, key, args, kwargs):
-        if isinstance(key, int):
-            return args[key]
-        return kwargs[key] if kwargs[key] is not None else "-"
+            value = kwargs[field_name]
+            return value if value is not None else "-", field_name
+        else:
+            return "{" + field_name + "}", field_name
 
 
 def init_logging(settings: LogSettings) -> None:
