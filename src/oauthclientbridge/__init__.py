@@ -6,7 +6,7 @@ import structlog
 from flask import Flask
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from oauthclientbridge import logs, telemetry
+from oauthclientbridge import db, logs, oauth, stats, telemetry, views
 from oauthclientbridge.settings import Settings
 
 __version__ = version("oauthclientbridge")
@@ -29,7 +29,6 @@ def create_app(settings: Settings) -> Flask:
         )
         app.wsgi_app = wrapper
 
-    from oauthclientbridge import db, oauth, stats, views
 
     _ = app.teardown_appcontext(db.close)
 
