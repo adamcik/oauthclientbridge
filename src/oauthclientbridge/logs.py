@@ -27,7 +27,7 @@ class AccessLogFormatter(string.Formatter):
             else:
                 self.unknown_keys.add(field_name)
                 return "{" + field_name + "}", field_name
-        return data, field_name
+        return data if data is not None else "-", field_name
 
 
 def init_logging(settings: LogSettings) -> None:
