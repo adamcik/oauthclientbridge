@@ -1,4 +1,5 @@
 import sqlite3
+import unittest.mock
 from typing import assert_never, cast
 
 import requests
@@ -73,6 +74,20 @@ def test_telemetry_tracer_otel_enabled(
     assert "test-span-2" in [span.name for span in finished_spans]
 
 
+def test_init_tracing_disabled() -> None:
+    # NOTE: Avoids loop with settings.
+    from oauthclientbridge import telemetry
+
+    settings = telemetry.TelemetrySettings(components=set())
+
+    with unittest.mock.patch(
+        "opentelemetry.trace.set_tracer_provider"
+    ) as mock_set_tracer_provider:
+        telemetry.init_tracing(settings)
+
+    mock_set_tracer_provider.assert_not_called()
+
+
 def test_telemetry_metrics_otel_enabled(
     capmetrics: InMemoryMetricReader,
 ) -> None:
@@ -102,6 +117,20 @@ def test_telemetry_metrics_otel_enabled(
     data_point = metric.data.data_points[0]
     assert isinstance(data_point, NumberDataPoint)
     assert data_point.value == 1
+
+
+def test_init_metrics_disabled() -> None:
+    # NOTE: Avoids loop with settings.
+    from oauthclientbridge import telemetry
+
+    settings = telemetry.TelemetrySettings(components=set())
+
+    with unittest.mock.patch(
+        "opentelemetry.metrics.set_meter_provider"
+    ) as mock_set_meter_provider:
+        telemetry.init_metrics(settings)
+
+    mock_set_meter_provider.assert_not_called()
 
 
 def test_requests_creates_spans(
