@@ -1,6 +1,5 @@
 import json
 import logging
-import sys
 
 import pytest
 import structlog
@@ -28,10 +27,15 @@ def reset_logging_handlers():
 # TODO: Add a test using stdlib logging, with extra=... to make sure that also works.
 
 
-def test_configure_structlog_json_output(capsys, monkeypatch):
-    # Simulate non-TTY for JSON output
-    monkeypatch.setattr(sys.stdout, "isatty", lambda: False)
-    logs.init_logging(LogSettings(level=LogLevel.DEBUG, colors=False, json_output=True))
+# TODO: Split this into two tests
+def test_configure_structlog_json_output(capsys):
+    logs.init_logging(
+        LogSettings(
+            level=LogLevel.DEBUG,
+            colors=False,
+            json_output=True,
+        )
+    )
 
     # Test standard logging
     std_logger = logging.getLogger("test_std_logger")
@@ -60,13 +64,22 @@ def test_configure_structlog_json_output(capsys, monkeypatch):
     assert struct_log_json["struct_key"] == "struct_value"
 
 
-def test_flask_request_logging(capsys, monkeypatch):
-    monkeypatch.setattr(sys.stdout, "isatty", lambda: False)
-    logs.init_logging(LogSettings(level=LogLevel.DEBUG, colors=False, json_output=True))
+def test_flask_request_logging(capsys):
+    logs.init_logging(
+        LogSettings(
+            level=LogLevel.DEBUG,
+            colors=False,
+            json_output=True,
+        )
+    )
 
+    settings = LogSettings(
+        level=LogLevel.DEBUG,
+        colors=False,
+        json_output=True,
+    )
     app = Flask(__name__)
-    app.before_request(logs.before_request_log_context)
-    app.after_request(logs.after_request_log_context)
+    logs.init_access_logs(app, settings)
 
     @app.route("/")
     def index():
@@ -83,17 +96,38 @@ def test_flask_request_logging(capsys, monkeypatch):
     app_record = next(r for r in records if r["logger"] == "tests.logs_test")
     assert app_record["event"] == "Inside Flask app route."
 
+    # TODO: Simplify these asserts, we can instead check that the expected to
+    # level keys are there and test each of those helpers independently.
     http_record = next(r for r in records if r["logger"] == "oauthclientbridge.http")
-    assert http_record["http"]["status_code"] == 200
-    assert http_record["http"]["method"] == "GET"
-    assert http_record["http"]["url"].endswith("/")
-    assert "duration_ms" in http_record
-    assert "response_bytes" in http_record
-    assert http_record["response_bytes"] == len(b"Hello, World!")
+    assert http_record["response"]["status_code"] == 200
+    assert http_record["request"]["method"] == "GET"
+    assert http_record["request"]["url"].endswith("/")
+    assert "duration_ms" in http_record["response"]
+    assert "content_length" in http_record["response"]
+    assert http_record["response"]["content_length"] == len(b"Hello, World!")
+    assert http_record["request"]["scheme"] == "http"
+    assert http_record["request"]["host"] == "localhost"
+    assert http_record["request"]["query_string"] == ""
+    assert http_record["request"]["content_type"] is None
+    # TODO: Fix content_length to be 0 for GET requests
+    # assert http_record["request"]["content_length"] == 0
+    assert http_record["response"]["status_name"] == "200 OK"
+    assert http_record["response"]["content_type"] == "text/html; charset=utf-8"
+    assert http_record["response"]["cache_control"] is None
+    assert http_record["flask"]["endpoint"] == "index"
+    assert http_record["flask"]["args"] == {}
+    assert http_record["flask"]["url_rule"] == "/"
+    assert http_record["flask"]["blueprint"] is None
 
 
 def test_configure_structlog_console_colors(capsys):
-    logs.init_logging(LogSettings(level=LogLevel.DEBUG, colors=True, json_output=False))
+    logs.init_logging(
+        LogSettings(
+            level=LogLevel.DEBUG,
+            colors=True,
+            json_output=False,
+        )
+    )
 
     test_structlog_logger = structlog.get_logger()
     test_structlog_logger.info("This is a colored structlog message.")

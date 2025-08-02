@@ -37,8 +37,7 @@ def create_app(settings: Settings) -> Flask:
     _ = app.register_error_handler(oauth.Error, oauth.error_handler)
     _ = app.register_error_handler(500, oauth.fallback_error_handler)
 
-    _ = app.before_request(logs.before_request_log_context)
-    _ = app.after_request(logs.after_request_log_context)
+    logs.init_access_logs(app, settings.log)
 
     _ = app.before_request(stats.record_metrics)
     _ = app.after_request(stats.finalize_metrics)

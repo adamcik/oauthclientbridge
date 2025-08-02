@@ -1,14 +1,51 @@
 import logging
+import string
 import time
 from typing import Any, cast
 
 import structlog
-from flask import Response, g, request
+from flask import Flask, Request, Response, g, request
 from structlog.types import EventDict
+from werkzeug.datastructures import Headers
 
-from oauthclientbridge.settings import LogSettings
+from oauthclientbridge.settings import LogSettings, current_settings
 
 access_logger: structlog.BoundLogger = structlog.get_logger("oauthclientbridge.http")
+logger: structlog.BoundLogger = structlog.get_logger()
+
+
+class AccessLogFormatter(string.Formatter):
+    def __init__(self):
+        self._logged_missing_keys: set[str] = set()
+        super().__init__()
+
+    def format(self, format_string, *args, **kwargs):
+        self.format_string = format_string
+        return super().format(format_string, *args, **kwargs)
+
+    def get_field(self, field_name, args, kwargs):
+        # Handle nested keys like 'request.method'
+        obj = kwargs
+        for part in field_name.split('.'):
+            if isinstance(obj, dict) and part in obj:
+                obj = obj[part]
+            else:
+                # If a part is missing, log it and return a placeholder
+                if field_name not in self._logged_missing_keys:
+                    logger.error(
+                        "Missing key in access log format",
+                        key=field_name,
+                        format_string=self.format_string,
+                        available_keys=list(kwargs.keys()),
+                    )
+                    self._logged_missing_keys.add(field_name)
+                return '{' + field_name + '}', field_name
+        return obj, field_name
+
+    def get_value(self, key, args, kwargs):
+        # This method is called for positional arguments, which we don't use.
+        # It's also called by get_field for the final value.
+        return key
 
 
 def init_logging(settings: LogSettings) -> None:
@@ -100,30 +137,76 @@ def add_otel_context_processor(_: Any, __: str, event_dict: EventDict) -> EventD
     return event_dict
 
 
-def before_request_log_context():
-    structlog.contextvars.clear_contextvars()
-
-    g.start_time = time.perf_counter_ns()
+def get_remote_port(headers: Headers, environ: dict[str, Any]) -> str | None:
+    return headers.get("X-Forwarded-Port") or environ.get("REMOTE_PORT")
 
 
-def after_request_log_context(response: Response) -> Response:
-    http_version = request.environ.get("SERVER_PROTOCOL")
+# TODO: Decide on casing to use in the logs events. Otel uses a different style
+# than what we have here.
 
-    access_logger.info(
-        f"""{request.remote_addr} - "{request.method} {request.path} {http_version}" {response.status_code}""",
-        duration_ms=(time.perf_counter_ns() - g.start_time) / 1e6,
-        response_bytes=len(response.data),
-        http={
-            "url": str(request.url),
-            "status_code": response.status_code,
-            "method": request.method,
-            "version": http_version,
-            "user_agent": request.headers.get("User-Agent"),
-            "referer": request.headers.get("Referer"),
-        },
-        remote_addr=request.remote_addr,
-        remote_user=request.remote_user,
-    )
 
-    structlog.contextvars.clear_contextvars()
-    return response
+def get_request_info(req: Request) -> dict[str, Any]:
+    return {
+        "method": req.method,
+        "path": req.path,
+        "remote_addr": req.remote_addr,
+        "remote_port": get_remote_port(req.headers, req.environ),
+        "remote_user": req.remote_user,
+        "url": str(req.url),
+        "user_agent": req.headers.get("User-Agent"),
+        "referer": req.headers.get("Referer"),
+        "version": req.environ.get("SERVER_PROTOCOL"),
+        "scheme": req.scheme,
+        "host": req.host,
+        "query_string": req.query_string.decode("utf-8"),
+        "content_type": req.content_type,
+        "content_length": req.content_length,
+    }
+
+
+def get_response_info(resp: Response, start_time_ns: int) -> dict[str, Any]:
+    return {
+        "status_code": resp.status_code,
+        "status_name": resp.status,
+        "content_length": resp.content_length,
+        "duration_ms": (time.perf_counter_ns() - start_time_ns) / 1e6,
+        "content_type": resp.content_type,
+        "cache_control": resp.headers.get("Cache-Control"),
+    }
+
+
+def get_flask_info(req: Request) -> dict[str, Any]:
+    return {
+        "endpoint": req.endpoint,
+        "args": req.view_args,
+        "url_rule": req.url_rule.rule if req.url_rule else None,
+        "blueprint": req.blueprint,
+    }
+
+
+def init_access_logs(app: Flask, settings: LogSettings):
+    access_log_formatter = AccessLogFormatter()
+
+    @app.before_request
+    def _before_request_log_context():
+        structlog.contextvars.clear_contextvars()
+        g.start_time = time.perf_counter_ns()
+
+    @app.after_request
+    def _after_request_log_context(response: Response) -> Response:
+        log_info = {
+            "request": get_request_info(request),
+            "response": get_response_info(response, g.start_time),
+            "flask": get_flask_info(request),
+        }
+
+        # Generate the message using the access_log_format
+        message = access_log_formatter.format(settings.access_log_format, **log_info)
+
+        access_logger.info(
+            message,
+            **log_info,  # Pass the structured log_info for JSON output
+        )
+
+        structlog.contextvars.clear_contextvars()
+        return response

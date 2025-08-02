@@ -12,3 +12,4 @@ telemetry.init_tracing(settings.otel)
 telemetry.init_metrics(settings.otel)
 
 app = create_app(settings)
+logs.init_access_logs(app, settings.log)
