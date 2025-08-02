@@ -156,6 +156,38 @@ def test_stdlib_logging_trace_id_injection(instrumented, capsys) -> None:
     assert_has_otel_records(records[0], span)
 
 
+def test_access_log_missing_key_handling(capsys):
+    logs.init_logging(LogSettings())
+    app = Flask(__name__)
+
+    log_settings = LogSettings(access_log_format="{request.method} {non_existent_key}")
+    logs.init_access_logs(log_settings, app)
+
+    with app.test_client() as client:
+        client.get("/")
+
+    records = parse_logs(capsys)
+    # Assert that a warning was logged for the missing key
+    warning_records = [
+        r
+        for r in records
+        if r.get("event") == "Access log format contains unknown keys"
+    ]
+    assert len(warning_records) == 1
+    assert "non_existent_key" in warning_records[0]["unknown_keys"]
+
+    with app.test_client() as client:
+        client.get("/")
+
+    records_second_request = parse_logs(capsys)
+    warning_records_second_request = [
+        r
+        for r in records_second_request
+        if r.get("event") == "Access log format contains unknown keys"
+    ]
+    assert len(warning_records_second_request) == 0
+
+
 def parse_logs(capsys):
     return [json.loads(line) for line in capsys.readouterr().err.splitlines()]
 
