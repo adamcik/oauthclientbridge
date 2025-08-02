@@ -221,7 +221,7 @@ class LogSettings(CustomBaseSettings):
     colors: bool = Field(default_factory=sys.stdout.isatty)
     """Whether to use colors in console output."""
 
-    access_log_format: str = '{request.remote_addr} - {request.remote_user} "{request.method} {request.path} {request.version}" {response.status_code} {response.content_length} "{request.referer}" "{request.user_agent}"'
+    access_log_format: str = '{client.address} - {user.name} "{http.request.method} {url.path} {network.protocol.version}" {http.response.status_code} {http.response.body.size} "{http.request.header.referer}" "{user_agent.original}"'
     """Format string to use for access logs."""
 
 

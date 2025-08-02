@@ -5,6 +5,28 @@ from typing import Any, cast
 
 import structlog
 from flask import Flask, Request, Response, g, request
+from opentelemetry.semconv.attributes.client_attributes import (
+    CLIENT_ADDRESS,
+    CLIENT_PORT,
+)
+from opentelemetry.semconv.attributes.http_attributes import (
+    HTTP_REQUEST_HEADER_TEMPLATE,
+    HTTP_REQUEST_METHOD,
+    HTTP_RESPONSE_HEADER_TEMPLATE,
+    HTTP_RESPONSE_STATUS_CODE,
+    HTTP_ROUTE,
+)
+from opentelemetry.semconv.attributes.network_attributes import (
+    NETWORK_PROTOCOL_VERSION,
+)
+from opentelemetry.semconv.attributes.server_attributes import SERVER_ADDRESS
+from opentelemetry.semconv.attributes.url_attributes import (
+    URL_FULL,
+    URL_PATH,
+    URL_QUERY,
+    URL_SCHEME,
+)
+from opentelemetry.semconv.attributes.user_agent_attributes import USER_AGENT_ORIGINAL
 from structlog.types import EventDict
 from werkzeug.datastructures import Headers
 
@@ -13,21 +35,32 @@ from oauthclientbridge.settings import LogSettings
 access_logger: structlog.BoundLogger = structlog.get_logger("oauthclientbridge.http")
 logger: structlog.BoundLogger = structlog.get_logger()
 
+HTTP_REQUST_DURATION = "http.server.request.duration"
+HTTP_REQUEST_BODY_SIZE = "http.server.request.body.size"
+HTTP_RESPONSE_BODY_SIZE = "http.server.response.body.size"
+
 
 class AccessLogFormatter(string.Formatter):
-    def __init__(self):
-        self.unknown_keys: set[str] = set()
-        super().__init__()
-
     def get_field(self, field_name, args, kwargs):
+        if isinstance(field_name, int):
+            return args[field_name]
+
+        if field_name in kwargs:
+            return kwargs[field_name], field_name
+
         data = kwargs
         for part in field_name.split("."):
             if isinstance(data, dict) and part in data:
                 data = data[part]
             else:
-                self.unknown_keys.add(field_name)
                 return "{" + field_name + "}", field_name
-        return data if data is not None else "-", field_name
+
+        return data, field_name
+
+    def get_value(self, key, args, kwargs):
+        if isinstance(key, int):
+            return args[key]
+        return kwargs[key] if kwargs[key] is not None else "-"
 
 
 def init_logging(settings: LogSettings) -> None:
@@ -123,52 +156,44 @@ def get_remote_port(headers: Headers, environ: dict[str, Any]) -> str | None:
     return headers.get("X-Forwarded-Port") or environ.get("REMOTE_PORT")
 
 
-# TODO: Decide on casing to use in the logs events. Otel uses a different style
-# than what we have here.
-
-
-def get_request_info(req: Request) -> dict[str, Any]:
+def get_request_info(req: Request, duration_ns: int) -> dict[str, Any]:
     return {
-        "method": req.method,
-        "path": req.path,
-        "remote_addr": req.remote_addr,
-        "remote_port": get_remote_port(req.headers, req.environ),
-        "remote_user": req.remote_user,
-        "url": str(req.url),
-        "user_agent": req.headers.get("User-Agent"),
-        "referer": req.headers.get("Referer"),
-        "version": req.environ.get("SERVER_PROTOCOL"),
-        "scheme": req.scheme,
-        "host": req.host,
-        "query_string": req.query_string.decode("utf-8"),
-        "content_type": req.content_type,
-        "content_length": req.content_length,
+        # "user.name": req.remote_user,  # No direct OTel constant for remote_user
+        CLIENT_ADDRESS: req.remote_addr,
+        CLIENT_PORT: get_remote_port(req.headers, req.environ),
+        HTTP_REQUST_DURATION: duration_ns / 1e9,
+        HTTP_REQUEST_METHOD: req.method,
+        HTTP_REQUEST_BODY_SIZE: len(req.get_data()),
+        HTTP_ROUTE: req.url_rule.rule if req.url_rule else None,
+        NETWORK_PROTOCOL_VERSION: req.environ.get("SERVER_PROTOCOL"),
+        SERVER_ADDRESS: req.host,
+        # TODO: Consider redacting url?
+        URL_FULL: str(req.url),
+        URL_PATH: req.path,
+        # TODO: Consider redacting query?
+        URL_QUERY: req.query_string.decode("utf-8"),
+        URL_SCHEME: req.scheme,
+        USER_AGENT_ORIGINAL: req.headers.get("User-Agent"),
+        f"{HTTP_REQUEST_HEADER_TEMPLATE}.content_type": req.content_type,
+        f"{HTTP_REQUEST_HEADER_TEMPLATE}.content_length": req.content_length,
+        f"{HTTP_REQUEST_HEADER_TEMPLATE}.referer": req.headers.get("Referer"),
     }
 
 
-def get_response_info(resp: Response, duration_ns: int) -> dict[str, Any]:
+def get_response_info(resp: Response) -> dict[str, Any]:
     return {
-        "status_code": resp.status_code,
-        "status_name": resp.status,
-        "content_length": resp.content_length,
-        "duration_ms": duration_ns / 1e6,
-        "content_type": resp.content_type,
-        "cache_control": resp.headers.get("Cache-Control"),
-    }
-
-
-def get_flask_info(req: Request) -> dict[str, Any]:
-    return {
-        "endpoint": req.endpoint,
-        "args": req.view_args,
-        "url_rule": req.url_rule.rule if req.url_rule else None,
-        "blueprint": req.blueprint,
+        HTTP_RESPONSE_BODY_SIZE: len(resp.get_data()),
+        HTTP_RESPONSE_STATUS_CODE: resp.status_code,
+        f"{HTTP_RESPONSE_HEADER_TEMPLATE}.content_length": resp.content_length,
+        f"{HTTP_RESPONSE_HEADER_TEMPLATE}.content_type": resp.content_type,
+        f"{HTTP_RESPONSE_HEADER_TEMPLATE}.cache_control": resp.headers.get(
+            "Cache-Control"
+        ),
     }
 
 
 def init_access_logs(settings: LogSettings, app: Flask):
     formatter = AccessLogFormatter()
-    first_call = True
 
     @app.before_request
     def _before_request_log_context():
@@ -177,25 +202,17 @@ def init_access_logs(settings: LogSettings, app: Flask):
 
     @app.after_request
     def _after_request_log_context(response: Response) -> Response:
-        data = {
-            "request": get_request_info(request),
-            "response": get_response_info(
-                response,
+        data = dict(
+            **get_request_info(
+                request,
                 time.perf_counter_ns() - g.start_time_ns,
             ),
-            "flask": get_flask_info(request),
-        }
+            **get_response_info(response),
+        )
 
-        message = formatter.format(settings.access_log_format, **data)
-        access_logger.info(message, **data)
-
-        nonlocal first_call
-        if first_call:
-            first_call = False
-            if formatter.unknown_keys:
-                logger.warning(
-                    "Access log format contains unknown keys",
-                    unknown_keys=formatter.unknown_keys,
-                )
+        access_logger.info(
+            formatter.format(settings.access_log_format, **data),
+            **data,
+        )
 
         return response

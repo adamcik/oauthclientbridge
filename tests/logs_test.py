@@ -5,6 +5,19 @@ import pytest
 import structlog
 from flask import Flask
 from opentelemetry import trace
+from opentelemetry.semconv.attributes.http_attributes import (
+    HTTP_REQUEST_HEADER_TEMPLATE,
+    HTTP_REQUEST_METHOD,
+    HTTP_RESPONSE_HEADER_TEMPLATE,
+    HTTP_RESPONSE_STATUS_CODE,
+    HTTP_ROUTE,
+)
+from opentelemetry.semconv.attributes.server_attributes import SERVER_ADDRESS
+from opentelemetry.semconv.attributes.url_attributes import (
+    URL_FULL,
+    URL_QUERY,
+    URL_SCHEME,
+)
 
 from oauthclientbridge import logs
 from oauthclientbridge.settings import LogLevel, LogSettings
@@ -92,26 +105,24 @@ def test_flask_request_logging(capsys):
 
     # TODO: Simplify these asserts, we can instead check that the expected to
     # level keys are there and test each of those helpers independently.
-    http_record = next(r for r in records if r["logger"] == "oauthclientbridge.http")
-    assert http_record["response"]["status_code"] == 200
-    assert http_record["request"]["method"] == "GET"
-    assert http_record["request"]["url"].endswith("/")
-    assert "duration_ms" in http_record["response"]
-    assert "content_length" in http_record["response"]
-    assert http_record["response"]["content_length"] == len(b"Hello, World!")
-    assert http_record["request"]["scheme"] == "http"
-    assert http_record["request"]["host"] == "localhost"
-    assert http_record["request"]["query_string"] == ""
-    assert http_record["request"]["content_type"] is None
-    # TODO: Fix content_length to be 0 for GET requests
-    # assert http_record["request"]["content_length"] == 0
-    assert http_record["response"]["status_name"] == "200 OK"
-    assert http_record["response"]["content_type"] == "text/html; charset=utf-8"
-    assert http_record["response"]["cache_control"] is None
-    assert http_record["flask"]["endpoint"] == "index"
-    assert http_record["flask"]["args"] == {}
-    assert http_record["flask"]["url_rule"] == "/"
-    assert http_record["flask"]["blueprint"] is None
+
+    record = next(r for r in records if r["logger"] == "oauthclientbridge.http")
+    assert record[HTTP_REQUEST_METHOD] == "GET"
+    assert record[HTTP_RESPONSE_STATUS_CODE] == 200
+    assert record[HTTP_ROUTE] == "/"
+    assert record[SERVER_ADDRESS] == "localhost"
+    assert record[URL_FULL].endswith("/")
+    assert record[URL_QUERY] == ""
+    assert record[URL_SCHEME] == "http"
+    assert record[f"{HTTP_REQUEST_HEADER_TEMPLATE}.content_type"] is None
+    assert record[f"{HTTP_RESPONSE_HEADER_TEMPLATE}.cache_control"] is None
+    assert (
+        record[f"{HTTP_RESPONSE_HEADER_TEMPLATE}.content_type"]
+        == "text/html; charset=utf-8"
+    )
+    assert record[logs.HTTP_RESPONSE_BODY_SIZE] == len(b"Hello, World!")
+    assert logs.HTTP_REQUST_DURATION in record
+    assert record[logs.HTTP_RESPONSE_BODY_SIZE] == len(b"Hello, World!")
 
 
 def test_configure_structlog_console_colors(capsys):
@@ -154,38 +165,6 @@ def test_stdlib_logging_trace_id_injection(instrumented, capsys) -> None:
     records = parse_logs(capsys)
     assert len(records) == 1
     assert_has_otel_records(records[0], span)
-
-
-def test_access_log_missing_key_handling(capsys):
-    logs.init_logging(LogSettings())
-    app = Flask(__name__)
-
-    log_settings = LogSettings(access_log_format="{request.method} {non_existent_key}")
-    logs.init_access_logs(log_settings, app)
-
-    with app.test_client() as client:
-        client.get("/")
-
-    records = parse_logs(capsys)
-    # Assert that a warning was logged for the missing key
-    warning_records = [
-        r
-        for r in records
-        if r.get("event") == "Access log format contains unknown keys"
-    ]
-    assert len(warning_records) == 1
-    assert "non_existent_key" in warning_records[0]["unknown_keys"]
-
-    with app.test_client() as client:
-        client.get("/")
-
-    records_second_request = parse_logs(capsys)
-    warning_records_second_request = [
-        r
-        for r in records_second_request
-        if r.get("event") == "Access log format contains unknown keys"
-    ]
-    assert len(warning_records_second_request) == 0
 
 
 def parse_logs(capsys):
