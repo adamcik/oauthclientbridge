@@ -1,3 +1,4 @@
+import sys
 from enum import StrEnum
 from typing import Any
 
@@ -200,6 +201,30 @@ class TelemetrySettings(CustomBaseSettings):
         return self
 
 
+class LogLevel(StrEnum):
+    DEBUG = "debug"
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+    CRITICAL = "critical"
+
+
+class LogSettings(CustomBaseSettings):
+    model_config = SettingsConfigDict(env_prefix="LOG_")
+
+    level: LogLevel = LogLevel.INFO
+    """Default log level to use for all events."""
+
+    json_output: bool = Field(default_factory=lambda: not sys.stdout.isatty())
+    """Whether to output logs in JSON format."""
+
+    colors: bool = Field(default_factory=sys.stdout.isatty)
+    """Whether to use colors in console output."""
+
+    access_log_format: str = "{message}"
+    """Format string to use for access logs."""
+
+
 class Settings(CustomBaseSettings):
     """
     Application settings for oauthclientbridge.
@@ -249,6 +274,7 @@ class Settings(CustomBaseSettings):
     fetch: FetchSettings = Field(default_factory=lambda: FetchSettings())  # pyright: ignore[reportCallIssue]
     database: DatabaseSettings = Field(default_factory=lambda: DatabaseSettings())  # pyright: ignore[reportCallIssue]
     sentry: SentrySettings = Field(default_factory=lambda: SentrySettings())  # pyright: ignore[reportCallIssue]
+    log: LogSettings = Field(default_factory=lambda: LogSettings())  # pyright: ignore[reportCallIssue]
     otel: TelemetrySettings = Field(default_factory=lambda: TelemetrySettings())  # pyright: ignore[reportCallIssue]
 
 
