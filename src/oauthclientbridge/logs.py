@@ -184,7 +184,7 @@ def get_flask_info(req: Request) -> dict[str, Any]:
     }
 
 
-def init_access_logs(app: Flask, settings: LogSettings):
+def init_access_logs(settings: LogSettings, app: Flask):
     access_log_formatter = AccessLogFormatter()
 
     @app.before_request

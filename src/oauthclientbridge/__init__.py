@@ -29,14 +29,13 @@ def create_app(settings: Settings) -> Flask:
         )
         app.wsgi_app = wrapper
 
+    logs.init_access_logs(settings.log, app)
 
     _ = app.teardown_appcontext(db.close)
 
     _ = app.after_request(oauth.nocache)
     _ = app.register_error_handler(oauth.Error, oauth.error_handler)
     _ = app.register_error_handler(500, oauth.fallback_error_handler)
-
-    logs.init_access_logs(app, settings.log)
 
     _ = app.before_request(stats.record_metrics)
     _ = app.after_request(stats.finalize_metrics)

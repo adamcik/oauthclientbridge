@@ -65,21 +65,15 @@ def test_configure_structlog_json_output(capsys):
 
 
 def test_flask_request_logging(capsys):
-    logs.init_logging(
-        LogSettings(
-            level=LogLevel.DEBUG,
-            colors=False,
-            json_output=True,
-        )
-    )
-
-    settings = LogSettings(
+    log_settings = LogSettings(
         level=LogLevel.DEBUG,
         colors=False,
         json_output=True,
     )
+    logs.init_logging(log_settings)
+
     app = Flask(__name__)
-    logs.init_access_logs(app, settings)
+    logs.init_access_logs(log_settings, app)
 
     @app.route("/")
     def index():
