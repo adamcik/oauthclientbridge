@@ -10,7 +10,7 @@ from structlog.types import EventDict
 access_logger: structlog.BoundLogger = structlog.get_logger("oauthclientbridge.http")
 
 
-def init(level=logging.INFO, colors: bool = True) -> None:
+def init_logging(level=logging.INFO, colors: bool = True) -> None:
     timestamper = structlog.processors.TimeStamper(fmt="iso", utc=False)
 
     shared_processors: list[structlog.types.Processor] = [

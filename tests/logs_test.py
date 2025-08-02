@@ -30,7 +30,7 @@ def reset_logging_handlers():
 def test_configure_structlog_json_output(capsys, monkeypatch):
     # Simulate non-TTY for JSON output
     monkeypatch.setattr(sys.stdout, "isatty", lambda: False)
-    logs.init(level=logging.DEBUG, colors=False)
+    logs.init_logging(level=logging.DEBUG, colors=False)
 
     # Test standard logging
     std_logger = logging.getLogger("test_std_logger")
@@ -61,7 +61,7 @@ def test_configure_structlog_json_output(capsys, monkeypatch):
 
 def test_flask_request_logging(capsys, monkeypatch):
     monkeypatch.setattr(sys.stdout, "isatty", lambda: False)
-    logs.init(level=logging.DEBUG, colors=False)
+    logs.init_logging(level=logging.DEBUG, colors=False)
 
     app = Flask(__name__)
     app.before_request(logs.before_request_log_context)
@@ -94,7 +94,7 @@ def test_flask_request_logging(capsys, monkeypatch):
 def test_configure_structlog_console_colors(capsys, monkeypatch):
     # Simulate TTY for console output with colors
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
-    logs.init(level=logging.DEBUG, colors=True)
+    logs.init_logging(level=logging.DEBUG, colors=True)
 
     test_structlog_logger = structlog.get_logger()
     test_structlog_logger.info("This is a colored structlog message.")
@@ -108,7 +108,7 @@ def test_configure_structlog_console_colors(capsys, monkeypatch):
 
 
 def test_structlog_logging_trace_id_injection(instrumented, capsys) -> None:
-    logs.init()
+    logs.init_logging()
 
     with tracer.start_as_current_span("test") as span:
         structlog.get_logger().info("This is a structlog log entry")
@@ -119,7 +119,7 @@ def test_structlog_logging_trace_id_injection(instrumented, capsys) -> None:
 
 
 def test_stdlib_logging_trace_id_injection(instrumented, capsys) -> None:
-    logs.init()
+    logs.init_logging()
 
     with tracer.start_as_current_span("test") as span:
         logging.getLogger(__name__).info("This is a standard log entry")
