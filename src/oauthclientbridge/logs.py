@@ -8,7 +8,7 @@ from flask import Flask, Request, Response, g, request
 from structlog.types import EventDict
 from werkzeug.datastructures import Headers
 
-from oauthclientbridge.settings import LogSettings, current_settings
+from oauthclientbridge.settings import LogSettings
 
 access_logger: structlog.BoundLogger = structlog.get_logger("oauthclientbridge.http")
 logger: structlog.BoundLogger = structlog.get_logger()
@@ -16,36 +16,18 @@ logger: structlog.BoundLogger = structlog.get_logger()
 
 class AccessLogFormatter(string.Formatter):
     def __init__(self):
-        self._logged_missing_keys: set[str] = set()
+        self.unknown_keys: set[str] = set()
         super().__init__()
 
-    def format(self, format_string, *args, **kwargs):
-        self.format_string = format_string
-        return super().format(format_string, *args, **kwargs)
-
     def get_field(self, field_name, args, kwargs):
-        # Handle nested keys like 'request.method'
-        obj = kwargs
-        for part in field_name.split('.'):
-            if isinstance(obj, dict) and part in obj:
-                obj = obj[part]
+        data = kwargs
+        for part in field_name.split("."):
+            if isinstance(data, dict) and part in data:
+                data = data[part]
             else:
-                # If a part is missing, log it and return a placeholder
-                if field_name not in self._logged_missing_keys:
-                    logger.error(
-                        "Missing key in access log format",
-                        key=field_name,
-                        format_string=self.format_string,
-                        available_keys=list(kwargs.keys()),
-                    )
-                    self._logged_missing_keys.add(field_name)
-                return '{' + field_name + '}', field_name
-        return obj, field_name
-
-    def get_value(self, key, args, kwargs):
-        # This method is called for positional arguments, which we don't use.
-        # It's also called by get_field for the final value.
-        return key
+                self.unknown_keys.add(field_name)
+                return "{" + field_name + "}", field_name
+        return data, field_name
 
 
 def init_logging(settings: LogSettings) -> None:
@@ -164,12 +146,12 @@ def get_request_info(req: Request) -> dict[str, Any]:
     }
 
 
-def get_response_info(resp: Response, start_time_ns: int) -> dict[str, Any]:
+def get_response_info(resp: Response, duration_ns: int) -> dict[str, Any]:
     return {
         "status_code": resp.status_code,
         "status_name": resp.status,
         "content_length": resp.content_length,
-        "duration_ms": (time.perf_counter_ns() - start_time_ns) / 1e6,
+        "duration_ms": duration_ns / 1e6,
         "content_type": resp.content_type,
         "cache_control": resp.headers.get("Cache-Control"),
     }
@@ -185,28 +167,35 @@ def get_flask_info(req: Request) -> dict[str, Any]:
 
 
 def init_access_logs(settings: LogSettings, app: Flask):
-    access_log_formatter = AccessLogFormatter()
+    formatter = AccessLogFormatter()
+    first_call = True
 
     @app.before_request
     def _before_request_log_context():
         structlog.contextvars.clear_contextvars()
-        g.start_time = time.perf_counter_ns()
+        g.start_time_ns = time.perf_counter_ns()
 
     @app.after_request
     def _after_request_log_context(response: Response) -> Response:
-        log_info = {
+        data = {
             "request": get_request_info(request),
-            "response": get_response_info(response, g.start_time),
+            "response": get_response_info(
+                response,
+                time.perf_counter_ns() - g.start_time_ns,
+            ),
             "flask": get_flask_info(request),
         }
 
-        # Generate the message using the access_log_format
-        message = access_log_formatter.format(settings.access_log_format, **log_info)
+        message = formatter.format(settings.access_log_format, **data)
+        access_logger.info(message, **data)
 
-        access_logger.info(
-            message,
-            **log_info,  # Pass the structured log_info for JSON output
-        )
+        nonlocal first_call
+        if first_call:
+            first_call = False
+            if formatter.unknown_keys:
+                logger.warning(
+                    "Access log format contains unknown keys",
+                    unknown_keys=formatter.unknown_keys,
+                )
 
-        structlog.contextvars.clear_contextvars()
         return response
