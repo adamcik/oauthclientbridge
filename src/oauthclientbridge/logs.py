@@ -1,5 +1,4 @@
 import logging
-import sys
 import time
 from typing import Any, cast
 
@@ -7,10 +6,12 @@ import structlog
 from flask import Response, g, request
 from structlog.types import EventDict
 
+from oauthclientbridge.settings import LogSettings
+
 access_logger: structlog.BoundLogger = structlog.get_logger("oauthclientbridge.http")
 
 
-def init_logging(level=logging.INFO, colors: bool = True) -> None:
+def init_logging(settings: LogSettings) -> None:
     timestamper = structlog.processors.TimeStamper(fmt="iso", utc=False)
 
     shared_processors: list[structlog.types.Processor] = [
@@ -55,8 +56,8 @@ def init_logging(level=logging.INFO, colors: bool = True) -> None:
         add_otel_context_processor,
         structlog.stdlib.ProcessorFormatter.remove_processors_meta,
     ]
-    if sys.stdout.isatty():
-        processors.append(structlog.dev.ConsoleRenderer(colors=colors))
+    if not settings.json_output:
+        processors.append(structlog.dev.ConsoleRenderer(colors=settings.colors))
     else:
         processors.extend(
             [
@@ -78,7 +79,7 @@ def init_logging(level=logging.INFO, colors: bool = True) -> None:
     root_logger = logging.getLogger()
     root_logger.addHandler(handler)
 
-    root_logger.setLevel(level)
+    root_logger.setLevel(settings.level.upper())
 
     werkzeug_logger = logging.getLogger("werkzeug")
     werkzeug_logger.disabled = True

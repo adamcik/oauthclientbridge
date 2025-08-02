@@ -3,7 +3,7 @@ from oauthclientbridge.settings import Settings
 
 settings = Settings()
 
-logs.init_logging()
+logs.init_logging(settings.log)
 
 sentry.init(settings.sentry)
 
