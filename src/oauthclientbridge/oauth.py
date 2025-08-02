@@ -1,4 +1,5 @@
 import email.utils
+import importlib.metadata
 import re
 import time
 import urllib.parse
@@ -9,7 +10,7 @@ import requests
 import structlog
 from opentelemetry import trace
 
-from oauthclientbridge import __version__, errors, stats
+from oauthclientbridge import errors, stats
 from oauthclientbridge.settings import current_settings
 
 logger: structlog.BoundLogger = structlog.get_logger()
@@ -42,8 +43,10 @@ TOKEN_ERRORS = {
     errors.TEMPORARILY_UNAVAILABLE,
 }
 
+_version = importlib.metadata.version("oauthclientbridge")
+
 _session = requests.Session()
-_session.headers["user-agent"] = "oauthclientbridge %s" % __version__
+_session.headers["user-agent"] = "oauthclientbridge %s" % _version
 
 
 class Error(Exception):
