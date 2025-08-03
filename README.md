@@ -21,6 +21,8 @@ Install by running:
 
     pip install OAuth-Client-Bridge
 
+## Settings
+
 Settings are managed by Pydantic and loaded from environment variables. Each
 setting is prefixed based on its category (e.g., `OAUTH_`, `DB_`, `BRIDGE_`,
 `FETCH_`). Refer to the `Settings` class in `src/oauthclientbridge/settings.py`
@@ -96,4 +98,30 @@ the results.:
 
         BRIDGE_CALLBACK_TEMPLATE
 
-  [upstream documentation]: http://flask.pocoo.org/docs/latest/deploying/
+[upstream documentation]: http://flask.pocoo.org/docs/latest/deploying/
+
+## OpenTelemetry Integration
+
+This project integrates with OpenTelemetry for distributed tracing and metrics
+collection. To enable OpenTelemetry, you need to configure the following
+environment variables:
+
+-   `TELEMETRY_COMPONENTS`: A comma-separated list of OpenTelemetry components
+    to enable. Valid values are `tracing` and `metrics`. For example:
+    `TELEMETRY_COMPONENTS=tracing,metrics`.
+
+-   `TELEMETRY_EXPORTERS`: A comma-separated list of exporters to use for traces
+    and metrics. Valid values are `otlp_grpc` and `console`. For example:
+    `TELEMETRY_EXPORTERS=otlp_grpc`.
+
+-   `TELEMETRY_ENDPOINT`: The OTLP collector endpoint (e.g.,
+    `http://localhost:4317`). Required if `otlp_grpc` exporter is used.
+
+-   `TELEMETRY_SERVICE_NAME`: The name of the service to be reported to
+    OpenTelemetry (defaults to `oauthclientbridge`).
+
+-   `TELEMETRY_METRIC_EXPORT_INTERVAL_SECONDS`: The interval in seconds at which
+    metrics are exported (defaults to `5`).
+
+Metrics are pushed over OTLP gRPC as this is the only exporter we support.
+
