@@ -2,7 +2,6 @@ import email.utils
 import importlib.metadata
 import re
 import time
-import urllib.parse
 from typing import Any
 
 import flask
@@ -12,6 +11,7 @@ from opentelemetry import trace
 
 from oauthclientbridge import errors, stats
 from oauthclientbridge.settings import current_settings
+from oauthclientbridge.utils import rewrite_uri
 
 logger: structlog.BoundLogger = structlog.get_logger()
 tracer = trace.get_tracer(__name__)
@@ -299,24 +299,3 @@ def parse_retry(value: str | None) -> int:
 
 def redirect(uri: str, **params: str) -> flask.Response:
     return flask.Response(status=302, headers={"Location": rewrite_uri(uri, params)})
-
-
-def _rewrite_query(original: str, params: URIParam) -> str:
-    parts = []
-    query = urllib.parse.parse_qs(original, keep_blank_values=True)
-    for p, value in params.items():
-        query[p] = [value]  # Override with new params.
-    for q, values in query.items():
-        for value in values:  # Turn query into list of tuples.
-            # TODO: params is really TEXT then this is no longer needed.
-            if isinstance(value, str):
-                parts.append((q, value.encode("utf-8")))
-            else:
-                parts.append((q, value))
-    return urllib.parse.urlencode(parts)
-
-
-def rewrite_uri(uri: str, params: URIParam) -> str:
-    scheme, netloc, path, query, fragment = urllib.parse.urlsplit(uri)
-    query = _rewrite_query(query, params)
-    return urllib.parse.urlunsplit((scheme, netloc, path, query, fragment))

@@ -168,12 +168,4 @@ def test_parse_retry_with_invalid_string() -> None:
     assert oauth.parse_retry("0x15") == 0
 
 
-def test_rewrite_uri() -> None:
-    result = oauth.rewrite_uri("http://example.com/path?a=1&b=2", {"b": "3", "c": "4"})
-    assert result == "http://example.com/path?a=1&b=3&c=4"
 
-    result = oauth.rewrite_uri("http://example.com/path", {"a": "1"})
-    assert result == "http://example.com/path?a=1"
-
-    result = oauth.rewrite_uri("http://example.com/path?a=1", {"a": "2"})
-    assert result == "http://example.com/path?a=2"
