@@ -44,7 +44,13 @@ dev = [
   { include-group = "sentry" },
 ]
 typing = ["types-requests", "basedpyright", { include-group = "sentry" }]
-test = ["pytest", "pytest-cov", "requests_mock", { include-group = "sentry" }]
+test = [
+  "pytest",
+  "pytest-cov",
+  "requests_mock",
+  "pytest-freezer",
+  { include-group = "sentry" },
+]
 lint = ["ruff"]
 
 [build-system]

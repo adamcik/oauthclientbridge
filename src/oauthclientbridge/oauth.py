@@ -243,7 +243,7 @@ def _fetch(
         result = _decode(resp)
         status_code = resp.status_code
         length = len(resp.content)
-        retry_after = _parse_retry(resp.headers.get("retry-after"))
+        retry_after = parse_retry(resp.headers.get("retry-after"))
 
     labels = {"endpoint": endpoint, "status": status_label}
     if length is not None:
@@ -283,26 +283,25 @@ def _error(error: str, description: str) -> OAuthResponse:
     return {"error": error, "error_description": description}
 
 
-def _parse_retry(value: str | None) -> int:
+def parse_retry(value: str | None) -> int:
     if not value:
         seconds = 0
     elif re.match(r"^\s*[0-9]+\s*$", value):
         seconds = int(value)
     else:
-        date_tuple = email.utils.parsedate(value)
-        if date_tuple is None:
+        parsed = email.utils.parsedate_tz(value)
+        if parsed is None:
             seconds = 0
         else:
-            seconds = int(time.mktime(date_tuple) - time.time())
+            seconds = int(email.utils.mktime_tz(parsed) - time.time())
     return max(0, seconds)
 
 
 def redirect(uri: str, **params: str) -> flask.Response:
-    return flask.Response(status=302, headers={"Location": _rewrite_uri(uri, params)})
+    return flask.Response(status=302, headers={"Location": rewrite_uri(uri, params)})
 
 
 def _rewrite_query(original: str, params: URIParam) -> str:
-    # TODO: test this...
     parts = []
     query = urllib.parse.parse_qs(original, keep_blank_values=True)
     for p, value in params.items():
@@ -317,8 +316,7 @@ def _rewrite_query(original: str, params: URIParam) -> str:
     return urllib.parse.urlencode(parts)
 
 
-def _rewrite_uri(uri: str, params: URIParam) -> str:
-    # TODO: test this and move to utils.py?
+def rewrite_uri(uri: str, params: URIParam) -> str:
     scheme, netloc, path, query, fragment = urllib.parse.urlsplit(uri)
     query = _rewrite_query(query, params)
     return urllib.parse.urlunsplit((scheme, netloc, path, query, fragment))

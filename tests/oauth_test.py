@@ -2,6 +2,7 @@ import unittest.mock
 
 import flask.ctx
 import requests
+from freezegun import freeze_time
 from requests_mock import Mocker
 
 from oauthclientbridge import oauth
@@ -137,3 +138,42 @@ def test_oauth_fetch_does_not_retry_on_success(
     with unittest.mock.patch("time.sleep") as mock_sleep:
         oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
         mock_sleep.assert_not_called()
+
+
+def test_parse_retry_with_seconds() -> None:
+    assert oauth.parse_retry("10") == 10
+
+
+@freeze_time("2025-01-01 00:00:00 UTC")
+def test_parse_retry_with_http_date() -> None:
+    # Now
+    assert oauth.parse_retry("Wed, 01 Jan 2025 00:00:00 GMT") == 0
+    # Future date
+    assert oauth.parse_retry("Fri, 01 Jan 2025 00:00:10 GMT") == 10
+    assert oauth.parse_retry("Fri, 01 Jan 2025 00:00:30 CET") == 30
+    assert oauth.parse_retry("Fri, 01 Jan 2025 00:00:00 PST") == 28800
+    # Past date
+    assert oauth.parse_retry("Fri, 01 Jan 2024 00:00:00 GMT") == 0
+    assert oauth.parse_retry("Fri, 01 Jan 2024 00:00:00 CET") == 0
+    assert oauth.parse_retry("Fri, 01 Jan 2024 00:00:00 PST") == 0
+
+
+def test_parse_retry_with_none() -> None:
+    assert oauth.parse_retry(None) == 0
+
+
+def test_parse_retry_with_invalid_string() -> None:
+    assert oauth.parse_retry("invalid") == 0
+    assert oauth.parse_retry("numb3r") == 0
+    assert oauth.parse_retry("0x15") == 0
+
+
+def test_rewrite_uri() -> None:
+    result = oauth.rewrite_uri("http://example.com/path?a=1&b=2", {"b": "3", "c": "4"})
+    assert result == "http://example.com/path?a=1&b=3&c=4"
+
+    result = oauth.rewrite_uri("http://example.com/path", {"a": "1"})
+    assert result == "http://example.com/path?a=1"
+
+    result = oauth.rewrite_uri("http://example.com/path?a=1", {"a": "2"})
+    assert result == "http://example.com/path?a=2"
