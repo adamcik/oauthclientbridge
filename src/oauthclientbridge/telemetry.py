@@ -44,23 +44,25 @@ from oauthclientbridge.settings import (
 )
 
 
-@contextlib.contextmanager
-def instrument():
-    instrumentors = [
-        SQLite3Instrumentor(),
-        RequestsInstrumentor(),
-        SystemMetricsInstrumentor(),
-        LoggingInstrumentor(),
-    ]
 
+instrumentors = [
+    SQLite3Instrumentor(),
+    SystemMetricsInstrumentor(),
+    LoggingInstrumentor(),
+    RequestsInstrumentor(
+        response_hook=_requests_response_hook,
+    ),
+]
+
+
+def instrument():
     for inst in instrumentors:
         inst.instrument()
 
-    try:
-        yield
-    finally:
-        for inst in instrumentors:
-            inst.uninstrument()
+
+def uninstrument():
+    for inst in instrumentors:
+        inst.uninstrument()
 
 
 def instrument_app(app: Flask) -> None:

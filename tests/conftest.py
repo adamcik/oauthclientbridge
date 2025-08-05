@@ -12,7 +12,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from pydantic import SecretStr
 from werkzeug.datastructures import Headers
 
-from oauthclientbridge import create_app, crypto, db
+from oauthclientbridge import create_app, crypto, db, telemetry
 from oauthclientbridge.settings import (
     DatabaseSettings,
     OAuthSettings,
@@ -20,7 +20,7 @@ from oauthclientbridge.settings import (
     TelemetryComponent,
     TelemetrySettings,
 )
-from oauthclientbridge.telemetry import init_metrics, init_tracing, instrument
+from oauthclientbridge.telemetry import init_metrics, init_tracing
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -48,8 +48,11 @@ def otel_setup():
 
 @pytest.fixture
 def instrumented():
-    with instrument():
+    telemetry.instrument()
+    try:
         yield
+    finally:
+        telemetry.uninstrument()
 
 
 @pytest.fixture
