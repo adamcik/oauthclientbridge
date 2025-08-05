@@ -168,6 +168,11 @@ def test_parse_retry_with_invalid_string() -> None:
     assert oauth.parse_retry("0x15") == 0
 
 
+def test_parse_retry_with_multiple_headers() -> None:
+    assert oauth.parse_retry("10, 20") == 0
+    assert oauth.parse_retry("10, Wed, 01 Jan 2025 00:00:10 GMT") == 0
+
+
 def test_oauth_session_sets_user_agent(
     app_context: flask.ctx.AppContext,
     requests_mock: RequestsMocker,
