@@ -1,4 +1,5 @@
 import email.utils
+import functools
 import importlib.metadata
 import re
 import time
@@ -43,10 +44,14 @@ TOKEN_ERRORS = {
     errors.TEMPORARILY_UNAVAILABLE,
 }
 
-_version = importlib.metadata.version("oauthclientbridge")
 
-_session = requests.Session()
-_session.headers["user-agent"] = "oauthclientbridge %s" % _version
+@functools.lru_cache()
+def get_session():
+    session = requests.Session()
+    session.headers["User-Agent"] = "oauthclientbridge %s" % importlib.metadata.version(
+        "oauthclientbridge"
+    )
+    return session
 
 
 class Error(Exception):
@@ -188,6 +193,8 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
         return result
 
 
+# TODO: Test timeouts
+# TODO: Add global retry budget / circuit breaker?
 def _fetch(
     prepared: requests.PreparedRequest,
     timeout: float,
@@ -197,14 +204,16 @@ def _fetch(
     timeout = max(1.0, min(current_settings.fetch.timeout, timeout))
     start_time = time.time()
 
+    session = get_session()
+
     try:
         # TODO: switch to a context for tracking time.
-        resp = _session.send(prepared, timeout=timeout)
+        resp = session.send(prepared, timeout=timeout)
     except requests.exceptions.RequestException as e:
         request_latency = time.time() - start_time
 
         # Increase chances that we get connected to a different instance.
-        _session.close()
+        session.close()
 
         # Fallback values in case we can't say anything better.
         status_label = "unknown_exception"

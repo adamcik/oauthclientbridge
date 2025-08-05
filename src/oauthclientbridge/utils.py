@@ -1,7 +1,7 @@
 import urllib.parse
-from typing import Any
 
 URIParam = dict[str, str]
+
 
 def _rewrite_query(original: str, params: URIParam) -> str:
     parts = []

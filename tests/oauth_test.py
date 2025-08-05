@@ -3,7 +3,7 @@ import unittest.mock
 import flask.ctx
 import requests
 from freezegun import freeze_time
-from requests_mock import Mocker
+from requests_mock import Mocker as RequestsMocker
 
 from oauthclientbridge import oauth
 from oauthclientbridge.settings import current_settings
@@ -11,7 +11,7 @@ from oauthclientbridge.settings import current_settings
 
 def test_oauth_fetch_retries_on_failure_then_success(
     app_context: flask.ctx.AppContext,
-    requests_mock: Mocker,
+    requests_mock: RequestsMocker,
 ) -> None:
     """Verify that oauth.fetch retries on HTTP failure and eventually succeeds."""
     # Simulate 2 failures (504 status code) then 1 success (200 status code)
@@ -34,7 +34,7 @@ def test_oauth_fetch_retries_on_failure_then_success(
 
 def test_oauth_fetch_retries_on_exception_then_success(
     app_context: flask.ctx.AppContext,
-    requests_mock: Mocker,
+    requests_mock: RequestsMocker,
 ) -> None:
     """Verify that oauth.fetch retries on exception and eventually succeeds."""
     # Simulate 2 exceptions then 1 success
@@ -57,7 +57,7 @@ def test_oauth_fetch_retries_on_exception_then_success(
 
 def test_oauth_fetch_fails_after_all_retries_exhausted(
     app_context: flask.ctx.AppContext,
-    requests_mock: Mocker,
+    requests_mock: RequestsMocker,
 ) -> None:
     """Verify that oauth.fetch fails after all retries are exhausted."""
     # Simulate 3 failures (504 status code) and total_retries is 2
@@ -81,7 +81,7 @@ def test_oauth_fetch_fails_after_all_retries_exhausted(
 
 def test_oauth_fetch_respects_retry_after_header(
     app_context: flask.ctx.AppContext,
-    requests_mock: Mocker,
+    requests_mock: RequestsMocker,
 ) -> None:
     """Verify that oauth.fetch respects the Retry-After header."""
 
@@ -103,7 +103,7 @@ def test_oauth_fetch_respects_retry_after_header(
 
 def test_oauth_fetch_does_not_retry_on_non_retryable_status_code(
     app_context: flask.ctx.AppContext,
-    requests_mock: Mocker,
+    requests_mock: RequestsMocker,
 ) -> None:
     """Verify that oauth.fetch does not retry on a non-retryable status code."""
 
@@ -125,7 +125,7 @@ def test_oauth_fetch_does_not_retry_on_non_retryable_status_code(
 
 def test_oauth_fetch_does_not_retry_on_success(
     app_context: flask.ctx.AppContext,
-    requests_mock: Mocker,
+    requests_mock: RequestsMocker,
 ) -> None:
     """Verify that oauth.fetch does not retry on success."""
 
@@ -168,4 +168,20 @@ def test_parse_retry_with_invalid_string() -> None:
     assert oauth.parse_retry("0x15") == 0
 
 
+def test_oauth_session_sets_user_agent(
+    app_context: flask.ctx.AppContext,
+    requests_mock: RequestsMocker,
+) -> None:
+    """Verify that oauth.session sets the User-Agent header correctly."""
 
+    requests_mock.get("http://example.com/", status_code=200)
+
+    oauth.get_session().get("http://example.com/")
+
+    history = requests_mock.request_history
+    assert len(history) == 1
+    assert "User-Agent" in history[0].headers
+    assert history[0].headers["User-Agent"].startswith("oauthclientbridge")
+
+
+# TODO: test that fetch also uses this session.
