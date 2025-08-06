@@ -348,5 +348,7 @@ def parse_retry(value: str | None) -> int:
             seconds = int(email.utils.mktime_tz(parsed) - time.time())
     return max(0, seconds)
 
+
+def redirect(uri: str, **params: str) -> flask.Response:
     # TODO: Add the location we redirect to in span?
     return flask.Response(status=302, headers={"Location": rewrite_uri(uri, params)})
