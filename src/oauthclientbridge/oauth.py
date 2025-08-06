@@ -68,6 +68,9 @@ class Error(Exception):
         self.uri = uri
         self.retry_after = retry_after
 
+    def __str__(self):
+        return f"{self.error}: {self.description or '-'}"
+
 
 def error_handler(e: Error) -> flask.Response:
     """Create a well formed JSON response with status and auth headers."""
@@ -82,6 +85,7 @@ def error_handler(e: Error) -> flask.Response:
     response = flask.jsonify(result)
     if e.error == errors.INVALID_CLIENT:
         response.status_code = 401
+        # TODO: This triggers a login prompt when testing, we probably don't want that.
         response.headers["WWW-Authenticate"] = (
             f'Basic realm="{current_settings.auth_realm}"'
         )
@@ -90,6 +94,10 @@ def error_handler(e: Error) -> flask.Response:
         response.status_code = 429
     else:
         response.status_code = 400
+
+    current_span = trace.get_current_span()
+    current_span.record_exception(e)
+    current_span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
 
     status = status = stats.status(response.status_code)
     stats.ServerErrorCounter.labels(
@@ -104,6 +112,10 @@ def fallback_error_handler(e: Exception) -> flask.Response:
         status=stats.status(500),
         error=errors.SERVER_ERROR,
     ).inc()
+
+    current_span = trace.get_current_span()
+    current_span.record_exception(e)
+    current_span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
 
     response = flask.jsonify(
         _error(errors.SERVER_ERROR, errors.DESCRIPTIONS[errors.SERVER_ERROR])
@@ -141,7 +153,8 @@ def scrub_refresh_token(token: OAuthResponse) -> OAuthResponse:
 # TODO: Turn endpoint into a StrEnum
 def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResponse:
     """Perform post given URI with auth and provided data."""
-    with tracer.start_as_current_span(f"oauth.fetch.{endpoint}"):
+
+    with tracer.start_as_current_span(f"OAUTH {endpoint}") as span:
         req = requests.Request("POST", uri, data=data, auth=auth)
         prepared = req.prepare()
 
@@ -152,6 +165,7 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
             errors.SERVER_ERROR, "An unknown error occurred talking to provider."
         )
 
+        i = 0
         for i in range(current_settings.fetch.total_retries):
             prefix = "attempt #%d %s" % (i + 1, uri)
 
@@ -160,13 +174,20 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
             remaining_timeout = timeout - time.time()
 
             if (retry or backoff) > remaining_timeout:
+                span.add_event("No timeout remaining")
                 logger.debug("Abort %s no timeout remaining.", prefix)
                 break
             elif (retry or backoff) > 0:
+                span.add_event("Sleeping", {"duration": retry or backoff})
                 logger.debug("Retry %s [sleep %.3f]", prefix, retry or backoff)
                 time.sleep(retry or backoff)
 
-            result, status, retry = _fetch(prepared, remaining_timeout, endpoint)
+            result, status, retry = _fetch(
+                span,
+                prepared,
+                remaining_timeout,
+                endpoint,
+            )
 
             labels = {"endpoint": endpoint, "status": stats.status(status)}
             stats.ClientRetryHistogram.labels(**labels).observe(i)
@@ -179,23 +200,35 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
                 stats.ClientErrorCounter.labels(error=error, **labels).inc()
 
             if status is None:
+                span.add_event("Missing response")
                 pass  # We didn't even get a response, so try again.
+            elif status == 200:
+                span.add_event("Success")
+                break
             elif status not in current_settings.fetch.retry_status_codes:
+                span.add_event("Aborted", {"status": status})
                 break
             elif "error" not in result:
+                span.add_event("Non-OK without error!?")
                 break  # No error reported so might as well return it.
 
             logger.debug(
                 "Result %s [status %s] [retry after %s]", prefix, status, retry
             )
 
-        # TODO: consider returning retry after time so it can be used.
+        span.set_attribute("total_retries", i)
+
+        if "error" in result:
+            span.set_status(trace.Status(trace.StatusCode.ERROR, str(result)))
+
+        # TODO: consider returning retry after time so it can be used in response
         return result
 
 
 # TODO: Test timeouts
 # TODO: Add global retry budget / circuit breaker?
 def _fetch(
+    span: trace.Span,
     prepared: requests.PreparedRequest,
     timeout: float,
     endpoint: str,
@@ -212,7 +245,9 @@ def _fetch(
     except requests.exceptions.RequestException as e:
         request_latency = time.time() - start_time
 
-        # Increase chances that we get connected to a different instance.
+        span.record_exception(e)
+
+        span.add_event("Closing session to get new server")
         session.close()
 
         # Fallback values in case we can't say anything better.
@@ -243,13 +278,19 @@ def _fetch(
         # brought up in https://www.rfc-editor.org/errata_search.php?eid=4745
         result = _error(errors.SERVER_ERROR, description)
         status_code = 504
-        length = None
-        retry_after = 0
+
+        if isinstance(e, requests.exceptions.HTTPError):
+            length = len(e.response.content)
+            retry_after = parse_retry(e.response.headers.get("retry-after"))
+            # TODO: Can we decode the response here? Store it in the span?
+        else:
+            length = None
+            retry_after = 0
     else:
         request_latency = time.time() - start_time
         status_label = stats.status(resp.status_code)
 
-        result = _decode(resp)
+        result = _decode(span, resp)
         status_code = resp.status_code
         length = len(resp.content)
         retry_after = parse_retry(resp.headers.get("retry-after"))
@@ -262,7 +303,7 @@ def _fetch(
     return result, status_code, retry_after
 
 
-def _decode(resp: requests.Response) -> OAuthResponse:
+def _decode(span: trace.Span, resp: requests.Response) -> OAuthResponse:
     # Per OAuth spec all responses should be JSON, but this isn't always
     # the case. For instance 502 errors and a gateway that does not correctly
     # create a fake JSON error response.
@@ -270,6 +311,8 @@ def _decode(resp: requests.Response) -> OAuthResponse:
     try:
         return resp.json()
     except ValueError as e:
+        span.record_exception(e)
+
         logger.warning(
             "Fetching %r (HTTP %s, %s) failed: %s",
             resp.url,
@@ -305,6 +348,5 @@ def parse_retry(value: str | None) -> int:
             seconds = int(email.utils.mktime_tz(parsed) - time.time())
     return max(0, seconds)
 
-
-def redirect(uri: str, **params: str) -> flask.Response:
+    # TODO: Add the location we redirect to in span?
     return flask.Response(status=302, headers={"Location": rewrite_uri(uri, params)})
