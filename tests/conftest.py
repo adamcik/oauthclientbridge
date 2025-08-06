@@ -6,9 +6,7 @@ import pytest
 from flask import Flask
 from flask.ctx import AppContext
 from flask.testing import FlaskClient
-from opentelemetry.sdk.metrics.export import InMemoryMetricReader
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry import metrics, trace
 from pydantic import SecretStr
 from werkzeug.datastructures import Headers
 
@@ -17,56 +15,39 @@ from oauthclientbridge.settings import (
     DatabaseSettings,
     OAuthSettings,
     Settings,
-    TelemetryComponent,
-    TelemetrySettings,
 )
-from oauthclientbridge.telemetry import init_metrics, init_tracing
+
+from .otel_mocker import OTelMocker, reset_otel_providers
 
 
-@pytest.fixture(scope="session", autouse=True)
-def otel_setup():
-    """Sets up global OpenTelemetry providers for testing using init_tracing and init_metrics."""
-    # Tracing setup
-    span_exporter = InMemorySpanExporter()
-    span_processor = SimpleSpanProcessor(span_exporter)
+@pytest.fixture(name="reset_otel_providers", autouse=True)
+def fixture_reset_otel_providers():
+    with reset_otel_providers():
+        yield
 
-    # Metrics setup
-    metric_reader = InMemoryMetricReader()
 
-    settings = TelemetrySettings(
-        components={TelemetryComponent.TRACING, TelemetryComponent.METRICS},
-    )
+@pytest.fixture(name="otel_mock")
+def fixture_otel_mock(reset_otel_providers):
+    return OTelMocker()
 
-    init_tracing(settings, span_processor=span_processor)
-    init_metrics(settings, metric_reader=metric_reader)
 
-    yield span_exporter, metric_reader
+@pytest.fixture(name="tracer")
+def fixture_tracer(otel_mock: OTelMocker):
+    return trace.get_tracer("tests")
 
-    span_processor.shutdown()
-    metric_reader.shutdown()
+
+@pytest.fixture(name="meter")
+def fixture_meter(otel_mock: OTelMocker):
+    return metrics.get_meter("tests")
 
 
 @pytest.fixture
-def instrumented():
+def instrumented(otel_mock):
     telemetry.instrument()
     try:
         yield
     finally:
         telemetry.uninstrument()
-
-
-@pytest.fixture
-def captraces(otel_setup):
-    span_exporter, _ = otel_setup
-    span_exporter.clear()
-    return span_exporter
-
-
-@pytest.fixture
-def capmetrics(otel_setup):
-    _, metric_reader = otel_setup
-    _ = metric_reader.get_metrics_data()
-    return metric_reader
 
 
 class ResponseTuple(NamedTuple):
