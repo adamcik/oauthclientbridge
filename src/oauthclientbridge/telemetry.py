@@ -1,7 +1,7 @@
-import contextlib
 import importlib.util
 from typing import assert_never
 
+import requests
 from flask import Flask
 from opentelemetry import trace
 from opentelemetry.baggage.propagation import W3CBaggagePropagator
@@ -36,6 +36,7 @@ from opentelemetry.sdk.trace.export import (
     SimpleSpanProcessor,
 )
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+from requests.structures import CaseInsensitiveDict
 
 from oauthclientbridge.settings import (
     TelemetryComponent,
@@ -44,31 +45,88 @@ from oauthclientbridge.settings import (
 )
 
 
+def _requests_response_hook(
+    span: trace.Span,
+    request: requests.PreparedRequest,
+    response: requests.Response,
+):
+    if not span or not span.is_recording():
+        return
+
+    span.set_attribute(
+        "http.response.body.size",
+        len(response.content),
+    )
+
+    if "Content-Length" in response.headers:
+        span.set_attribute(
+            "http.response.header.content_length",
+            response.headers["Content-Length"],
+        )
+    if "Content-Type" in response.headers:
+        span.set_attribute(
+            "http.response.header.content_type",
+            response.headers["Content-Type"],
+        )
+    if "Retry-After" in response.headers:
+        span.set_attribute(
+            "http.response.header.content_type",
+            response.headers["Retry-After"],
+        )
+
+
+def _flask_response_hook(span: trace.Span, status: str, headers):
+    if not span or not span.is_recording():
+        return
+
+    headers = CaseInsensitiveDict(headers)
+    if "Location" in headers:
+        span.set_attribute(
+            "http.response.header.location",
+            headers["Location"],
+        )
+    if "Cache-Control" in headers:
+        span.set_attribute(
+            "http.response.header.cache_control",
+            headers["Cache-Control"],
+        )
+    if "Content-Type" in headers:
+        span.set_attribute(
+            "http.response.header.content_type",
+            headers["Content-Type"],
+        )
+    if "Retry-After" in headers:
+        span.set_attribute(
+            "http.response.header.retry_after",
+            headers["Retry-After"],
+        )
+
 
 instrumentors = [
-    SQLite3Instrumentor(),
-    SystemMetricsInstrumentor(),
-    LoggingInstrumentor(),
-    RequestsInstrumentor(
-        response_hook=_requests_response_hook,
-    ),
+    (SystemMetricsInstrumentor(), {}),
+    (LoggingInstrumentor(), {}),
+    (SQLite3Instrumentor(), {}),
+    (RequestsInstrumentor(), {"response_hook": _requests_response_hook}),
 ]
 
 
 def instrument():
-    for inst in instrumentors:
-        inst.instrument()
+    for inst, kwargs in instrumentors:
+        inst.instrument(**kwargs)
 
 
 def uninstrument():
-    for inst in instrumentors:
+    for inst, _ in instrumentors:
         inst.uninstrument()
 
 
 def instrument_app(app: Flask) -> None:
     # TODO: See if we can do this with global flask instrument without breaking
     # server or tests.
-    FlaskInstrumentor().instrument_app(app)
+    FlaskInstrumentor().instrument_app(
+        app,
+        response_hook=_flask_response_hook,
+    )
 
 
 def init_tracing(
@@ -77,6 +135,7 @@ def init_tracing(
 ) -> None:
     if TelemetryComponent.TRACING not in settings.components:
         return
+
     provider = TracerProvider(
         resource=Resource.create({SERVICE_NAME: settings.service_name})
     )
