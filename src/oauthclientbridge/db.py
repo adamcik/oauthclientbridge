@@ -1,11 +1,12 @@
 import contextlib
 import re
 import sqlite3
+import time
 import uuid
 from typing import Iterator
 
 from flask import current_app, g
-from opentelemetry import trace
+from opentelemetry import metrics, trace
 
 from oauthclientbridge import stats
 from oauthclientbridge.settings import current_settings
@@ -14,6 +15,13 @@ Error = sqlite3.Error
 IntegrityError = sqlite3.IntegrityError
 
 tracer = trace.get_tracer(__name__)
+meter = metrics.get_meter(__name__)
+
+_db_cursor_duration_histogram = meter.create_histogram(
+    name="oauth.db.cursor.duration",
+    description="Measures the duration of a logical database operation.",
+    unit="s",
+)
 
 
 def generate_id() -> str:
@@ -54,31 +62,41 @@ def vacuum() -> None:
 @contextlib.contextmanager
 def cursor(name: str, transaction: bool = False) -> Iterator[sqlite3.Cursor]:
     """Get SQLite cursor with automatic commit if no exceptions are raised."""
-    with tracer.start_as_current_span(
-        f"DB {name}", attributes={"transaction": transaction}
-    ) as span:
-        try:
-            with get() as connection:
-                c = connection.cursor()
-                with contextlib.closing(c):
-                    with stats.DBLatencyHistorgram.labels(query=name).time():
-                        try:
-                            if transaction:
-                                c.execute("BEGIN")
-                            yield c
-                        except Exception as e:
-                            if transaction:
-                                connection.rollback()
-                            span.record_exception(e)
-                            raise
-                        else:
-                            if transaction:
-                                connection.commit()
-        except sqlite3.Error as e:
-            # https://www.python.org/dev/peps/pep-0249/#exceptions for values.
-            error = re.sub(r"(?!^)([A-Z])", r"_\1", e.__class__.__name__).lower()
-            stats.DBErrorCounter.labels(query=name, error=error).inc()
-            raise
+    start_time = time.monotonic()
+    try:
+        with tracer.start_as_current_span(
+            f"DB {name}", attributes={"transaction": transaction}
+        ) as span:
+            try:
+                with get() as connection:
+                    c = connection.cursor()
+                    with contextlib.closing(c):
+                        with stats.DBLatencyHistorgram.labels(query=name).time():
+                            try:
+                                if transaction:
+                                    c.execute("BEGIN")
+                                yield c
+                            except Exception as e:
+                                if transaction:
+                                    connection.rollback()
+                                span.record_exception(e)
+                                raise
+                            else:
+                                if transaction:
+                                    connection.commit()
+            except sqlite3.Error as e:
+                # https://www.python.org/dev/peps/pep-0249/#exceptions for values.
+                error = re.sub(r"(?!^)([A-Z])", r"_\1", e.__class__.__name__).lower()
+                stats.DBErrorCounter.labels(query=name, error=error).inc()
+                raise
+    finally:
+        _db_cursor_duration_histogram.record(
+            time.monotonic() - start_time,
+            attributes={
+                "oauth.db.cursor.name": name,
+                "oauth.db.cursor.transaction": transaction,
+            },
+        )
 
 
 def _prepare_token(token: bytes | None) -> str | None:

@@ -244,6 +244,10 @@ def init_metrics(
         instrument_name="http.*.size",
         aggregation=ExplicitBucketHistogramAggregation(boundaries=BYTE_BUCKETS),
     )
+    db_cursor_view = View(
+        instrument_name="oauth.db.cursor.duration",
+        aggregation=ExplicitBucketHistogramAggregation(boundaries=TIME_BUCKETS),
+    )
 
     readers: list[MetricReader] = []
     if metric_reader:
@@ -278,6 +282,6 @@ def init_metrics(
         MeterProvider(
             resource=resource,
             metric_readers=readers,
-            views=[http_duration_view, http_size_view],
+            views=[http_duration_view, http_size_view, db_cursor_view],
         )
     )
