@@ -28,6 +28,7 @@ from opentelemetry.sdk.metrics.export import (
     MetricReader,
     PeriodicExportingMetricReader,
 )
+from opentelemetry.sdk.metrics.view import ExplicitBucketHistogramAggregation, View
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 from opentelemetry.sdk.trace import SpanProcessor, TracerProvider
 from opentelemetry.sdk.trace.export import (
@@ -42,6 +43,54 @@ from oauthclientbridge.settings import (
     TelemetryComponent,
     TelemetryExporter,
     TelemetrySettings,
+)
+
+# Buckets for histogram metrics, taken from stats.py
+TIME_BUCKETS = (
+    0.0001,
+    0.00055,
+    0.001,
+    0.0028,
+    0.0046,
+    0.0064,
+    0.0082,
+    0.01,
+    0.028,
+    0.046,
+    0.064,
+    0.082,
+    0.1,
+    0.4,
+    0.7,
+    1.0,
+    4.0,
+    7.0,
+    10.0,
+    float("inf"),
+)
+
+BYTE_BUCKETS = (
+    8,
+    22,
+    36,
+    50,
+    64,
+    176,
+    288,
+    400,
+    512,
+    1408,
+    2304,
+    3200,
+    4096,
+    11264,
+    18432,
+    25600,
+    32768,
+    90112,
+    147456,
+    204800,
+    float("inf"),
 )
 
 
@@ -186,6 +235,16 @@ def init_metrics(
 
     resource = Resource.create({SERVICE_NAME: settings.service_name})
 
+    # Apply custom buckets to the http.server.duration and http.client.duration metrics.
+    http_duration_view = View(
+        instrument_name="http.*.duration",
+        aggregation=ExplicitBucketHistogramAggregation(boundaries=TIME_BUCKETS),
+    )
+    http_size_view = View(
+        instrument_name="http.*.size",
+        aggregation=ExplicitBucketHistogramAggregation(boundaries=BYTE_BUCKETS),
+    )
+
     readers: list[MetricReader] = []
     if metric_reader:
         readers.append(metric_reader)
@@ -219,5 +278,6 @@ def init_metrics(
         MeterProvider(
             resource=resource,
             metric_readers=readers,
+            views=[http_duration_view, http_size_view],
         )
     )
