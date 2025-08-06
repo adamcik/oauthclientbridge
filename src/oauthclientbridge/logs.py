@@ -5,6 +5,10 @@ from typing import Any, cast
 
 import structlog
 from flask import Flask, Request, Response, g, request
+from opentelemetry.semconv._incubating.attributes.http_attributes import (
+    HTTP_REQUEST_BODY_SIZE,
+    HTTP_RESPONSE_BODY_SIZE,
+)
 from opentelemetry.semconv.attributes.client_attributes import (
     CLIENT_ADDRESS,
     CLIENT_PORT,
@@ -35,11 +39,7 @@ from oauthclientbridge.settings import LogSettings
 access_logger: structlog.BoundLogger = structlog.get_logger("oauthclientbridge.http")
 logger: structlog.BoundLogger = structlog.get_logger()
 
-# NOTE: I'm not sure if these are the right constants to use, to they seem to be
-# close to the conventions for other things.
-HTTP_REQUST_DURATION = "http.request.duration"
-HTTP_REQUEST_BODY_SIZE = "http.request.body.size"
-HTTP_RESPONSE_BODY_SIZE = "http.response.body.size"
+HTTP_SERVER_DURATION = "http.server.duration"
 
 
 class AccessLogFormatter(string.Formatter):
@@ -149,7 +149,7 @@ def get_request_info(req: Request, duration_ns: int) -> dict[str, Any]:
         # "user.name": req.remote_user,  # No direct OTel constant for remote_user
         CLIENT_ADDRESS: req.remote_addr,
         CLIENT_PORT: get_remote_port(req.headers, req.environ),
-        HTTP_REQUST_DURATION: duration_ns / 1e9,
+        HTTP_SERVER_DURATION: duration_ns / 1e9,
         HTTP_REQUEST_METHOD: req.method,
         HTTP_REQUEST_BODY_SIZE: len(req.get_data()),
         HTTP_ROUTE: req.url_rule.rule if req.url_rule else None,

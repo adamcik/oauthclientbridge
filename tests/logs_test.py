@@ -6,6 +6,14 @@ import pytest
 import structlog
 from flask import Flask, Request
 from opentelemetry import trace
+from opentelemetry.semconv._incubating.attributes.http_attributes import (
+    HTTP_REQUEST_BODY_SIZE,
+    HTTP_RESPONSE_BODY_SIZE,
+)
+from opentelemetry.semconv.attributes.client_attributes import (
+    CLIENT_ADDRESS,
+    CLIENT_PORT,
+)
 from opentelemetry.semconv.attributes.http_attributes import (
     HTTP_REQUEST_HEADER_TEMPLATE,
     HTTP_REQUEST_METHOD,
@@ -13,12 +21,17 @@ from opentelemetry.semconv.attributes.http_attributes import (
     HTTP_RESPONSE_STATUS_CODE,
     HTTP_ROUTE,
 )
+from opentelemetry.semconv.attributes.network_attributes import (
+    NETWORK_PROTOCOL_VERSION,
+)
 from opentelemetry.semconv.attributes.server_attributes import SERVER_ADDRESS
 from opentelemetry.semconv.attributes.url_attributes import (
     URL_FULL,
+    URL_PATH,
     URL_QUERY,
     URL_SCHEME,
 )
+from opentelemetry.semconv.attributes.user_agent_attributes import USER_AGENT_ORIGINAL
 from werkzeug.datastructures import Headers
 from werkzeug.routing import Rule
 
@@ -123,19 +136,19 @@ def test_flask_request_logging(capsys):
         record[f"{HTTP_RESPONSE_HEADER_TEMPLATE}.content_type"]
         == "text/html; charset=utf-8"
     )
-    assert record[logs.HTTP_RESPONSE_BODY_SIZE] == len(b"Hello, World!")
-    assert logs.HTTP_REQUST_DURATION in record
+    assert record[HTTP_RESPONSE_BODY_SIZE] == len(b"Hello, World!")
+    assert logs.HTTP_SERVER_DURATION in record
 
     # Assert the formatted access log message
     expected_access_log = (
-        f"127.0.0.1 \"GET / {record['network.protocol.version']}\" "
-        f"200 {len(b'Hello, World!')} \"-\" \"{record['user_agent.original']}\""
+        f"127.0.0.1 \"GET / {record[NETWORK_PROTOCOL_VERSION]}\" "
+        f"200 {len(b'Hello, World!')} \"-\" \"{record[USER_AGENT_ORIGINAL]}\""
     )
     assert record["event"] == expected_access_log
 
 
 def test_get_request_info():
-    req = cast(  # from_values() returns a werkzeug typed class.
+    req = cast(
         Request,
         Request.from_values(
             method="GET",
@@ -157,22 +170,22 @@ def test_get_request_info():
     duration_ns = 1000000000  # 1 second
     info = logs.get_request_info(req, duration_ns)
 
-    assert info[logs.CLIENT_ADDRESS] == "127.0.0.1"
-    assert info[logs.CLIENT_PORT] == "12345"
-    assert info[logs.HTTP_REQUEST_METHOD] == "GET"
-    assert info[logs.HTTP_REQUEST_BODY_SIZE] == 0
-    assert info[logs.HTTP_ROUTE] == "/test"
-    assert info[logs.NETWORK_PROTOCOL_VERSION] == "HTTP/1.1"
-    assert info[logs.SERVER_ADDRESS] == "localhost"
-    assert info[logs.URL_FULL] == "http://localhost/test?param=value"
-    assert info[logs.URL_PATH] == "/test"
-    assert info[logs.URL_QUERY] == "param=value"
-    assert info[logs.URL_SCHEME] == "http"
-    assert info[logs.USER_AGENT_ORIGINAL] == "test-agent"
-    assert info[f"{logs.HTTP_REQUEST_HEADER_TEMPLATE}.content_type"] is None
-    assert info[f"{logs.HTTP_REQUEST_HEADER_TEMPLATE}.content_length"] is None
-    assert info[f"{logs.HTTP_REQUEST_HEADER_TEMPLATE}.referer"] == "test-referer"
-    assert info[logs.HTTP_REQUST_DURATION] == 1.0
+    assert info[CLIENT_ADDRESS] == "127.0.0.1"
+    assert info[CLIENT_PORT] == "12345"
+    assert info[HTTP_REQUEST_METHOD] == "GET"
+    assert info[HTTP_REQUEST_BODY_SIZE] == 0
+    assert info[HTTP_ROUTE] == "/test"
+    assert info[NETWORK_PROTOCOL_VERSION] == "HTTP/1.1"
+    assert info[SERVER_ADDRESS] == "localhost"
+    assert info[URL_FULL] == "http://localhost/test?param=value"
+    assert info[URL_PATH] == "/test"
+    assert info[URL_QUERY] == "param=value"
+    assert info[URL_SCHEME] == "http"
+    assert info[USER_AGENT_ORIGINAL] == "test-agent"
+    assert info[f"{HTTP_REQUEST_HEADER_TEMPLATE}.content_type"] is None
+    assert info[f"{HTTP_REQUEST_HEADER_TEMPLATE}.content_length"] is None
+    assert info[f"{HTTP_REQUEST_HEADER_TEMPLATE}.referer"] == "test-referer"
+    assert info[logs.HTTP_SERVER_DURATION] == 1.0
 
 
 def test_get_response_info():
@@ -181,13 +194,11 @@ def test_get_response_info():
     resp = Response("test data", status=200, headers={"Content-Type": "text/plain"})
     info = logs.get_response_info(resp)
 
-    assert info[logs.HTTP_RESPONSE_BODY_SIZE] == len(b"test data")
-    assert info[logs.HTTP_RESPONSE_STATUS_CODE] == 200
-    assert info[f"{logs.HTTP_RESPONSE_HEADER_TEMPLATE}.content_length"] == len(
-        b"test data"
-    )
-    assert info[f"{logs.HTTP_RESPONSE_HEADER_TEMPLATE}.content_type"] == "text/plain"
-    assert info[f"{logs.HTTP_RESPONSE_HEADER_TEMPLATE}.cache_control"] is None
+    assert info[HTTP_RESPONSE_BODY_SIZE] == len(b"test data")
+    assert info[HTTP_RESPONSE_STATUS_CODE] == 200
+    assert info[f"{HTTP_RESPONSE_HEADER_TEMPLATE}.content_length"] == len(b"test data")
+    assert info[f"{HTTP_RESPONSE_HEADER_TEMPLATE}.content_type"] == "text/plain"
+    assert info[f"{HTTP_RESPONSE_HEADER_TEMPLATE}.cache_control"] is None
 
 
 def test_configure_structlog_console_colors(capsys):
