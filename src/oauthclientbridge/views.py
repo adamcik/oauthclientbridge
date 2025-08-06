@@ -4,6 +4,11 @@ from typing import Any
 import flask
 import structlog
 from flask import Blueprint
+from opentelemetry import trace
+from opentelemetry.semconv.attributes.exception_attributes import (
+    EXCEPTION_MESSAGE,
+    EXCEPTION_TYPE,
+)
 
 from oauthclientbridge import crypto, db, errors, oauth, sentry, stats
 from oauthclientbridge.settings import current_settings
@@ -40,6 +45,7 @@ def authorize() -> flask.Response:
 @routes.route("/callback")
 def callback() -> flask.Response:
     """Validate callback and trade in code for a token."""
+
     error: str | None = None
     desc: str | None = None
     client_state: str | None = flask.session.pop("client_state", None)
@@ -75,6 +81,7 @@ def callback() -> flask.Response:
         level = logging.getLevelNamesMapping()[level]
 
         logger.log(level, msg)
+
         return _error(error, desc, client_state)
 
     result = oauth.fetch(
@@ -96,6 +103,10 @@ def callback() -> flask.Response:
 
     if error is not None:
         logger.warning("Retrieving token failed", result=result)
+
+        current_span = trace.get_current_span()
+        current_span.add_event("token_error", result)
+
         return _error(error, desc, client_state)
 
     if "refresh_token" in result:
@@ -105,6 +116,7 @@ def callback() -> flask.Response:
     token = crypto.dumps(client_secret, result)
 
     client_id = db.generate_id()
+    # TODO: Make this into telemetry.set_user and populate span attr?
     sentry.set_user({"client_id": client_id})
 
     try:
@@ -160,6 +172,7 @@ def token() -> flask.Response:
             "client_id and client_secret set to same value.",
         )
 
+    # TODO: Combine this in telemetry.set_user() that also does span...
     structlog.contextvars.bind_contextvars(client_id=client_id)
     sentry.set_user({"client_id": client_id})
 
@@ -207,10 +220,14 @@ def token() -> flask.Response:
         else:
             logger.error("Token refresh failed", refresh_result=refresh_result)
 
+        current_span = trace.get_current_span()
+        current_span.add_event("refresh_error", refresh_result)
+
         # Client Credentials access token responses use the same errors
         # as Authorization Code Grant access token responses. As such, just
         # raise the error we got.
         # TODO: Retry after header for error case?
+        # This was the case where returning the retry-after from fetch could make sense.
         raise oauth.Error(
             error,
             refresh_result.get("error_description"),
@@ -255,6 +272,15 @@ def _error(
         status = 401
     else:
         status = 400
+
+    current_span = trace.get_current_span()
+    current_span.set_status(
+        trace.Status(trace.StatusCode.ERROR, f"{error_code}: {error}")
+    )
+    current_span.add_event(
+        "error",
+        {EXCEPTION_MESSAGE: error or "", EXCEPTION_TYPE: error_code},
+    )
 
     stats.ServerErrorCounter.labels(
         endpoint=stats.endpoint(), status=stats.status(status), error=error_code
