@@ -28,6 +28,8 @@ def initialize() -> None:
 
 
 # TODO: Make this internal in favour of always needing to have a cursor
+# https://github.com/open-telemetry/opentelemetry-python-contrib/issues/3082
+# is the driver for this idea, as connection.execute() is not instrumented.
 def get() -> sqlite3.Connection:
     """Get singleton SQLite database connection."""
     if getattr(g, "_oauth_database", None) is None:
