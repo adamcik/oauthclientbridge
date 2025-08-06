@@ -22,6 +22,10 @@ _db_cursor_duration_histogram = meter.create_histogram(
     description="Measures the duration of a logical database operation.",
     unit="s",
 )
+_db_error_counter = meter.create_counter(
+    name="oauth.db.error.total",
+    description="Measures the number of database errors.",
+)
 
 
 def generate_id() -> str:
@@ -88,6 +92,14 @@ def cursor(name: str, transaction: bool = False) -> Iterator[sqlite3.Cursor]:
                 # https://www.python.org/dev/peps/pep-0249/#exceptions for values.
                 error = re.sub(r"(?!^)([A-Z])", r"_\1", e.__class__.__name__).lower()
                 stats.DBErrorCounter.labels(query=name, error=error).inc()
+
+                _db_error_counter.add(
+                    1,
+                    attributes={
+                        "oauth.db.cursor.name": name,
+                        "error.type": e.__class__.__name__,
+                    },
+                )
                 raise
     finally:
         _db_cursor_duration_histogram.record(
