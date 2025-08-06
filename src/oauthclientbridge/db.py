@@ -27,6 +27,7 @@ def initialize() -> None:
         c.executescript(schema)
 
 
+# TODO: Make this internal in favour of always needing to have a cursor
 def get() -> sqlite3.Connection:
     """Get singleton SQLite database connection."""
     if getattr(g, "_oauth_database", None) is None:
@@ -51,28 +52,31 @@ def vacuum() -> None:
 @contextlib.contextmanager
 def cursor(name: str, transaction: bool = False) -> Iterator[sqlite3.Cursor]:
     """Get SQLite cursor with automatic commit if no exceptions are raised."""
-    try:
-        with get() as connection:
-            c = connection.cursor()
-            with contextlib.closing(c):
-                with stats.DBLatencyHistorgram.labels(query=name).time():
-                    with tracer.start_as_current_span(f"db.{name}"):
+    with tracer.start_as_current_span(
+        f"DB {name}", attributes={"transaction": transaction}
+    ) as span:
+        try:
+            with get() as connection:
+                c = connection.cursor()
+                with contextlib.closing(c):
+                    with stats.DBLatencyHistorgram.labels(query=name).time():
                         try:
                             if transaction:
                                 c.execute("BEGIN")
                             yield c
-                        except Exception:
+                        except Exception as e:
                             if transaction:
                                 connection.rollback()
+                            span.record_exception(e)
                             raise
                         else:
                             if transaction:
                                 connection.commit()
-    except sqlite3.Error as e:
-        # https://www.python.org/dev/peps/pep-0249/#exceptions for values.
-        error = re.sub(r"(?!^)([A-Z])", r"_\1", e.__class__.__name__).lower()
-        stats.DBErrorCounter.labels(query=name, error=error).inc()
-        raise
+        except sqlite3.Error as e:
+            # https://www.python.org/dev/peps/pep-0249/#exceptions for values.
+            error = re.sub(r"(?!^)([A-Z])", r"_\1", e.__class__.__name__).lower()
+            stats.DBErrorCounter.labels(query=name, error=error).inc()
+            raise
 
 
 def _prepare_token(token: bytes | None) -> str | None:
@@ -122,6 +126,7 @@ def update(client_id: str, token: bytes | None) -> int:
             "UPDATE tokens SET token = ? WHERE client_id = ?",
             (_prepare_token(token), client_id),
         )
+        trace.get_current_span().add_event("Update result", {"rows": c.rowcount})
         return int(c.rowcount)
 
 
