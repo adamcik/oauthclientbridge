@@ -15,7 +15,7 @@ from oauthclientbridge.settings import TelemetrySettings, current_settings
 from oauthclientbridge.utils import APIResult
 
 from . import otel
-from .conftest import PostClient, TokenTuple
+from .conftest import GetClient, PostClient, TokenTuple
 
 logger: structlog.BoundLogger = structlog.get_logger()
 
@@ -341,11 +341,11 @@ def test_db_error_metric(
     assert duration_data.count == 1
 
 
-def test_oauth_client_metrics_success(
+def test_oauth_client_duration_metric_success(
     requests_mock: Mocker,
     otel_mock: otel.OTelMocker,
-    post: PostClient,
-    refresh_token: TokenTuple,
+    get: GetClient,
+    state: str,
 ):
     requests_mock.post(
         current_settings.oauth.token_uri,
@@ -353,58 +353,54 @@ def test_oauth_client_metrics_success(
         status_code=200,
     )
 
-    post(
-        "/token",
-        {
-            "client_id": refresh_token.client_id,
-            "client_secret": refresh_token.client_secret,
-            "grant_type": "client_credentials",
-        },
-    )
+    get("/callback?code=1234&state=" + state)
 
-    metrics = otel_mock.get_metrics_data()
-
-    # TODO: Split this into two tests
-
-    # Check duration histogram
-    duration_metric = otel.get_metric(
-        metrics,
+    duration_data = otel.latest_metric_data(
+        otel_mock.get_metrics_data(),
         "oauth.client.duration",
+        HistogramDataPoint,
+        attributes={"operation": "token"},
         scope="oauthclientbridge.oauth",
-        attributes={"operation": "refresh"},
     )
-    assert duration_metric is not None
-    assert len(duration_metric.metric.data.data_points) == 1
-    duration_data = duration_metric.metric.data.data_points[0]
-    assert isinstance(duration_data, HistogramDataPoint)
     assert duration_data.attributes is not None
-    assert duration_data.attributes["operation"] == "refresh"
     assert duration_data.attributes["final.result"] == APIResult.SUCCESS
     assert "error.type" not in duration_data.attributes
     assert duration_data.count == 1
 
-    # Check retries histogram
-    retries_metric = otel.get_metric(
-        metrics,
-        "oauth.client.retries",
-        scope="oauthclientbridge.oauth",
-        attributes={"operation": "refresh"},
+
+def test_oauth_client_retries_metric_success(
+    requests_mock: Mocker,
+    otel_mock: otel.OTelMocker,
+    get: GetClient,
+    state: str,
+):
+    requests_mock.post(
+        current_settings.oauth.token_uri,
+        json={"access_token": "mock_token", "token_type": "Bearer"},
+        status_code=200,
     )
-    assert retries_metric is not None
-    assert len(retries_metric.metric.data.data_points) == 1
-    retries_data = retries_metric.metric.data.data_points[0]
-    assert isinstance(retries_data, HistogramDataPoint)
-    assert (
-        retries_data.attributes == duration_data.attributes
-    )  # Attributes should be identical
+
+    get("/callback?code=1234&state=" + state)
+
+    retries_data = otel.latest_metric_data(
+        otel_mock.get_metrics_data(),
+        "oauth.client.retries",
+        HistogramDataPoint,
+        attributes={"operation": "token"},
+        scope="oauthclientbridge.oauth",
+    )
+    assert retries_data.attributes is not None
+    assert retries_data.attributes["final.result"] == APIResult.SUCCESS
+    assert "error.type" not in retries_data.attributes
     assert retries_data.sum == 0  # No retries on success
+    assert retries_data.count == 1
 
 
 def test_oauth_client_metrics_failure(
     requests_mock: Mocker,
     otel_mock: otel.OTelMocker,
-    post: PostClient,
-    refresh_token: TokenTuple,
+    get: GetClient,
+    state: str,
 ):
     requests_mock.post(
         current_settings.oauth.token_uri,
@@ -412,30 +408,16 @@ def test_oauth_client_metrics_failure(
         status_code=400,
     )
 
-    post(
-        "/token",
-        {
-            "client_id": refresh_token.client_id,
-            "client_secret": refresh_token.client_secret,
-            "grant_type": "client_credentials",
-        },
-    )
+    get("/callback?code=1234&state=" + state)
 
-    metrics = otel_mock.get_metrics_data()
-
-    # Check duration histogram
-    duration_metric = otel.get_metric(
-        metrics,
+    duration_data = otel.latest_metric_data(
+        otel_mock.get_metrics_data(),
         "oauth.client.duration",
+        HistogramDataPoint,
+        attributes={"operation": "token"},
         scope="oauthclientbridge.oauth",
-        attributes={"operation": "refresh"},
     )
-    assert duration_metric is not None
-    assert len(duration_metric.metric.data.data_points) == 1
-    duration_data = duration_metric.metric.data.data_points[0]
-    assert isinstance(duration_data, HistogramDataPoint)
     assert duration_data.attributes is not None
-    assert duration_data.attributes["operation"] == "refresh"
     assert duration_data.attributes["final.result"] == APIResult.CLIENT_ERROR
     assert duration_data.attributes["error.type"] == "invalid_grant"
     assert duration_data.count == 1
