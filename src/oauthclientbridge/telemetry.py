@@ -286,6 +286,7 @@ def init_metrics(
                     aggregation=ExplicitBucketHistogramAggregation(
                         boundaries=TIME_BUCKETS
                     ),
+                    attribute_keys={"db.operation", "error.type"},
                 ),
             ],
         )

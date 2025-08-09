@@ -67,6 +67,12 @@ def vacuum() -> None:
 def cursor(name: str, transaction: bool = False) -> Iterator[sqlite3.Cursor]:
     """Get SQLite cursor with automatic commit if no exceptions are raised."""
     start_time = time.monotonic()
+    attributes = {
+        "db.operation": name,
+        "transaction": transaction,
+        "db.system": "sqlite",
+        "db.name": current_settings.database.database,
+    }
     try:
         with tracer.start_as_current_span(
             f"DB {name}", attributes={"transaction": transaction}
@@ -89,6 +95,7 @@ def cursor(name: str, transaction: bool = False) -> Iterator[sqlite3.Cursor]:
                                 if transaction:
                                     connection.commit()
             except sqlite3.Error as e:
+                attributes["error.type"] = e.__class__.__name__
                 # https://www.python.org/dev/peps/pep-0249/#exceptions for values.
                 error = re.sub(r"(?!^)([A-Z])", r"_\1", e.__class__.__name__).lower()
                 stats.DBErrorCounter.labels(query=name, error=error).inc()
@@ -96,7 +103,7 @@ def cursor(name: str, transaction: bool = False) -> Iterator[sqlite3.Cursor]:
                 _db_error_counter.add(
                     1,
                     attributes={
-                        "oauth.db.cursor.name": name,
+                        "db.operation": name,
                         "error.type": e.__class__.__name__,
                     },
                 )
@@ -104,10 +111,7 @@ def cursor(name: str, transaction: bool = False) -> Iterator[sqlite3.Cursor]:
     finally:
         _db_cursor_duration_histogram.record(
             time.monotonic() - start_time,
-            attributes={
-                "oauth.db.cursor.name": name,
-                "oauth.db.cursor.transaction": transaction,
-            },
+            attributes=attributes,
         )
 
 
