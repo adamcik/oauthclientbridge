@@ -10,6 +10,7 @@ from .helpers import (
     get_log,
     get_metric,
     get_span,
+    latest_metric_data,
 )
 from .mocker import OTelMocker
 
@@ -26,4 +27,5 @@ __all__ = [
     "get_metric",
     "assert_trace_id",
     "assert_trace_header",
+    "latest_metric_data",
 ]

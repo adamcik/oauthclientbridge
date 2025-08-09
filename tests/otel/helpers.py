@@ -1,12 +1,24 @@
 import typing
-from typing import assert_never
+from typing import TypeVar, assert_never
 
 from opentelemetry import trace
 from opentelemetry.sdk._logs import LogData
-from opentelemetry.sdk.metrics.export import Metric
+from opentelemetry.sdk.metrics.export import (
+    ExponentialHistogramDataPoint,
+    HistogramDataPoint,
+    Metric,
+    NumberDataPoint,
+)
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import ReadableSpan
 from opentelemetry.sdk.util.instrumentation import InstrumentationScope
+
+DataPointType = TypeVar(
+    "DataPointType",
+    bound=typing.Union[
+        NumberDataPoint, HistogramDataPoint, ExponentialHistogramDataPoint
+    ],
+)
 
 
 class CollectedSpan:
@@ -254,3 +266,19 @@ def assert_trace_id(collected_span: CollectedSpan, expected_trace_id: int | trac
 def assert_trace_header(header: str, expected_trace: int | trace.Span):
     expected_header = f"00-{_extract_trace_id(expected_trace):032x}-"
     assert header.startswith(expected_header)
+
+
+def latest_metric_data(
+    metrics_data: list[CollectedMetric],
+    metric_name: str,
+    data_point_type: typing.Type[DataPointType],
+    attributes: typing.Mapping[str, typing.Any] | None = None,
+    scope: str | None = None,
+) -> DataPointType:
+    metric = get_metric(metrics_data, metric_name, attributes, scope)
+    assert metric is not None
+    assert metric.metric.data.data_points is not None
+    assert len(metric.metric.data.data_points) > 0
+    data_point = metric.metric.data.data_points[-1]
+    assert isinstance(data_point, data_point_type)
+    return data_point
