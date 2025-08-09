@@ -2,11 +2,13 @@ import sqlite3
 import unittest.mock
 from typing import assert_never
 
+import flask
 import pytest
 import requests
 import structlog
 from flask.testing import FlaskClient
 from opentelemetry import metrics, trace
+from opentelemetry.sdk.metrics.export import HistogramDataPoint
 from opentelemetry.sdk.trace import ReadableSpan
 from requests_mock import Mocker
 
@@ -310,4 +312,31 @@ def test_requests_metrics(
     otel_mock.assert_has_metrics_data_named("http.client.duration")
 
 
-# NOTE: As of 2025-08-01 the sqlite3 otel instrumentation does not support metrics.
+# NOTE: As of 2025-08-01 the sqlite3 otel auto instrumentation does not
+# support metrics. So we've added our own...
+def test_db_cursor_duration_metric(
+    app_context: flask.ctx.AppContext,
+    otel_mock: OTelMocker,
+):
+    telemetry.init_metrics(
+        TelemetrySettings(components={TelemetryComponent.METRICS}),
+        otel_mock.metric_reader,
+    )
+
+    with db.cursor("test_operation", transaction=True) as c:
+        # Perform some dummy DB operations using the provided cursor 'c'
+        c.execute("CREATE TABLE IF NOT EXISTS test_table (id INTEGER PRIMARY KEY)")
+        c.execute("INSERT INTO test_table (id) VALUES (1)")
+
+    metrics_data = otel_mock.get_metrics_data_named("oauth.db.cursor.duration")
+    assert len(metrics_data) > 0
+    assert metrics_data[0].scope.name == "oauthclientbridge.db"
+
+    assert len(metrics_data[0].metric.data.data_points) == 1
+    data = metrics_data[0].metric.data.data_points[0]
+
+    assert isinstance(data, HistogramDataPoint)
+    assert data.attributes is not None
+    assert data.attributes["oauth.db.cursor.name"] == "test_operation"
+    assert data.attributes["oauth.db.cursor.transaction"] is True
+    assert data.count == 1
