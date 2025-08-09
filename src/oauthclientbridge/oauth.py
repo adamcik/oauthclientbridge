@@ -8,14 +8,27 @@ from typing import Any
 import flask
 import requests
 import structlog
-from opentelemetry import trace
+from opentelemetry import metrics, trace
 
 from oauthclientbridge import errors, stats
 from oauthclientbridge.settings import current_settings
-from oauthclientbridge.utils import rewrite_uri
+from oauthclientbridge.utils import APIResult, http_status_to_result, rewrite_uri
 
 logger: structlog.BoundLogger = structlog.get_logger()
 tracer = trace.get_tracer(__name__)
+meter = metrics.get_meter(__name__)
+
+_oauth_client_duration_histogram = meter.create_histogram(
+    name="oauth.client.duration",
+    description="Measures the duration of an OAuth client request, including retries.",
+    unit="s",
+)
+
+_oauth_client_retries_histogram = meter.create_histogram(
+    name="oauth.client.retries",
+    description="Measures the number of retries for an OAuth client request.",
+    unit="1",
+)
 
 OAuthResponse = dict[str, Any]
 URIParam = dict[str, str]
@@ -153,13 +166,14 @@ def scrub_refresh_token(token: OAuthResponse) -> OAuthResponse:
 # TODO: Turn endpoint into a StrEnum
 def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResponse:
     """Perform post given URI with auth and provided data."""
-
+    start_time = time.monotonic()
     with tracer.start_as_current_span(f"OAUTH {endpoint}") as span:
         req = requests.Request("POST", uri, data=data, auth=auth)
         prepared = req.prepare()
 
         timeout = time.time() + current_settings.fetch.total_timeout
         retry = 0
+        status = None  # Set a default value for status
 
         result = _error(
             errors.SERVER_ERROR, "An unknown error occurred talking to provider."
@@ -176,6 +190,7 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
             if (retry or backoff) > remaining_timeout:
                 span.add_event("No timeout remaining")
                 logger.debug("Abort %s no timeout remaining.", prefix)
+                # TODO: This should probably be a timeout outcome.
                 break
             elif (retry or backoff) > 0:
                 span.add_event("Sleeping", {"duration": retry or backoff})
@@ -216,10 +231,31 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
                 "Result %s [status %s] [retry after %s]", prefix, status, retry
             )
 
-        span.set_attribute("total_retries", i)
+        # Determine outcome and set attributes for OTEL metrics
+        if status is None:
+            final_result = APIResult.TIMEOUT
+        else:
+            final_result = http_status_to_result(status)
 
-        if "error" in result:
+        attributes = {
+            "operation": endpoint,
+            "final.result": final_result,
+        }
+        if status:
+            attributes["http.response.status_code"] = status
+
+        error_type = result.get("error")
+        if error_type:
+            attributes["error.type"] = error_type
             span.set_status(trace.Status(trace.StatusCode.ERROR, str(result)))
+
+        span.set_attribute("total_retries", i)
+        for key, value in attributes.items():
+            span.set_attribute(key, value)
+
+        duration = time.monotonic() - start_time
+        _oauth_client_duration_histogram.record(duration, attributes)
+        _oauth_client_retries_histogram.record(i, attributes)
 
         # TODO: consider returning retry after time so it can be used in response
         return result

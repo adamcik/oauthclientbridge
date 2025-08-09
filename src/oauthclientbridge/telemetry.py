@@ -288,6 +288,17 @@ def init_metrics(
                     ),
                     attribute_keys={"db.operation", "error.type"},
                 ),
+                View(
+                    instrument_name="oauth.client.duration",
+                    aggregation=ExplicitBucketHistogramAggregation(
+                        boundaries=TIME_BUCKETS
+                    ),
+                    attribute_keys={"operation", "final.result", "error.type"},
+                ),
+                View(
+                    instrument_name="oauth.client.retries",
+                    attribute_keys={"operation", "final.result", "error.type"},
+                ),
             ],
         )
     )
