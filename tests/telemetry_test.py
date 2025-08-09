@@ -12,7 +12,7 @@ from opentelemetry.sdk.metrics.export import HistogramDataPoint
 from opentelemetry.sdk.trace import ReadableSpan
 from requests_mock import Mocker
 
-from oauthclientbridge import telemetry
+from oauthclientbridge import db, telemetry
 from oauthclientbridge.settings import (
     TelemetryComponent,
     TelemetrySettings,
@@ -318,11 +318,6 @@ def test_db_cursor_duration_metric(
     app_context: flask.ctx.AppContext,
     otel_mock: OTelMocker,
 ):
-    telemetry.init_metrics(
-        TelemetrySettings(components={TelemetryComponent.METRICS}),
-        otel_mock.metric_reader,
-    )
-
     with db.cursor("test_operation", transaction=True) as c:
         # Perform some dummy DB operations using the provided cursor 'c'
         c.execute("CREATE TABLE IF NOT EXISTS test_table (id INTEGER PRIMARY KEY)")
