@@ -8,16 +8,12 @@ import requests
 import structlog
 from flask.testing import FlaskClient
 from opentelemetry import metrics, trace
-from opentelemetry.sdk.metrics.export import HistogramDataPoint
+from opentelemetry.sdk.metrics.export import HistogramDataPoint, NumberDataPoint
 from opentelemetry.sdk.trace import ReadableSpan
 from requests_mock import Mocker
 
 from oauthclientbridge import db, telemetry
-from oauthclientbridge.settings import (
-    TelemetryComponent,
-    TelemetrySettings,
-    current_settings,
-)
+from oauthclientbridge.settings import TelemetrySettings, current_settings
 
 from .conftest import PostClient, TokenTuple
 from .otel_mocker import OTelMocker
@@ -56,9 +52,6 @@ def _extract_trace_id(expected: trace.Span | int) -> int:
             assert_never(expected)
 
 
-
-
-
 def test_telemetry_tracer_otel_enabled(
     otel_mock: OTelMocker,
     tracer: trace.Tracer,
@@ -80,10 +73,7 @@ def test_telemetry_tracer_otel_enabled(
 
 
 def test_init_tracing_disabled() -> None:
-    # NOTE: Avoids loop with settings.
-    from oauthclientbridge import telemetry
-
-    settings = telemetry.TelemetrySettings(components=set())
+    settings = TelemetrySettings(components=set())
 
     with unittest.mock.patch(
         "opentelemetry.trace.set_tracer_provider"
@@ -103,12 +93,13 @@ def test_telemetry_metrics_otel_enabled(
     metrics_data = otel_mock.get_metrics_data_named("test_counter")[0]
     assert metrics_data.scope.name == "tests"
     assert metrics_data.metric.name == "test_counter"
-    assert metrics_data.metric.data.data_points[0].value == 1
+    data_point = metrics_data.metric.data.data_points[0]
+    assert isinstance(data_point, NumberDataPoint)
+    assert data_point.value == 1
 
 
 def test_init_metrics_disabled() -> None:
     # NOTE: Avoids loop with settings.
-    from oauthclientbridge import telemetry
 
     settings = telemetry.TelemetrySettings(components=set())
 
@@ -194,7 +185,6 @@ def test_endpoint_sets_traceresponse_from_parent(
     # TODO: test without parent set?
     response = client.get("/", headers={"traceparent": HEADER})
 
-    # FIXME: This works outside of tests now
     assert "traceresponse" in response.headers
     assert_trace_header(TRACE_ID, response.headers["traceresponse"])
 
@@ -315,7 +305,7 @@ def test_db_cursor_duration_metric(
         c.execute("INSERT INTO test_table (id) VALUES (1)")
 
     metrics_data = otel_mock.get_metrics_data_named("oauth.db.cursor.duration")
-    assert len(metrics_data) > 0
+    assert len(metrics_data) == 1
     assert metrics_data[0].scope.name == "oauthclientbridge.db"
 
     assert len(metrics_data[0].metric.data.data_points) == 1
@@ -326,3 +316,25 @@ def test_db_cursor_duration_metric(
     assert data.attributes["oauth.db.cursor.name"] == "test_operation"
     assert data.attributes["oauth.db.cursor.transaction"] is True
     assert data.count == 1
+
+
+def test_db_error_metric(
+    app_context: flask.ctx.AppContext,
+    otel_mock: OTelMocker,
+):
+    with pytest.raises(sqlite3.Error):
+        with db.cursor("test_error_operation") as c:
+            c.execute("INVALID SQL QUERY")
+
+    metrics_data = otel_mock.get_metrics_data_named("oauth.db.error.total")
+    assert len(metrics_data) == 1
+    assert metrics_data[0].scope.name == "oauthclientbridge.db"
+
+    assert len(metrics_data[0].metric.data.data_points) == 1
+    data = metrics_data[0].metric.data.data_points[0]
+
+    assert isinstance(data, NumberDataPoint)
+    assert data.attributes is not None
+    assert data.attributes["oauth.db.cursor.name"] == "test_error_operation"
+    assert data.attributes["error.type"] == "OperationalError"
+    assert data.value == 1
