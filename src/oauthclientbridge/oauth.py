@@ -231,13 +231,12 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
                 "Result %s [status %s] [retry after %s]", prefix, status, retry
             )
 
-        # Determine outcome and set attributes for OTEL metrics
         if status is None:
             final_result = APIResult.TIMEOUT
         else:
             final_result = http_status_to_result(status)
 
-        attributes = {
+        attributes: dict[str, Any] = {
             "operation": endpoint,
             "final.result": final_result,
         }
