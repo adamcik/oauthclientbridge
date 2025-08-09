@@ -15,20 +15,26 @@ from oauthclientbridge.settings import (
     DatabaseSettings,
     OAuthSettings,
     Settings,
+    TelemetryComponent,
+    TelemetrySettings,
 )
 
-from .otel_mocker import OTelMocker, reset_otel_providers
-
-
-@pytest.fixture(name="reset_otel_providers", autouse=True)
-def fixture_reset_otel_providers():
-    with reset_otel_providers():
-        yield
+from .otel_mocker import OTelMocker
 
 
 @pytest.fixture(name="otel_mock")
-def fixture_otel_mock(reset_otel_providers):
-    return OTelMocker()
+def fixture_otel_mock():
+    settings = TelemetrySettings(
+        components={
+            TelemetryComponent.TRACING,
+            TelemetryComponent.METRICS,
+        }
+    )
+
+    with OTelMocker() as mocker:
+        telemetry.init_metrics(settings, mocker.metric_reader)
+        telemetry.init_tracing(settings, mocker.span_processor)
+        yield mocker
 
 
 @pytest.fixture(name="tracer")

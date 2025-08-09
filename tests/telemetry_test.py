@@ -56,16 +56,7 @@ def _extract_trace_id(expected: trace.Span | int) -> int:
             assert_never(expected)
 
 
-@pytest.fixture(autouse=True)
-def init_telemetry(otel_mock: OTelMocker) -> None:
-    settings = TelemetrySettings(
-        components={
-            TelemetryComponent.TRACING,
-            TelemetryComponent.METRICS,
-        }
-    )
-    telemetry.init_metrics(settings, otel_mock.metric_reader)
-    telemetry.init_tracing(settings, otel_mock.span_processor)
+
 
 
 def test_telemetry_tracer_otel_enabled(
