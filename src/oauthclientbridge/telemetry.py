@@ -235,20 +235,6 @@ def init_metrics(
 
     resource = Resource.create({SERVICE_NAME: settings.service_name})
 
-    # Apply custom buckets to the http.server.duration and http.client.duration metrics.
-    http_duration_view = View(
-        instrument_name="http.*.duration",
-        aggregation=ExplicitBucketHistogramAggregation(boundaries=TIME_BUCKETS),
-    )
-    http_size_view = View(
-        instrument_name="http.*.size",
-        aggregation=ExplicitBucketHistogramAggregation(boundaries=BYTE_BUCKETS),
-    )
-    db_cursor_view = View(
-        instrument_name="oauth.db.cursor.duration",
-        aggregation=ExplicitBucketHistogramAggregation(boundaries=TIME_BUCKETS),
-    )
-
     readers: list[MetricReader] = []
     if metric_reader:
         readers.append(metric_reader)
@@ -282,6 +268,25 @@ def init_metrics(
         MeterProvider(
             resource=resource,
             metric_readers=readers,
-            views=[http_duration_view, http_size_view, db_cursor_view],
+            views=[
+                View(
+                    instrument_name="http.*.duration",
+                    aggregation=ExplicitBucketHistogramAggregation(
+                        boundaries=TIME_BUCKETS
+                    ),
+                ),
+                View(
+                    instrument_name="http.*.size",
+                    aggregation=ExplicitBucketHistogramAggregation(
+                        boundaries=BYTE_BUCKETS
+                    ),
+                ),
+                View(
+                    instrument_name="oauth.db.cursor.duration",
+                    aggregation=ExplicitBucketHistogramAggregation(
+                        boundaries=TIME_BUCKETS
+                    ),
+                ),
+            ],
         )
     )
