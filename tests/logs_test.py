@@ -253,8 +253,8 @@ def assert_has_otel_records(record, span: trace.Span):
     assert "otelTraceSampled" in record
     assert "otelServiceName" in record
 
-    assert record["otelTraceID"] == format(span.get_span_context().trace_id, "032x")
-    assert record["otelSpanID"] == format(span.get_span_context().span_id, "016x")
+    assert record["otelTraceID"] == format(span.get_span_context().trace_id, "0x")
+    assert record["otelSpanID"] == format(span.get_span_context().span_id, "0x")
 
 
 def test_access_log_formatter():
