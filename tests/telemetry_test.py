@@ -289,22 +289,47 @@ def test_db_cursor_duration_metric(
         c.execute("INSERT INTO test_table (id) VALUES (1)")
 
     metrics = otel_mock.get_metrics_data()
-    metric = otel.get_metric(
-        metrics, "oauth.db.cursor.duration", scope="oauthclientbridge.db"
+    data = otel.latest_metric_data(
+        metrics,
+        "oauth.db.cursor.duration",
+        HistogramDataPoint,
+        attributes={"db.operation": "test_operation"},
+        scope="oauthclientbridge.db",
     )
-    assert metric is not None
 
-    assert len(metric.metric.data.data_points) == 1
-    data = metric.metric.data.data_points[0]
-
-    assert isinstance(data, HistogramDataPoint)
     assert data.attributes is not None
     assert data.attributes["db.operation"] == "test_operation"
     assert "error.type" not in data.attributes
     assert data.count == 1
 
 
-def test_db_error_metric(
+def test_db_cursor_count_metric_success(
+    app_context: flask.ctx.AppContext,
+    otel_mock: otel.OTelMocker,
+):
+    with db.cursor("test_operation", transaction=True) as c:
+        c.execute("CREATE TABLE IF NOT EXISTS test_table (id INTEGER PRIMARY KEY)")
+        c.execute("INSERT INTO test_table (id) VALUES (1)")
+
+    metrics = otel_mock.get_metrics_data()
+    data = otel.latest_metric_data(
+        metrics,
+        "oauth.db.cursor.total",
+        NumberDataPoint,
+        attributes={"db.operation": "test_operation"},
+        scope="oauthclientbridge.db",
+    )
+
+    assert data.attributes is not None
+    assert data.attributes["db.operation"] == "test_operation"
+    assert data.attributes["transaction"] is True
+    assert data.attributes["db.system"] == "sqlite"
+    assert data.attributes["db.name"] == current_settings.database.database
+    assert "error.type" not in data.attributes
+    assert data.value == 1
+
+
+def test_db_cursor_duration_metric_error(
     app_context: flask.ctx.AppContext,
     otel_mock: otel.OTelMocker,
 ):
@@ -313,32 +338,44 @@ def test_db_error_metric(
             c.execute("INVALID SQL QUERY")
 
     metrics = otel_mock.get_metrics_data()
-
-    # Check the error counter
-    error_metric = otel.get_metric(
-        metrics, "oauth.db.error.total", scope="oauthclientbridge.db"
+    data = otel.latest_metric_data(
+        metrics,
+        "oauth.db.cursor.duration",
+        HistogramDataPoint,
+        attributes={"db.operation": "test_error_operation"},
+        scope="oauthclientbridge.db",
     )
-    assert error_metric is not None
-    assert len(error_metric.metric.data.data_points) == 1
-    error_data = error_metric.metric.data.data_points[0]
-    assert isinstance(error_data, NumberDataPoint)
-    assert error_data.attributes is not None
-    assert error_data.attributes["db.operation"] == "test_error_operation"
-    assert error_data.attributes["error.type"] == "OperationalError"
-    assert error_data.value == 1
 
-    # Check the duration histogram for the failure
-    duration_metric = otel.get_metric(
-        metrics, "oauth.db.cursor.duration", scope="oauthclientbridge.db"
+    assert data.attributes is not None
+    assert data.attributes["db.operation"] == "test_error_operation"
+    assert data.attributes["error.type"] == "OperationalError"
+    assert data.count == 1
+
+
+def test_db_cursor_count_metric_error(
+    app_context: flask.ctx.AppContext,
+    otel_mock: otel.OTelMocker,
+):
+    with pytest.raises(sqlite3.Error):
+        with db.cursor("test_error_operation") as c:
+            c.execute("INVALID SQL QUERY")
+
+    metrics = otel_mock.get_metrics_data()
+    data = otel.latest_metric_data(
+        metrics,
+        "oauth.db.cursor.total",
+        NumberDataPoint,
+        attributes={"db.operation": "test_error_operation"},
+        scope="oauthclientbridge.db",
     )
-    assert duration_metric is not None
-    assert len(duration_metric.metric.data.data_points) == 1
-    duration_data = duration_metric.metric.data.data_points[0]
-    assert isinstance(duration_data, HistogramDataPoint)
-    assert duration_data.attributes is not None
-    assert duration_data.attributes["db.operation"] == "test_error_operation"
-    assert duration_data.attributes["error.type"] == "OperationalError"
-    assert duration_data.count == 1
+
+    assert data.attributes is not None
+    assert data.attributes["db.operation"] == "test_error_operation"
+    assert data.attributes["transaction"] is False
+    assert data.attributes["db.system"] == "sqlite"
+    assert data.attributes["db.name"] == current_settings.database.database
+    assert data.attributes["error.type"] == "OperationalError"
+    assert data.value == 1
 
 
 def test_oauth_client_duration_metric_success(
