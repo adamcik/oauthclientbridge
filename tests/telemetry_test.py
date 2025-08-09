@@ -1,6 +1,5 @@
 import sqlite3
 import unittest.mock
-from typing import assert_never
 
 import flask
 import pytest
@@ -9,14 +8,13 @@ import structlog
 from flask.testing import FlaskClient
 from opentelemetry import metrics, trace
 from opentelemetry.sdk.metrics.export import HistogramDataPoint, NumberDataPoint
-from opentelemetry.sdk.trace import ReadableSpan
 from requests_mock import Mocker
 
 from oauthclientbridge import db, telemetry
 from oauthclientbridge.settings import TelemetrySettings, current_settings
 
+from . import otel
 from .conftest import PostClient, TokenTuple
-from .otel_mocker import OTelMocker
 
 logger: structlog.BoundLogger = structlog.get_logger()
 
@@ -30,30 +28,8 @@ HEADER = f"00-{TRACE_ID:032x}-{SPAN_ID:016x}-01"
 # to always put the mocker first, then instrumented.
 
 
-def assert_trace_id(expected: int | trace.Span, readable_span: ReadableSpan):
-    extepected_trace_id = _extract_trace_id(expected)
-    readable_context = readable_span.get_span_context()
-    assert readable_context is not None
-    assert extepected_trace_id == readable_context.trace_id
-
-
-def assert_trace_header(expected: int | trace.Span, header: str):
-    expected_header = f"00-{_extract_trace_id(expected):032x}-"
-    assert header.startswith(expected_header)
-
-
-def _extract_trace_id(expected: trace.Span | int) -> int:
-    match expected:
-        case int():
-            return expected
-        case trace.Span():
-            return expected.get_span_context().trace_id
-        case _:
-            assert_never(expected)
-
-
 def test_telemetry_tracer_otel_enabled(
-    otel_mock: OTelMocker,
+    otel_mock: otel.OTelMocker,
     tracer: trace.Tracer,
 ) -> None:
     """Verify that our captraces fixture works.
@@ -65,11 +41,12 @@ def test_telemetry_tracer_otel_enabled(
         with tracer.start_as_current_span("test-span-2"):
             pass
 
-    print(otel_mock._span_exporter.get_finished_spans())
+    spans = otel_mock.get_finished_spans()
+    print(spans)
 
-    assert len(otel_mock.get_finished_spans()) == 2
-    otel_mock.assert_has_span_named("test-span-1")
-    otel_mock.assert_has_span_named("test-span-2")
+    assert len(spans) == 2
+    assert otel.get_span(spans, "test-span-1") is not None
+    assert otel.get_span(spans, "test-span-2") is not None
 
 
 def test_init_tracing_disabled() -> None:
@@ -84,16 +61,18 @@ def test_init_tracing_disabled() -> None:
 
 
 def test_telemetry_metrics_otel_enabled(
-    otel_mock: OTelMocker,
+    otel_mock: otel.OTelMocker,
     meter: metrics.Meter,
 ) -> None:
     counter = meter.create_counter("test_counter")
     counter.add(1)
 
-    metrics_data = otel_mock.get_metrics_data_named("test_counter")[0]
-    assert metrics_data.scope.name == "tests"
-    assert metrics_data.metric.name == "test_counter"
-    data_point = metrics_data.metric.data.data_points[0]
+    metrics = otel_mock.get_metrics_data()
+    metric = otel.get_metric(metrics, "test_counter")
+    assert metric is not None
+    assert metric.scope.name == "tests"
+    assert metric.name == "test_counter"
+    data_point = metric.metric.data.data_points[0]
     assert isinstance(data_point, NumberDataPoint)
     assert data_point.value == 1
 
@@ -113,7 +92,7 @@ def test_init_metrics_disabled() -> None:
 
 def test_requests_creates_spans(
     requests_mock: Mocker,
-    otel_mock: OTelMocker,
+    otel_mock: otel.OTelMocker,
     instrumented,
     tracer: trace.Tracer,
 ) -> None:
@@ -122,9 +101,10 @@ def test_requests_creates_spans(
     with tracer.start_as_current_span("test") as parent_span:
         requests.get("http://example.com/test")
 
-    requests_span = otel_mock.get_span_named("GET")
+    spans = otel_mock.get_finished_spans()
+    requests_span = otel.get_span(spans, "GET")
     assert requests_span is not None
-    assert_trace_id(parent_span, requests_span)
+    otel.assert_trace_id(requests_span, parent_span)
 
 
 def test_requests_propagates_header(
@@ -139,14 +119,14 @@ def test_requests_propagates_header(
 
     assert len(requests_mock.request_history) == 1
     assert "traceparent" in requests_mock.request_history[0].headers
-    assert_trace_header(
-        parent_span,
+    otel.assert_trace_header(
         requests_mock.request_history[0].headers["traceparent"],
+        parent_span,
     )
 
 
 def test_sqlite3_creates_spans(
-    otel_mock: OTelMocker,
+    otel_mock: otel.OTelMocker,
     instrumented,
     tracer: trace.Tracer,
 ) -> None:
@@ -156,29 +136,30 @@ def test_sqlite3_creates_spans(
             cursor = conn.cursor()
             cursor.execute("SELECT 1")
 
-    finished_spans = otel_mock.get_finished_spans()
-    assert len(finished_spans) == 2
+    spans = otel_mock.get_finished_spans()
+    assert len(spans) == 2
 
-    select_span = otel_mock.get_span_named("SELECT")
+    select_span = otel.get_span(spans, "SELECT")
     assert select_span is not None
     assert select_span.attributes is not None
     assert select_span.attributes["db.statement"] == "SELECT 1"
-    assert_trace_id(parent_span, select_span)
+    otel.assert_trace_id(select_span, parent_span)
 
 
 def test_endpoint_propagates_traceparent(
-    otel_mock: OTelMocker,
+    otel_mock: otel.OTelMocker,
     client: FlaskClient,
 ) -> None:
     client.get("/", headers={"traceparent": HEADER})
 
-    request_span = otel_mock.get_span_named("GET /")
+    spans = otel_mock.get_finished_spans()
+    request_span = otel.get_span(spans, "GET /")
     assert request_span is not None
-    assert_trace_id(TRACE_ID, request_span)
+    otel.assert_trace_id(request_span, TRACE_ID)
 
 
 def test_endpoint_sets_traceresponse_from_parent(
-    otel_mock: OTelMocker,
+    otel_mock: otel.OTelMocker,
     client: FlaskClient,
     instrumented,
 ) -> None:
@@ -186,12 +167,12 @@ def test_endpoint_sets_traceresponse_from_parent(
     response = client.get("/", headers={"traceparent": HEADER})
 
     assert "traceresponse" in response.headers
-    assert_trace_header(TRACE_ID, response.headers["traceresponse"])
+    otel.assert_trace_header(response.headers["traceresponse"], TRACE_ID)
 
 
 def test_endpoint_creates_requests_spans(
     requests_mock: Mocker,
-    otel_mock: OTelMocker,
+    otel_mock: otel.OTelMocker,
     post: PostClient,
     refresh_token: TokenTuple,
 ) -> None:
@@ -211,14 +192,16 @@ def test_endpoint_creates_requests_spans(
         headers={"traceparent": HEADER},
     )
 
-    finished_spans = otel_mock.get_finished_spans()
-    outgoing_request_span = next(s for s in finished_spans if s.name.startswith("POST"))
-    assert_trace_id(TRACE_ID, outgoing_request_span)
+    spans = otel_mock.get_finished_spans()
+    outgoing_request_spans = [s for s in spans if s.name.startswith("POST")]
+    assert len(outgoing_request_spans) == 1
+    outgoing_request_span = outgoing_request_spans[0]
+    otel.assert_trace_id(outgoing_request_span, TRACE_ID)
 
 
 def test_endpoint_creates_sqlite3_spans(
     requests_mock: Mocker,
-    otel_mock: OTelMocker,
+    otel_mock: otel.OTelMocker,
     instrumented,
     post: PostClient,
     refresh_token: TokenTuple,
@@ -237,9 +220,9 @@ def test_endpoint_creates_sqlite3_spans(
 
     post("/token", data)
 
+    spans = otel_mock.get_finished_spans()
     assert any(
-        s.name.startswith("SELECT") or s.name.startswith("UPDATE")
-        for s in otel_mock.get_finished_spans()
+        s.name.startswith("SELECT") or s.name.startswith("UPDATE") for s in spans
     )
 
 
@@ -268,48 +251,52 @@ def test_endpoint_propagates_outgoing_traceparent(
     history = requests_mock.request_history
     assert len(history) == 1
     assert "traceparent" in history[0].headers
-    assert_trace_header(TRACE_ID, history[0].headers["traceparent"])
+    otel.assert_trace_header(history[0].headers["traceparent"], TRACE_ID)
 
 
 def test_flask_metrics(
-    otel_mock: OTelMocker,
+    otel_mock: otel.OTelMocker,
     client: FlaskClient,
 ) -> None:
     client.get("/")
 
-    otel_mock.assert_has_metrics_data_named("http.server.duration")
-    otel_mock.assert_has_metrics_data_named("http.server.active_requests")
+    metrics = otel_mock.get_metrics_data()
+    assert otel.get_metric(metrics, "http.server.duration") is not None
+    assert otel.get_metric(metrics, "http.server.active_requests") is not None
 
 
 def test_requests_metrics(
     requests_mock: Mocker,
-    otel_mock: OTelMocker,
+    otel_mock: otel.OTelMocker,
     instrumented,
 ) -> None:
     requests_mock.get("http://example.com/test", status_code=200)
 
     requests.get("http://example.com/test")
 
-    otel_mock.assert_has_metrics_data_named("http.client.duration")
+    metrics = otel_mock.get_metrics_data()
+    assert otel.get_metric(metrics, "http.client.duration") is not None
 
 
 # NOTE: As of 2025-08-01 the sqlite3 otel auto instrumentation does not
 # support metrics. So we've added our own...
 def test_db_cursor_duration_metric(
     app_context: flask.ctx.AppContext,
-    otel_mock: OTelMocker,
+    otel_mock: otel.OTelMocker,
 ):
     with db.cursor("test_operation", transaction=True) as c:
         # Perform some dummy DB operations using the provided cursor 'c'
         c.execute("CREATE TABLE IF NOT EXISTS test_table (id INTEGER PRIMARY KEY)")
         c.execute("INSERT INTO test_table (id) VALUES (1)")
 
-    metrics_data = otel_mock.get_metrics_data_named("oauth.db.cursor.duration")
-    assert len(metrics_data) == 1
-    assert metrics_data[0].scope.name == "oauthclientbridge.db"
+    metrics = otel_mock.get_metrics_data()
+    metric = otel.get_metric(
+        metrics, "oauth.db.cursor.duration", scope="oauthclientbridge.db"
+    )
+    assert metric is not None
 
-    assert len(metrics_data[0].metric.data.data_points) == 1
-    data = metrics_data[0].metric.data.data_points[0]
+    assert len(metric.metric.data.data_points) == 1
+    data = metric.metric.data.data_points[0]
 
     assert isinstance(data, HistogramDataPoint)
     assert data.attributes is not None
@@ -320,18 +307,18 @@ def test_db_cursor_duration_metric(
 
 def test_db_error_metric(
     app_context: flask.ctx.AppContext,
-    otel_mock: OTelMocker,
+    otel_mock: otel.OTelMocker,
 ):
     with pytest.raises(sqlite3.Error):
         with db.cursor("test_error_operation") as c:
             c.execute("INVALID SQL QUERY")
 
-    metrics_data = otel_mock.get_metrics_data_named("oauth.db.error.total")
-    assert len(metrics_data) == 1
-    assert metrics_data[0].scope.name == "oauthclientbridge.db"
+    metrics = otel_mock.get_metrics_data()
+    metric = otel.get_metric(metrics, "oauth.db.error.total", scope="oauthclientbridge.db")
+    assert metric is not None
 
-    assert len(metrics_data[0].metric.data.data_points) == 1
-    data = metrics_data[0].metric.data.data_points[0]
+    assert len(metric.metric.data.data_points) == 1
+    data = metric.metric.data.data_points[0]
 
     assert isinstance(data, NumberDataPoint)
     assert data.attributes is not None

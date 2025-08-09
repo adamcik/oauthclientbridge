@@ -7,6 +7,9 @@ from flask import Flask
 from flask.ctx import AppContext
 from flask.testing import FlaskClient
 from opentelemetry import metrics, trace
+from opentelemetry.sdk._logs.export import InMemoryLogExporter
+from opentelemetry.sdk.metrics._internal.export import InMemoryMetricReader
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from pydantic import SecretStr
 from werkzeug.datastructures import Headers
 
@@ -19,7 +22,7 @@ from oauthclientbridge.settings import (
     TelemetrySettings,
 )
 
-from .otel_mocker import OTelMocker
+from . import otel
 
 
 @pytest.fixture(name="otel_mock")
@@ -31,19 +34,23 @@ def fixture_otel_mock():
         }
     )
 
-    with OTelMocker() as mocker:
-        telemetry.init_metrics(settings, mocker.metric_reader)
+    log_exporter = InMemoryLogExporter()
+    span_exporter = InMemorySpanExporter()
+    metric_reader = InMemoryMetricReader()
+
+    with otel.OTelMocker(log_exporter, span_exporter, metric_reader) as mocker:
+        telemetry.init_metrics(settings, metric_reader)
         telemetry.init_tracing(settings, mocker.span_processor)
         yield mocker
 
 
 @pytest.fixture(name="tracer")
-def fixture_tracer(otel_mock: OTelMocker):
+def fixture_tracer(otel_mock: otel.OTelMocker):
     return trace.get_tracer("tests")
 
 
 @pytest.fixture(name="meter")
-def fixture_meter(otel_mock: OTelMocker):
+def fixture_meter(otel_mock: otel.OTelMocker):
     return metrics.get_meter("tests")
 
 
