@@ -458,3 +458,57 @@ def test_oauth_client_metrics_failure(
     assert duration_data.attributes["final.result"] == APIResult.CLIENT_ERROR
     assert duration_data.attributes["error.type"] == "invalid_grant"
     assert duration_data.count == 1
+
+
+def test_oauth_client_total_metric_success(
+    requests_mock: Mocker,
+    otel_mock: otel.OTelMocker,
+    get: GetClient,
+    state: str,
+):
+    requests_mock.post(
+        current_settings.oauth.token_uri,
+        json={"access_token": "mock_token", "token_type": "Bearer"},
+        status_code=200,
+    )
+
+    get("/callback?code=1234&state=" + state)
+
+    total_data = otel.latest_metric_data(
+        otel_mock.get_metrics_data(),
+        "oauth.client.total",
+        NumberDataPoint,
+        attributes={"operation": "token"},
+        scope="oauthclientbridge.oauth",
+    )
+    assert total_data.attributes is not None
+    assert total_data.attributes["final.result"] == APIResult.SUCCESS
+    assert "error.type" not in total_data.attributes
+    assert total_data.value == 1
+
+
+def test_oauth_client_total_metric_failure(
+    requests_mock: Mocker,
+    otel_mock: otel.OTelMocker,
+    get: GetClient,
+    state: str,
+):
+    requests_mock.post(
+        current_settings.oauth.token_uri,
+        json={"error": "invalid_grant"},
+        status_code=400,
+    )
+
+    get("/callback?code=1234&state=" + state)
+
+    total_data = otel.latest_metric_data(
+        otel_mock.get_metrics_data(),
+        "oauth.client.total",
+        NumberDataPoint,
+        attributes={"operation": "token"},
+        scope="oauthclientbridge.oauth",
+    )
+    assert total_data.attributes is not None
+    assert total_data.attributes["final.result"] == APIResult.CLIENT_ERROR
+    assert total_data.attributes["error.type"] == "invalid_grant"
+    assert total_data.value == 1

@@ -18,6 +18,11 @@ logger: structlog.BoundLogger = structlog.get_logger()
 tracer = trace.get_tracer(__name__)
 meter = metrics.get_meter(__name__)
 
+_oauth_client_total_counter = meter.create_counter(
+    name="oauth.client.total",
+    description="Measures the total number of OAuth client requests.",
+)
+
 _oauth_client_duration_histogram = meter.create_histogram(
     name="oauth.client.duration",
     description="Measures the duration of an OAuth client request, including retries.",
@@ -255,6 +260,7 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
         duration = time.monotonic() - start_time
         _oauth_client_duration_histogram.record(duration, attributes)
         _oauth_client_retries_histogram.record(i, attributes)
+        _oauth_client_total_counter.add(1, attributes)
 
         # TODO: consider returning retry after time so it can be used in response
         return result
