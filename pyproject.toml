@@ -57,6 +57,9 @@ lint = ["ruff"]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.uv]
+required-version = ">=0.8.15"
+
 [tool.ruff.lint]
 extend-select = ["I"]
 
