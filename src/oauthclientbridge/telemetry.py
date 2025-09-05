@@ -28,7 +28,10 @@ from opentelemetry.sdk.metrics.export import (
     MetricReader,
     PeriodicExportingMetricReader,
 )
-from opentelemetry.sdk.metrics.view import ExplicitBucketHistogramAggregation, View
+from opentelemetry.sdk.metrics.view import (
+    ExplicitBucketHistogramAggregation,
+    View,
+)
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 from opentelemetry.sdk.trace import SpanProcessor, TracerProvider
 from opentelemetry.sdk.trace.export import (
