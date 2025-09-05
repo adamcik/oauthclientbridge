@@ -12,7 +12,7 @@ __all__ = ["ErrorResponse", "TokenResponse"]
 class JsonBase(pydantic.BaseModel):
     # Keep any extra fields we might get, but make sure they must be JSON.
     model_config = pydantic.ConfigDict(extra="allow")
-    __pydantic_extra__: dict[str, JsonValue]
+    __pydantic_extra__: dict[str, JsonValue]  # pyright: ignore[reportIncompatibleVariableOverride]
 
 
 class ErrorResponse(JsonBase):
