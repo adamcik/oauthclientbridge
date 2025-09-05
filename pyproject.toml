@@ -45,7 +45,7 @@ dev = [
 ]
 typing = [
   "types-requests",
-  "basedpyright~=1.23.1",
+  "basedpyright~=1.31.4",
   { include-group = "sentry" },
 ]
 test = [
@@ -55,7 +55,7 @@ test = [
   "pytest-freezer",
   { include-group = "sentry" },
 ]
-lint = ["ruff~=0.8.5"]
+lint = ["ruff~=0.12.12"]
 
 [build-system]
 requires = ["hatchling"]
