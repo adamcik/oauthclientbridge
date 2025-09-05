@@ -53,7 +53,7 @@ jobs:
           enable-cache: true
           activate-environment: true
       - name: Sync dependencies
-        run: uv sync --group typing --no-dev
+        run: uv sync --group typing --group test --no-dev
       - name: Type check
         run: basedpyright --level error .
 
