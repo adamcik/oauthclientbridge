@@ -17,7 +17,7 @@ jobs:
           enable-cache: true
           activate-environment: true
       - name: Sync dependencies
-        run: uv sync --group lint
+        run: uv sync --group lint --no-dev
       - name: Lint
         run: ruff check .
 
@@ -35,11 +35,11 @@ jobs:
           enable-cache: true
           activate-environment: true
       - name: Sync dependencies
-        run: uv sync --group lint
+        run: uv sync --group lint --no-dev
       - name: Format
         run: ruff format --check .
 
-  type-check:
+  types:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -53,11 +53,11 @@ jobs:
           enable-cache: true
           activate-environment: true
       - name: Sync dependencies
-        run: uv sync --group typing
+        run: uv sync --group typing --no-dev
       - name: Type check
         run: basedpyright .
 
-  test:
+  tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -71,6 +71,6 @@ jobs:
           enable-cache: true
           activate-environment: true
       - name: Sync dependencies
-        run: uv sync --group test
+        run: uv sync --group test --no-dev
       - name: Test
         run: pytest
