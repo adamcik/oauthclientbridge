@@ -62,7 +62,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.uv]
-required-version = ">=0.8.15"
+required-version = ">=0.7.20"
 
 [tool.ruff.lint]
 extend-select = ["I"]
