@@ -43,7 +43,11 @@ dev = [
   { include-group = "lint" },
   { include-group = "sentry" },
 ]
-typing = ["types-requests", "basedpyright", { include-group = "sentry" }]
+typing = [
+  "types-requests",
+  "basedpyright~=1.23.1",
+  { include-group = "sentry" },
+]
 test = [
   "pytest",
   "pytest-cov",
@@ -51,7 +55,7 @@ test = [
   "pytest-freezer",
   { include-group = "sentry" },
 ]
-lint = ["ruff"]
+lint = ["ruff~=0.8.5"]
 
 [build-system]
 requires = ["hatchling"]
