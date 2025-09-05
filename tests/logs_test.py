@@ -141,8 +141,8 @@ def test_flask_request_logging(capsys):
 
     # Assert the formatted access log message
     expected_access_log = (
-        f"127.0.0.1 \"GET / {record[NETWORK_PROTOCOL_VERSION]}\" "
-        f"200 {len(b'Hello, World!')} \"-\" \"{record[USER_AGENT_ORIGINAL]}\""
+        f'127.0.0.1 "GET / {record[NETWORK_PROTOCOL_VERSION]}" '
+        f'200 {len(b"Hello, World!")} "-" "{record[USER_AGENT_ORIGINAL]}"'
     )
     assert record["event"] == expected_access_log
 

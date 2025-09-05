@@ -34,7 +34,7 @@ DESCRIPTIONS: dict[str, str] = {
         "code using this method."
     ),
     UNSUPPORTED_GRANT_TYPE: (
-        "The authorization grant type is not supported by the authorization " "server."
+        "The authorization grant type is not supported by the authorization server."
     ),
     INVALID_SCOPE: ("The requested scope is invalid, unknown, or malformed."),
     SERVER_ERROR: (
