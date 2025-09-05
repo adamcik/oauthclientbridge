@@ -7,37 +7,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: "Setup Python"
-        uses: actions/setup-python@v5
+      - name: "Ruff lint"
+        uses: astral-sh/ruff-action@v3
         with:
-          python-version-file: pyproject.toml
-      - name: "Setup uv"
-        uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-          activate-environment: true
-      - name: Sync dependencies
-        run: uv sync --group lint --no-dev
-      - name: Lint
-        run: ruff check .
+          version-file: pyproject.toml
+          args: check --output-format=github .
 
   format:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: "Setup Python"
-        uses: actions/setup-python@v5
+      - name: "Ruff format"
+        uses: astral-sh/ruff-action@v3
         with:
-          python-version-file: pyproject.toml
-      - name: "Setup uv"
-        uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-          activate-environment: true
-      - name: Sync dependencies
-        run: uv sync --group lint --no-dev
-      - name: Format
-        run: ruff format --check .
+          version-file: pyproject.toml
+          args: format --diff .
 
   types:
     runs-on: ubuntu-latest
