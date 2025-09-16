@@ -1,4 +1,5 @@
 import logging
+from http import HTTPStatus
 from typing import Any
 
 import flask
@@ -269,9 +270,10 @@ def _error(
     state: str | None = None,
 ) -> flask.Response:
     if error_code == errors.INVALID_CLIENT:
-        status = 401
+        status = HTTPStatus.UNAUTHORIZED
     else:
-        status = 400
+        status = HTTPStatus.BAD_REQUEST
+    else:
 
     current_span = trace.get_current_span()
     current_span.set_status(

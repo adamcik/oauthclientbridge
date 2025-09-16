@@ -1,5 +1,6 @@
 import enum
 import urllib.parse
+from http import HTTPStatus
 
 URIParam = dict[str, str]
 
@@ -13,18 +14,18 @@ class APIResult(enum.StrEnum):
     UNKNOWN = "unknown"
 
 
-def http_status_to_result(status: int) -> APIResult:
-    if 200 <= status < 300:
+def http_status_to_result(status: HTTPStatus) -> APIResult:
+    if status.is_success:
         return APIResult.SUCCESS
-    elif 300 <= status < 400:
+    elif status.is_redirection:
         # Redirects are not followed by our client, so we treat them as an
         # unexpected response, which is a form of client error.
         return APIResult.CLIENT_ERROR
-    elif status == 429:
+    elif status == HTTPStatus.TOO_MANY_REQUESTS:
         return APIResult.RATE_LIMITED
-    elif 400 <= status < 500:
+    elif status.is_client_error:
         return APIResult.CLIENT_ERROR
-    elif 500 <= status < 600:
+    elif status.is_server_error:
         return APIResult.SERVER_ERROR
     else:
         return APIResult.UNKNOWN

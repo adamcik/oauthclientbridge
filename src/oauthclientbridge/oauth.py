@@ -4,6 +4,7 @@ import importlib.metadata
 import re
 import time
 from typing import Any
+from http import HTTPStatus
 
 import flask
 import requests
@@ -102,24 +103,26 @@ def error_handler(e: Error) -> flask.Response:
 
     response = flask.jsonify(result)
     if e.error == errors.INVALID_CLIENT:
-        response.status_code = 401
+        response.status_code = HTTPStatus.UNAUTHORIZED
         # TODO: This triggers a login prompt when testing, we probably don't want that.
         response.headers["WWW-Authenticate"] = (
             f'Basic realm="{current_settings.auth_realm}"'
         )
     elif e.retry_after:
         response.headers["Retry-After"] = int(e.retry_after + 1)
-        response.status_code = 429
+        response.status_code = HTTPStatus.TOO_MANY_REQUESTS
     else:
-        response.status_code = 400
+        response.status_code = HTTPStatus.BAD_REQUEST
 
     current_span = trace.get_current_span()
     current_span.record_exception(e)
     current_span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
 
-    status = status = stats.status(response.status_code)
+    status = HTTPStatus(response.status_code)
     stats.ServerErrorCounter.labels(
-        endpoint=stats.endpoint(), status=status, error=e.error
+        endpoint=stats.endpoint(),
+        status=stats.status(status),
+        error=e.error,
     ).inc()
     return response
 
@@ -127,7 +130,7 @@ def error_handler(e: Error) -> flask.Response:
 def fallback_error_handler(e: Exception) -> flask.Response:
     stats.ServerErrorCounter.labels(
         endpoint=stats.endpoint(),
-        status=stats.status(500),
+        status=stats.status(HTTPStatus.INTERNAL_SERVER_ERROR),
         error=errors.SERVER_ERROR,
     ).inc()
 
@@ -137,8 +140,8 @@ def fallback_error_handler(e: Exception) -> flask.Response:
 
     response = flask.jsonify(
         _error(errors.SERVER_ERROR, errors.DESCRIPTIONS[errors.SERVER_ERROR])
+    response.status_code = HTTPStatus.INTERNAL_SERVER_ERROR
     )
-    response.status_code = 500
     return response
 
 
@@ -178,7 +181,7 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
 
         timeout = time.time() + current_settings.fetch.total_timeout
         retry = 0
-        status = None  # Set a default value for status
+        status: HTTPStatus | None = None  # Set a default value for status
 
         result = _error(
             errors.SERVER_ERROR, "An unknown error occurred talking to provider."
@@ -209,7 +212,10 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
                 endpoint,
             )
 
-            labels = {"endpoint": endpoint, "status": stats.status(status)}
+            labels = {
+                "endpoint": endpoint,
+                "status": stats.status(status or HTTPStatus.GATEWAY_TIMEOUT),
+            }
             stats.ClientRetryHistogram.labels(**labels).observe(i)
 
             if status is not None and "error" in result:
@@ -222,7 +228,7 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
             if status is None:
                 span.add_event("Missing response")
                 pass  # We didn't even get a response, so try again.
-            elif status == 200:
+            elif status.is_success:
                 span.add_event("Success")
                 break
             elif status not in current_settings.fetch.retry_status_codes:
@@ -232,6 +238,8 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
                 span.add_event("Non-OK without error!?")
                 break  # No error reported so might as well return it.
 
+            # TODO: Call out other inconsistent mixes/states?
+            # TODO: Cleanup this logging to use structlog or tracing
             logger.debug(
                 "Result %s [status %s] [retry after %s]", prefix, status, retry
             )
@@ -273,12 +281,13 @@ def _fetch(
     prepared: requests.PreparedRequest,
     timeout: float,
     endpoint: str,
-) -> tuple[OAuthResponse, int, int]:
+) -> tuple[OAuthResponse, HTTPStatus | None, int]:
     # Make sure we always have at least a minimal timeout.
     timeout = max(1.0, min(current_settings.fetch.timeout, timeout))
     start_time = time.time()
 
     session = get_session()
+    status = None
 
     try:
         # TODO: switch to a context for tracking time.
@@ -311,6 +320,9 @@ def _fetch(
             else:
                 status_label = "connection_error"
 
+        if e.response:
+            status = HTTPStatus(e.response.status_code)
+
         logger.warning("Fetching %r failed: %s", prepared.url, e)
 
         # TODO: Should this be temporarily_unavailable?
@@ -329,10 +341,10 @@ def _fetch(
             retry_after = 0
     else:
         request_latency = time.time() - start_time
-        status_label = stats.status(resp.status_code)
 
         result = _decode(span, resp)
-        status_code = resp.status_code
+        status = HTTPStatus(resp.status_code)
+        status_label = stats.status(status)
         length = len(resp.content)
         retry_after = parse_retry(resp.headers.get("retry-after"))
 
@@ -392,4 +404,7 @@ def parse_retry(value: str | None) -> int:
 
 def redirect(uri: str, **params: str) -> flask.Response:
     # TODO: Add the location we redirect to in span?
-    return flask.Response(status=302, headers={"Location": rewrite_uri(uri, params)})
+    return flask.Response(
+        status=HTTPStatus.FOUND,
+        headers={"Location": rewrite_uri(uri, params)},
+    )
