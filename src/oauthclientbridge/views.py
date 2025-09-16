@@ -79,10 +79,10 @@ def callback() -> flask.Response:
         if error == OAuthError.INVALID_SCOPE:
             msg += " - %r" % flask.request.args.get("scope")
 
-        level = current_settings.error_levels.get(error, "ERROR")
-        level = logging.getLevelNamesMapping()[level]
-
-        logger.log(level, msg)
+        logger.log(
+            current_settings.error_levels.get(error, LogLevel.ERROR),
+            msg,
+        )
 
         return _error(error, desc, client_state)
 

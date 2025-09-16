@@ -119,7 +119,7 @@ def init_logging(settings: LogSettings) -> None:
     root_logger = logging.getLogger()
     root_logger.addHandler(handler)
 
-    root_logger.setLevel(int(settings.level))
+    root_logger.setLevel(settings.level)
 
     werkzeug_logger = logging.getLogger("werkzeug")
     werkzeug_logger.disabled = True
