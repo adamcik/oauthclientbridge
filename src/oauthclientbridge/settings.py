@@ -2,6 +2,7 @@ import logging
 import sys
 from enum import IntEnum, StrEnum
 from http import HTTPStatus
+from pathlib import Path
 
 from flask import current_app
 from pydantic import Field, SecretStr, model_validator
@@ -231,6 +232,9 @@ class Settings(BaseSettings):
     num_proxies: int = 0
     """Number proxies to expect in front of us. Used for handling X-Forwarded-For"""
 
+    callback_template_file: Path | None = None
+    """Optional path to file containing callback_template."""
+
     error_levels: dict[str, LogLevel] = Field(
         default_factory=lambda: {
             "access_denied": LogLevel.INFO,
@@ -247,6 +251,12 @@ class Settings(BaseSettings):
     sentry: SentrySettings = Field(default_factory=lambda: SentrySettings())  # pyright: ignore[reportCallIssue]
     log: LogSettings = Field(default_factory=lambda: LogSettings())  # pyright: ignore[reportCallIssue]
     otel: TelemetrySettings = Field(default_factory=lambda: TelemetrySettings())  # pyright: ignore[reportCallIssue]
+
+    @model_validator(mode="after")
+    def load_callback_template_file(self) -> "Settings":
+        if self.callback_template_file:
+            self.callback_template = self.callback_template_file.read_text()
+        return self
 
 
 current_settings: LocalProxy[Settings] = LocalProxy(
