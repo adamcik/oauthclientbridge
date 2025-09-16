@@ -1,4 +1,3 @@
-import logging
 from http import HTTPStatus
 from typing import Any
 
@@ -11,8 +10,9 @@ from opentelemetry.semconv.attributes.exception_attributes import (
     EXCEPTION_TYPE,
 )
 
-from oauthclientbridge import crypto, db, errors, oauth, sentry, stats
-from oauthclientbridge.settings import current_settings
+from oauthclientbridge import crypto, db, oauth, sentry, stats
+from oauthclientbridge.errors import OAuthError
+from oauthclientbridge.settings import LogLevel, current_settings
 
 logger: structlog.BoundLogger = structlog.get_logger()
 
@@ -24,7 +24,7 @@ def authorize() -> flask.Response:
     """Store random state in session cookie and redirect to auth endpoint."""
     redirect_uri: str | None = flask.request.args.get("redirect_uri")
     if redirect_uri and redirect_uri != current_settings.oauth.redirect_uri:
-        return _error(errors.INVALID_REQUEST, "Wrong redirect_uri.")
+        return _error(OAuthError.INVALID_REQUEST, "Wrong redirect_uri.")
 
     default_scope: str = " ".join(current_settings.oauth.scopes or [])
     scope = flask.request.args.get("scope", default_scope)
@@ -53,29 +53,30 @@ def callback() -> flask.Response:
     state: str | None = flask.session.pop("state", None)
 
     if not flask.request.args:
-        error = errors.INVALID_REQUEST
+        error = OAuthError.INVALID_REQUEST
         desc = "No arguments provided, request is invalid."
     elif state is None:
-        error = errors.INVALID_STATE
+        error = OAuthError.INVALID_STATE
         desc = "State is not set, this page was probably refreshed."
     elif state != flask.request.args.get("state"):
-        error = errors.INVALID_STATE
+        error = OAuthError.INVALID_STATE
         desc = "State does not match callback state."
     elif "error" in flask.request.args:
         error = oauth.normalize_error(
             flask.request.args["error"],
-            oauth.AUTHORIZATION_ERRORS,
+            allowed_types=oauth.AUTHORIZATION_ERRORS,
+            fallback_type=OAuthError.SERVER_ERROR,
         )
-        desc = errors.DESCRIPTIONS[error]
+        desc = error.description
     elif not flask.request.args.get("code"):
-        error = errors.INVALID_REQUEST
+        error = OAuthError.INVALID_REQUEST
         desc = "Authorization code missing from provider callback."
 
     if error is not None:
         msg = f"Callback failed {error}: {desc}"
 
         # TODO: Consider just logging the request args as extra?
-        if error == errors.INVALID_SCOPE:
+        if error == OAuthError.INVALID_SCOPE:
             msg += " - %r" % flask.request.args.get("scope")
 
         level = current_settings.error_levels.get(error, "ERROR")
@@ -96,8 +97,12 @@ def callback() -> flask.Response:
     )
 
     if "error" in result:
-        error = oauth.normalize_error(result["error"], oauth.TOKEN_ERRORS)
-        desc = errors.DESCRIPTIONS[error]
+        error = oauth.normalize_error(
+            result["error"],
+            allowed_types=oauth.TOKEN_ERRORS,
+            fallback_type=OAuthError.SERVER_ERROR,
+        )
+        desc = error.description
     elif not oauth.validate_token(result):
         error = "invalid_response"
         desc = "Invalid response from provider."
@@ -136,11 +141,11 @@ def token() -> flask.Response:
 
     if flask.request.form.get("grant_type") != "client_credentials":
         raise oauth.Error(
-            errors.UNSUPPORTED_GRANT_TYPE,
+            OAuthError.UNSUPPORTED_GRANT_TYPE,
             'Only "client_credentials" is supported.',
         )
     elif "scope" in flask.request.form:
-        raise oauth.Error(errors.INVALID_SCOPE, "Setting scope is not supported.")
+        raise oauth.Error(OAuthError.INVALID_SCOPE, "Setting scope is not supported.")
 
     try:
         # Trigger decoding base64 value that might have bad Unicode data.
@@ -149,13 +154,13 @@ def token() -> flask.Response:
         authorization = None
 
     if authorization and authorization.type != "basic":
-        raise oauth.Error(errors.INVALID_CLIENT, "Only Basic Auth is supported.")
+        raise oauth.Error(OAuthError.INVALID_CLIENT, "Only Basic Auth is supported.")
 
     client_id: str | None = flask.request.form.get("client_id")
     client_secret: str | None = flask.request.form.get("client_secret")
     if (client_id or client_secret) and authorization:
         raise oauth.Error(
-            errors.INVALID_REQUEST,
+            OAuthError.INVALID_REQUEST,
             "More than one mechanism for authenticating set.",
         )
     elif authorization:
@@ -164,12 +169,12 @@ def token() -> flask.Response:
 
     if not client_id or not client_secret:
         raise oauth.Error(
-            errors.INVALID_CLIENT,
+            OAuthError.INVALID_CLIENT,
             "Both client_id and client_secret must be set.",
         )
     elif client_id == client_secret:
         raise oauth.Error(
-            errors.INVALID_CLIENT,
+            OAuthError.INVALID_CLIENT,
             "client_id and client_secret set to same value.",
         )
 
@@ -180,18 +185,18 @@ def token() -> flask.Response:
     try:
         token = db.lookup(client_id)
     except LookupError:
-        raise oauth.Error(errors.INVALID_CLIENT, "Client not known.")
+        raise oauth.Error(OAuthError.INVALID_CLIENT, "Client not known.")
 
     if token is None:
         # TODO: How do we avoid client retries here?
-        raise oauth.Error(errors.INVALID_GRANT, "Grant has been revoked.")
+        raise oauth.Error(OAuthError.INVALID_GRANT, "Grant has been revoked.")
 
     try:
         result = crypto.loads(client_secret, token)
     except (crypto.InvalidToken, TypeError, ValueError):
         # Always return same message as for client not found to avoid leaking
         # valid clients directly, timing attacks could of course still work.
-        raise oauth.Error(errors.INVALID_CLIENT, "Client not known.")
+        raise oauth.Error(OAuthError.INVALID_CLIENT, "Client not known.")
 
     if "refresh_token" not in result:
         return flask.jsonify(result)
@@ -206,9 +211,13 @@ def token() -> flask.Response:
     )
 
     if "error" in refresh_result:
-        error = oauth.normalize_error(refresh_result["error"], oauth.TOKEN_ERRORS)
+        error = oauth.normalize_error(
+            refresh_result["error"],
+            allowed_types=oauth.TOKEN_ERRORS,
+            fallback_type=OAuthError.SERVER_ERROR,
+        )
 
-        if error == errors.INVALID_GRANT:
+        if error == OAuthError.INVALID_GRANT:
             # TODO: Store when we got an invalid grant? Or just cache this so
             # we have fewer backend calls to provider?
 
@@ -216,7 +225,7 @@ def token() -> flask.Response:
             # something went wrong upstream.
             # db.update(client_id, None)
             logger.warning("Invalid grant")
-        elif error == errors.TEMPORARILY_UNAVAILABLE:
+        elif error == OAuthError.TEMPORARILY_UNAVAILABLE:
             logger.warning("Token refresh failed", refresh_result=refresh_result)
         else:
             logger.error("Token refresh failed", refresh_result=refresh_result)
@@ -236,7 +245,7 @@ def token() -> flask.Response:
         )
 
     if not oauth.validate_token(refresh_result):
-        raise oauth.Error(errors.INVALID_REQUEST, "Invalid response from provider.")
+        raise oauth.Error(OAuthError.INVALID_REQUEST, "Invalid response from provider.")
 
     # Copy over original scope if not set in refresh.
     if "scope" not in refresh_result and "scope" in result:
@@ -265,30 +274,37 @@ def metrics() -> flask.Response:
 
 
 def _error(
-    error_code: str,
-    error: str | None = None,
+    error: OAuthError | str,
+    description: str | None = None,
     state: str | None = None,
 ) -> flask.Response:
-    if error_code == errors.INVALID_CLIENT:
+    if error == OAuthError.INVALID_CLIENT:
         status = HTTPStatus.UNAUTHORIZED
     else:
         status = HTTPStatus.BAD_REQUEST
+
+    if isinstance(error, OAuthError):
+        description = description or error.description
+        error_code = error.value
     else:
+        error_code = error
 
     current_span = trace.get_current_span()
     current_span.set_status(
-        trace.Status(trace.StatusCode.ERROR, f"{error_code}: {error}")
+        trace.Status(trace.StatusCode.ERROR, f"{error_code}: {description}")
     )
     current_span.add_event(
         "error",
-        {EXCEPTION_MESSAGE: error or "", EXCEPTION_TYPE: error_code},
+        {EXCEPTION_MESSAGE: description or "", EXCEPTION_TYPE: error_code},
     )
 
     stats.ServerErrorCounter.labels(
-        endpoint=stats.endpoint(), status=stats.status(status), error=error_code
+        endpoint=stats.endpoint(),
+        status=stats.status(status),
+        error=error,
     ).inc()
 
-    response = _render(error=error_code, description=error, state=state)
+    response = _render(error=error_code, description=description, state=state)
     response.status_code = status
     return response
 

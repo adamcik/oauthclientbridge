@@ -1,5 +1,6 @@
+import logging
 import sys
-from enum import StrEnum
+from enum import IntEnum, StrEnum
 from http import HTTPStatus
 
 from flask import current_app
@@ -9,6 +10,7 @@ from pydantic_settings import (
 )
 from werkzeug.local import LocalProxy
 
+from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings_source import (
     ParsedBaseSettings,
     ParsedMappingField,
@@ -28,7 +30,7 @@ class OAuthSettings(ParsedBaseSettings):
     grant_type: str = "refresh_token"
     """Type of grant to request from upstream."""
 
-    scopes: list[str] = ParsedSequenceField(default_factory=list)
+    scopes: set[str] = ParsedSequenceField(default_factory=set)
     """List of OAuth scopes to request from the upstream provider:"""
 
     authorization_uri: str
@@ -86,8 +88,8 @@ class FetchSettings(ParsedBaseSettings):
     response. Remaining status codes treated as server_error.
     """
 
-    error_types: dict[str, str] = ParsedMappingField(
-        default_factory=lambda: {"errorTransient": "temporarily_unavailable"}
+    error_types: dict[str, OAuthError] = ParsedMappingField(
+        default_factory=lambda: {"errorTransient": OAuthError.TEMPORARILY_UNAVAILABLE},
     )
     """Non-standard oauth errors and what standard errors to translate them to."""
 
@@ -104,8 +106,11 @@ class DatabaseSettings(ParsedBaseSettings):
     timeout: float = 5
     """SQlite3 database timeout to use at "connection" time."""
 
-    pragmas: list[str] = Field(default_factory=lambda: ["PRAGMA journal_mode = WAL"])
-    """SQlite3 database PRAGMAs to run at connection time for database."""
+    pragmas: list[str] = Field(
+        default_factory=lambda: ["PRAGMA journal_mode = WAL"],
+    )
+    """ SQlite3 database PRAGMAs to run at connection time for database.
+    Note, this is JSON formatted in the ENV."""
 
 
 class SentrySettings(ParsedBaseSettings):
@@ -148,7 +153,9 @@ class TelemetrySettings(ParsedBaseSettings):
     )
     """Set of OpenTelemetry components to enable (e.g., TRACING, METRICS)."""
 
-    exporters: set[TelemetryExporter] = ParsedSequenceField(default_factory=set)
+    exporters: set[TelemetryExporter] = ParsedSequenceField(
+        default_factory=set,
+    )
     """Set of OpenTelemetry exporters to use (e.g., OTLP_GRPC, CONSOLE)."""
 
     endpoint: str | None = "http://localhost:4317"

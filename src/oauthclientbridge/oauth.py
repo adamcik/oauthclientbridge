@@ -3,15 +3,16 @@ import functools
 import importlib.metadata
 import re
 import time
-from typing import Any
 from http import HTTPStatus
+from typing import Any, override
 
 import flask
 import requests
 import structlog
 from opentelemetry import metrics, trace
 
-from oauthclientbridge import errors, stats
+from oauthclientbridge import stats
+from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import current_settings
 from oauthclientbridge.utils import APIResult, http_status_to_result, rewrite_uri
 
@@ -36,31 +37,32 @@ _oauth_client_retries_histogram = meter.create_histogram(
     unit="1",
 )
 
+# TODO: This should be a stricter type or a pydantic model
 OAuthResponse = dict[str, Any]
 URIParam = dict[str, str]
 
 # https://tools.ietf.org/html/rfc6749#section-4.1.2.1
 AUTHORIZATION_ERRORS = {
-    errors.INVALID_REQUEST,
-    errors.UNAUTHORIZED_CLIENT,
-    errors.ACCESS_DENIED,
-    errors.UNSUPPORTED_RESPONSE_TYPE,
-    errors.INVALID_SCOPE,
-    errors.SERVER_ERROR,
-    errors.TEMPORARILY_UNAVAILABLE,
+    OAuthError.INVALID_REQUEST,
+    OAuthError.UNAUTHORIZED_CLIENT,
+    OAuthError.ACCESS_DENIED,
+    OAuthError.UNSUPPORTED_RESPONSE_TYPE,
+    OAuthError.INVALID_SCOPE,
+    OAuthError.SERVER_ERROR,
+    OAuthError.TEMPORARILY_UNAVAILABLE,
 }
 
 # https://tools.ietf.org/html/rfc6749#section-5.2
 TOKEN_ERRORS = {
-    errors.INVALID_REQUEST,
-    errors.INVALID_CLIENT,
-    errors.INVALID_GRANT,
-    errors.UNAUTHORIZED_CLIENT,
-    errors.UNSUPPORTED_GRANT_TYPE,
-    errors.INVALID_SCOPE,
+    OAuthError.INVALID_REQUEST,
+    OAuthError.INVALID_CLIENT,
+    OAuthError.INVALID_GRANT,
+    OAuthError.UNAUTHORIZED_CLIENT,
+    OAuthError.UNSUPPORTED_GRANT_TYPE,
+    OAuthError.INVALID_SCOPE,
     # These are not really supported by RFC:
-    errors.SERVER_ERROR,
-    errors.TEMPORARILY_UNAVAILABLE,
+    OAuthError.SERVER_ERROR,
+    OAuthError.TEMPORARILY_UNAVAILABLE,
 }
 
 
@@ -76,33 +78,34 @@ def get_session():
 class Error(Exception):
     def __init__(
         self,
-        error: str,
+        error: OAuthError,
         description: str | None = None,
         uri: str | None = None,
         retry_after: int | None = None,
     ):
         super().__init__()
-        self.error = error
-        self.description = description
-        self.uri = uri
-        self.retry_after = retry_after
+        self.error: OAuthError = error
+        self.description: str = description or error.description
+        self.uri: str | None = uri
+        self.retry_after: int | None = retry_after
 
-    def __str__(self):
-        return f"{self.error}: {self.description or '-'}"
+    @override
+    def __str__(self) -> str:
+        return f"{self.error}: {self.description}"
 
 
 def error_handler(e: Error) -> flask.Response:
     """Create a well formed JSON response with status and auth headers."""
-    result = {"error": e.error}
-    if e.description is not None:
-        result["error_description"] = e.description
-    elif e.error in errors.DESCRIPTIONS:
-        result["error_description"] = errors.DESCRIPTIONS[e.error]
+    result: dict[str, str] = {
+        "error": e.error.value,
+        "error_description": e.description,
+    }
+
     if e.uri is not None:
         result["error_uri"] = e.uri
 
     response = flask.jsonify(result)
-    if e.error == errors.INVALID_CLIENT:
+    if e.error == OAuthError.INVALID_CLIENT:
         response.status_code = HTTPStatus.UNAUTHORIZED
         # TODO: This triggers a login prompt when testing, we probably don't want that.
         response.headers["WWW-Authenticate"] = (
@@ -131,17 +134,15 @@ def fallback_error_handler(e: Exception) -> flask.Response:
     stats.ServerErrorCounter.labels(
         endpoint=stats.endpoint(),
         status=stats.status(HTTPStatus.INTERNAL_SERVER_ERROR),
-        error=errors.SERVER_ERROR,
+        error=OAuthError.SERVER_ERROR.value,
     ).inc()
 
     current_span = trace.get_current_span()
     current_span.record_exception(e)
     current_span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
 
-    response = flask.jsonify(
-        _error(errors.SERVER_ERROR, errors.DESCRIPTIONS[errors.SERVER_ERROR])
+    response = flask.jsonify(OAuthError.SERVER_ERROR.json())
     response.status_code = HTTPStatus.INTERNAL_SERVER_ERROR
-    )
     return response
 
 
@@ -153,13 +154,20 @@ def nocache(response: flask.Response) -> flask.Response:
     return response
 
 
-def normalize_error(error: str, error_types: set[str]) -> str:
+def normalize_error(
+    error_code: str, allowed_types: set[OAuthError], fallback_type: OAuthError
+) -> OAuthError:
     """Translate any "bad" error types to something more usable."""
-    error = current_settings.fetch.error_types.get(error, error)
-    if error not in error_types:
-        return errors.SERVER_ERROR
+    if error_code in current_settings.fetch.error_types:
+        error = current_settings.fetch.error_types[error_code]
+    elif error_code in OAuthError:
+        error = OAuthError(error_code)
     else:
-        return error
+        error = fallback_type
+
+    if error not in allowed_types:
+        return fallback_type
+    return error
 
 
 def validate_token(token: OAuthResponse) -> bool:
@@ -183,8 +191,8 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
         retry = 0
         status: HTTPStatus | None = None  # Set a default value for status
 
-        result = _error(
-            errors.SERVER_ERROR, "An unknown error occurred talking to provider."
+        result = OAuthError.SERVER_ERROR.json(
+            description="An unknown error occurred talking to provider."
         )
 
         i = 0
@@ -214,16 +222,19 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
 
             labels = {
                 "endpoint": endpoint,
-                "status": stats.status(status or HTTPStatus.GATEWAY_TIMEOUT),
+                "status": stats.status(status) if status else "unknown",
             }
             stats.ClientRetryHistogram.labels(**labels).observe(i)
 
             if status is not None and "error" in result:
-                error = result["error"]
-                error = current_settings.fetch.error_types.get(error, error)
-                if error not in errors.DESCRIPTIONS:
-                    error = "invalid_error"
-                stats.ClientErrorCounter.labels(error=error, **labels).inc()
+                error_code = result["error"]
+                if error_code in current_settings.fetch.error_types:
+                    error_label = current_settings.fetch.error_types[error_code].value
+                elif error_code in OAuthError:
+                    error_label = OAuthError(error_code).value
+                else:
+                    error_label = "invalid_error"
+                stats.ClientErrorCounter.labels(error=error_label, **labels).inc()
 
             if status is None:
                 span.add_event("Missing response")
@@ -329,8 +340,7 @@ def _fetch(
 
         # Server error isn't allowed everywhere, but fixing this has been
         # brought up in https://www.rfc-editor.org/errata_search.php?eid=4745
-        result = _error(errors.SERVER_ERROR, description)
-        status_code = 504
+        result = OAuthError.SERVER_ERROR.json(description=description)
 
         if isinstance(e, requests.exceptions.HTTPError):
             length = len(e.response.content)
@@ -353,7 +363,7 @@ def _fetch(
         stats.ClientResponseSizeHistogram.labels(**labels).observe(length)
     stats.ClientLatencyHistogram.labels(**labels).observe(request_latency)
 
-    return result, status_code, retry_after
+    return result, status, retry_after
 
 
 def _decode(span: trace.Span, resp: requests.Response) -> OAuthResponse:
@@ -375,17 +385,13 @@ def _decode(span: trace.Span, resp: requests.Response) -> OAuthResponse:
         )
 
     if resp.status_code in current_settings.fetch.unavailable_status_codes:
-        error = errors.TEMPORARILY_UNAVAILABLE
+        error = OAuthError.TEMPORARILY_UNAVAILABLE
         description = "Provider is unavailable."
     else:
-        error = errors.SERVER_ERROR
+        error = OAuthError.SERVER_ERROR
         description = "Unhandled provider error (HTTP %s)." % resp.status_code
 
-    return _error(error, description)
-
-
-def _error(error: str, description: str) -> OAuthResponse:
-    return {"error": error, "error_description": description}
+    return error.json(description=description)
 
 
 def parse_retry(value: str | None) -> int:

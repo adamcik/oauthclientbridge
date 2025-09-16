@@ -4,7 +4,8 @@ import pytest
 from flask.testing import FlaskClient
 from requests_mock import Mocker
 
-from oauthclientbridge import crypto, db, errors
+from oauthclientbridge import crypto, db
+from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import Settings
 
 from .conftest import PostClient, ResponseTuple, TokenTuple
@@ -13,22 +14,22 @@ from .conftest import PostClient, ResponseTuple, TokenTuple
 @pytest.mark.parametrize(
     "data,expected_error,expected_status",
     [
-        ({}, errors.INVALID_CLIENT, 401),
-        ({"grant_type": None}, errors.UNSUPPORTED_GRANT_TYPE, 400),
-        ({"grant_type": ""}, errors.UNSUPPORTED_GRANT_TYPE, 400),
+        ({}, OAuthError.INVALID_CLIENT, 401),
+        ({"grant_type": None}, OAuthError.UNSUPPORTED_GRANT_TYPE, 400),
+        ({"grant_type": ""}, OAuthError.UNSUPPORTED_GRANT_TYPE, 400),
         (
             {"grant_type": "authorization_code"},
-            errors.UNSUPPORTED_GRANT_TYPE,
+            OAuthError.UNSUPPORTED_GRANT_TYPE,
             400,
         ),
-        ({"client_id": None}, errors.INVALID_CLIENT, 401),
-        ({"client_id": ""}, errors.INVALID_CLIENT, 401),
-        ({"client_id": ""}, errors.INVALID_CLIENT, 401),
-        ({"client_secret": None}, errors.INVALID_CLIENT, 401),
-        ({"client_secret": ""}, errors.INVALID_CLIENT, 401),
-        ({"client_secret": "does-not-exist"}, errors.INVALID_CLIENT, 401),
-        ({"scope": "foo"}, errors.INVALID_SCOPE, 400),
-        ({"scope": ""}, errors.INVALID_SCOPE, 400),
+        ({"client_id": None}, OAuthError.INVALID_CLIENT, 401),
+        ({"client_id": ""}, OAuthError.INVALID_CLIENT, 401),
+        ({"client_id": ""}, OAuthError.INVALID_CLIENT, 401),
+        ({"client_secret": None}, OAuthError.INVALID_CLIENT, 401),
+        ({"client_secret": ""}, OAuthError.INVALID_CLIENT, 401),
+        ({"client_secret": "does-not-exist"}, OAuthError.INVALID_CLIENT, 401),
+        ({"scope": "foo"}, OAuthError.INVALID_SCOPE, 400),
+        ({"scope": ""}, OAuthError.INVALID_SCOPE, 400),
     ],
 )
 def test_token_input_validation(
@@ -70,7 +71,7 @@ def test_token_invalid_credentials(
     resp = post("/token", data)
 
     assert resp.status == 401
-    assert resp.data["error"] == errors.INVALID_CLIENT
+    assert resp.data["error"] == OAuthError.INVALID_CLIENT
     assert resp.data["error_description"]
 
     assert "WWW-Authenticate" in resp.headers
@@ -89,7 +90,7 @@ def test_token_multiple_auth_fails(post: PostClient, access_token: TokenTuple):
     resp: ResponseTuple = post("/token", data, auth=auth)
 
     assert resp.status == 400
-    assert resp.data["error"] == errors.INVALID_REQUEST
+    assert resp.data["error"] == OAuthError.INVALID_REQUEST
     assert resp.data["error_description"]
 
 
@@ -141,7 +142,7 @@ def test_token_bad_basic_auth(
     resp = post("/token", data, headers=headers)
 
     assert resp.status == 401
-    assert resp.data["error"] == errors.INVALID_CLIENT
+    assert resp.data["error"] == OAuthError.INVALID_CLIENT
 
     assert "WWW-Authenticate" in resp.headers
     assert resp.headers["WWW-Authenticate"] == 'Basic realm="oauthclientbridge"'
@@ -164,7 +165,7 @@ def test_token_revoked(post: PostClient, access_token: TokenTuple):
     resp = post("/token", data)
 
     assert resp.status == 400
-    assert resp.data["error"] == errors.INVALID_GRANT
+    assert resp.data["error"] == OAuthError.INVALID_GRANT
     assert resp.data["error_description"]
 
 
@@ -401,14 +402,14 @@ def test_token_only_returns_scope_from_db(
 @pytest.mark.parametrize(
     "error,expected_error,expected_status",
     [
-        (errors.INVALID_REQUEST, errors.INVALID_REQUEST, 400),
-        (errors.INVALID_CLIENT, errors.INVALID_CLIENT, 401),
-        (errors.INVALID_GRANT, errors.INVALID_GRANT, 400),
-        (errors.UNAUTHORIZED_CLIENT, errors.UNAUTHORIZED_CLIENT, 400),
-        (errors.UNSUPPORTED_GRANT_TYPE, errors.UNSUPPORTED_GRANT_TYPE, 400),
-        (errors.INVALID_SCOPE, errors.INVALID_SCOPE, 400),
-        ("errorTransient", errors.TEMPORARILY_UNAVAILABLE, 400),
-        ("badError", errors.SERVER_ERROR, 400),
+        (OAuthError.INVALID_REQUEST, OAuthError.INVALID_REQUEST, 400),
+        (OAuthError.INVALID_CLIENT, OAuthError.INVALID_CLIENT, 401),
+        (OAuthError.INVALID_GRANT, OAuthError.INVALID_GRANT, 400),
+        (OAuthError.UNAUTHORIZED_CLIENT, OAuthError.UNAUTHORIZED_CLIENT, 400),
+        (OAuthError.UNSUPPORTED_GRANT_TYPE, OAuthError.UNSUPPORTED_GRANT_TYPE, 400),
+        (OAuthError.INVALID_SCOPE, OAuthError.INVALID_SCOPE, 400),
+        ("errorTransient", OAuthError.TEMPORARILY_UNAVAILABLE, 400),
+        ("badError", OAuthError.SERVER_ERROR, 400),
     ],
 )
 def test_token_provider_errors(
@@ -468,7 +469,7 @@ def test_token_provider_invalid_response(
     resp = post("/token", data)
 
     assert resp.status == 400
-    assert resp.data["error"] == errors.INVALID_REQUEST
+    assert resp.data["error"] == OAuthError.INVALID_REQUEST
     assert resp.data["error_description"]
 
 
@@ -493,7 +494,7 @@ def test_token_provider_unavailable(
     resp = post("/token", data)
 
     assert resp.status == 400  # TODO: Make this a 503?
-    assert resp.data["error"] == errors.TEMPORARILY_UNAVAILABLE
+    assert resp.data["error"] == OAuthError.TEMPORARILY_UNAVAILABLE
     assert resp.data["error_description"]
 
 

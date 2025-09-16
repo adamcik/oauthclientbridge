@@ -4,7 +4,8 @@ import pytest
 from flask.testing import FlaskClient
 from requests_mock import Mocker
 
-from oauthclientbridge import crypto, db, errors
+from oauthclientbridge import crypto, db
+from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import Settings
 from tests.conftest import GetClient
 
@@ -70,27 +71,27 @@ def test_callback_authorization_client_state(
 @pytest.mark.parametrize(
     "query,expected_error",
     [
-        ("", errors.INVALID_REQUEST),
-        ("?code", errors.INVALID_STATE),
-        ("?state", errors.INVALID_STATE),
-        ("?state=&code=", errors.INVALID_STATE),
-        ("?code=1234", errors.INVALID_STATE),
-        ("?state={state}", errors.INVALID_REQUEST),
-        ("?state={state}&code=", errors.INVALID_REQUEST),
-        ("?state={state}&error=invalid_request", errors.INVALID_REQUEST),
-        ("?state={state}&error=unauthorized_client", errors.UNAUTHORIZED_CLIENT),
-        ("?state={state}&error=access_denied", errors.ACCESS_DENIED),
+        ("", OAuthError.INVALID_REQUEST),
+        ("?code", OAuthError.INVALID_STATE),
+        ("?state", OAuthError.INVALID_STATE),
+        ("?state=&code=", OAuthError.INVALID_STATE),
+        ("?code=1234", OAuthError.INVALID_STATE),
+        ("?state={state}", OAuthError.INVALID_REQUEST),
+        ("?state={state}&code=", OAuthError.INVALID_REQUEST),
+        ("?state={state}&error=invalid_request", OAuthError.INVALID_REQUEST),
+        ("?state={state}&error=unauthorized_client", OAuthError.UNAUTHORIZED_CLIENT),
+        ("?state={state}&error=access_denied", OAuthError.ACCESS_DENIED),
         (
             "?state={state}&error=unsupported_response_type",
-            errors.UNSUPPORTED_RESPONSE_TYPE,
+            OAuthError.UNSUPPORTED_RESPONSE_TYPE,
         ),
-        ("?state={state}&error=invalid_scope", errors.INVALID_SCOPE),
-        ("?state={state}&error=server_error", errors.SERVER_ERROR),
+        ("?state={state}&error=invalid_scope", OAuthError.INVALID_SCOPE),
+        ("?state={state}&error=server_error", OAuthError.SERVER_ERROR),
         (
             "?state={state}&error=temporarily_unavailable",
-            errors.TEMPORARILY_UNAVAILABLE,
+            OAuthError.TEMPORARILY_UNAVAILABLE,
         ),
-        ("?state={state}&error=badErrorCode", errors.SERVER_ERROR),
+        ("?state={state}&error=badErrorCode", OAuthError.SERVER_ERROR),
     ],
 )
 def test_callback_error_handling(
@@ -108,26 +109,42 @@ def test_callback_error_handling(
 @pytest.mark.parametrize(
     "data,expected_error,expected_status",
     [
-        ({}, errors.INVALID_RESPONSE, 400),
-        ({"token_type": "foobar"}, errors.INVALID_RESPONSE, 400),
-        ({"access_token": "foobar"}, errors.INVALID_RESPONSE, 400),
-        ({"access_token": "", "token_type": ""}, errors.INVALID_RESPONSE, 400),
-        ({"access_token": "foobar", "token_type": ""}, errors.INVALID_RESPONSE, 400),
-        ({"access_token": "", "token_type": "foobar"}, errors.INVALID_RESPONSE, 400),
-        ({"error": errors.INVALID_REQUEST}, errors.INVALID_REQUEST, 400),
-        ({"error": errors.INVALID_CLIENT}, errors.INVALID_CLIENT, 401),
-        ({"error": errors.INVALID_GRANT}, errors.INVALID_GRANT, 400),
-        ({"error": errors.UNAUTHORIZED_CLIENT}, errors.UNAUTHORIZED_CLIENT, 400),
-        ({"error": errors.UNSUPPORTED_GRANT_TYPE}, errors.UNSUPPORTED_GRANT_TYPE, 400),
-        ({"error": errors.INVALID_SCOPE}, errors.INVALID_SCOPE, 400),
-        ({"error": errors.SERVER_ERROR}, errors.SERVER_ERROR, 400),
+        ({}, OAuthError.INVALID_RESPONSE, 400),
+        ({"token_type": "foobar"}, OAuthError.INVALID_RESPONSE, 400),
+        ({"access_token": "foobar"}, OAuthError.INVALID_RESPONSE, 400),
+        ({"access_token": "", "token_type": ""}, OAuthError.INVALID_RESPONSE, 400),
         (
-            {"error": errors.TEMPORARILY_UNAVAILABLE},
-            errors.TEMPORARILY_UNAVAILABLE,
+            {"access_token": "foobar", "token_type": ""},
+            OAuthError.INVALID_RESPONSE,
             400,
         ),
-        ({"error": "errorTransient"}, errors.TEMPORARILY_UNAVAILABLE, 400),
-        ({"error": "badErrorCode"}, errors.SERVER_ERROR, 400),
+        (
+            {"access_token": "", "token_type": "foobar"},
+            OAuthError.INVALID_RESPONSE,
+            400,
+        ),
+        ({"error": OAuthError.INVALID_REQUEST}, OAuthError.INVALID_REQUEST, 400),
+        ({"error": OAuthError.INVALID_CLIENT}, OAuthError.INVALID_CLIENT, 401),
+        ({"error": OAuthError.INVALID_GRANT}, OAuthError.INVALID_GRANT, 400),
+        (
+            {"error": OAuthError.UNAUTHORIZED_CLIENT},
+            OAuthError.UNAUTHORIZED_CLIENT,
+            400,
+        ),
+        (
+            {"error": OAuthError.UNSUPPORTED_GRANT_TYPE},
+            OAuthError.UNSUPPORTED_GRANT_TYPE,
+            400,
+        ),
+        ({"error": OAuthError.INVALID_SCOPE}, OAuthError.INVALID_SCOPE, 400),
+        ({"error": OAuthError.SERVER_ERROR}, OAuthError.SERVER_ERROR, 400),
+        (
+            {"error": OAuthError.TEMPORARILY_UNAVAILABLE},
+            OAuthError.TEMPORARILY_UNAVAILABLE,
+            400,
+        ),
+        ({"error": "errorTransient"}, OAuthError.TEMPORARILY_UNAVAILABLE, 400),
+        ({"error": "badErrorCode"}, OAuthError.SERVER_ERROR, 400),
     ],
 )
 def test_callback_authorization_code_error_handling(
@@ -163,7 +180,7 @@ def test_callback_authorization_code_invalid_response(
 
     resp = get("/callback?code=1234&state=" + state)
     assert resp.status == 400
-    assert resp.data["error"] == errors.SERVER_ERROR
+    assert resp.data["error"] == OAuthError.SERVER_ERROR
 
 
 def test_callback_authorization_code_stores_token(
