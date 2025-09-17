@@ -217,6 +217,7 @@ def init_tracing(
             SentrySpanProcessor,
         )
 
+        print("SENTRY")
         provider.add_span_processor(SentrySpanProcessor())
         propagators.append(SentryPropagator())
 

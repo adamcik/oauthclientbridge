@@ -1,12 +1,20 @@
 import importlib
+import logging
 import sys
 from unittest.mock import patch
 
 import pytest
+import sentry_sdk
 from pydantic import SecretStr
 
-from oauthclientbridge import sentry
-from oauthclientbridge.settings import SentrySettings
+from oauthclientbridge import logs, sentry
+from oauthclientbridge.settings import LogLevel, LogSettings, SentrySettings
+from tests.sentry.plugin import FakeTransport, SentryCapture
+
+
+@pytest.fixture(autouse=True)
+def _isolate_sentry(sentry_isolation_scope):
+    pass
 
 
 @pytest.fixture
@@ -15,9 +23,19 @@ def sentry_settings() -> SentrySettings:
     return SentrySettings(
         enabled=True,
         dsn=SecretStr("http://test:test@localhost/1"),
-        sample_rate=0.5,
-        traces_sample_rate=0.2,
+        sample_rate=1.0,
+        traces_sample_rate=1.0,
     )
+
+
+@pytest.fixture
+def capsentry(
+    sentry_transport: FakeTransport,
+    sentry_settings: SentrySettings,
+    sentry_capture,
+):
+    sentry.init(sentry_settings, sentry_transport)
+    return sentry_capture
 
 
 def test_init_sentry_disabled() -> None:
@@ -53,3 +71,69 @@ def test_init_sentry_sdk_not_installed(
             )
     finally:
         _ = importlib.reload(sentry)
+
+
+# TODO: Add capture message...
+# TODO: Test log exception and log error etc in except
+
+
+def test_sentry_captures_user_and_tags(capsentry: SentryCapture) -> None:
+    sentry_sdk.set_user({"id": "user-42", "email": "test@example.com"})
+    sentry_sdk.set_tag("transaction_id", "txn-abc-123")
+
+    try:
+        raise ValueError("test exception")
+    except ValueError:
+        sentry_sdk.capture_exception()
+
+    event = next(capsentry.get_events())
+
+    assert "user" in event
+    assert event["user"]["id"] == "user-42"
+
+    assert "tags" in event
+    assert event["tags"]["transaction_id"] == "txn-abc-123"
+
+
+def test_sentry_captures_log_breadcrumbs(capsentry: SentryCapture) -> None:
+    logs.init_logging(LogSettings(level=LogLevel.DEBUG))
+
+    logging.info("Starting the process.")
+    logging.warning("Something looks suspicious.")
+
+    try:
+        raise ValueError("test exception")
+    except ValueError:
+        sentry_sdk.capture_exception()
+
+    info_log = capsentry.find_breadcrumb_by_level("info")
+    assert info_log["message"] == "Starting the process."
+
+    warning_log = capsentry.find_breadcrumb_by_level("warning")
+    assert warning_log["message"] == "Something looks suspicious."
+
+
+def test_sentry_captures_chained_exception(capsentry: SentryCapture) -> None:
+    try:
+        try:
+            1 / 0
+        except ZeroDivisionError as e:
+            raise TypeError("Something went wrong") from e
+    except TypeError:
+        sentry_sdk.capture_exception()
+
+    assert len(list(capsentry.get_exceptions())) == 2
+    capsentry.find_exception_by_type("ZeroDivisionError")
+    capsentry.find_exception_by_type("TypeError")
+
+
+def test_sentry_captures_otel_span(capsentry: SentryCapture, tracer) -> None:
+    with tracer.start_as_current_span("parent-operation") as parent:
+        parent.add_event("Parent's event")
+
+        with tracer.start_as_current_span("child-operation") as child:
+            child.add_event("Child's event")
+
+    # Traces are captured without needing an error event.
+    capsentry.find_transaction_by_name("parent-operation")
+    capsentry.find_span_by_op("child-operation")

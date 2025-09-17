@@ -2,7 +2,6 @@ import json
 import logging
 from typing import cast
 
-import pytest
 import structlog
 from flask import Flask, Request
 from opentelemetry import trace
@@ -39,18 +38,6 @@ from oauthclientbridge import logs
 from oauthclientbridge.settings import LogLevel, LogSettings
 
 tracer = trace.get_tracer(__name__)
-
-
-@pytest.fixture(autouse=True)
-def reset_logging_handlers():
-    """Fixture to reset logging handlers after each test."""
-    yield
-
-    root_logger = logging.getLogger()
-    for handler in root_logger.handlers[:]:
-        root_logger.removeHandler(handler)
-
-    structlog.reset_defaults()
 
 
 # TODO: Add a test using stdlib logging, with extra=... to make sure that also works.

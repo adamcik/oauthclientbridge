@@ -11,7 +11,10 @@ except ImportError:
     sentry_sdk = None
 
 
-def init(settings: SentrySettings) -> None:
+def init(
+    settings: SentrySettings,
+    transport=None,
+) -> None:
     if not settings.enabled:
         return
 
@@ -27,14 +30,14 @@ def init(settings: SentrySettings) -> None:
 
     sentry_sdk.init(
         dsn=settings.dsn.get_secret_value() if settings.dsn else None,
-        sample_rate=settings.sample_rate,
-        traces_sample_rate=settings.traces_sample_rate,
+        sample_rate=1.0,  # settings.sample_rate,
+        traces_sample_rate=1.0,  # settings.traces_sample_rate,
         integrations=[
             FlaskIntegration(),
             LoggingIntegration(event_level=None, level=None),
         ],
         instrumenter="otel",
-        _experiments={"enable_logs": True},
+        transport=transport,
     )
 
 

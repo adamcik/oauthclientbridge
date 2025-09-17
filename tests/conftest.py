@@ -1,8 +1,10 @@
 import base64
 import json
+import logging
 from typing import Any, NamedTuple, Protocol
 
 import pytest
+import structlog
 from flask import Flask
 from flask.ctx import AppContext
 from flask.testing import FlaskClient
@@ -23,6 +25,18 @@ from oauthclientbridge.settings import (
 )
 
 from . import otel
+
+pytest_plugins = ["tests.sentry.plugin"]
+
+
+@pytest.fixture(autouse=True)
+def reset_logging_handlers():
+    """Fixture to reset logging handlers before each test."""
+    root_logger = logging.getLogger()
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
+
+    structlog.reset_defaults()
 
 
 @pytest.fixture(name="otel_mock")
@@ -100,7 +114,7 @@ def app(settings: Settings):
     return app
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def app_context(app: Flask, settings: Settings):
     with app.app_context() as ctx:
         db.initialize()
