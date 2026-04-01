@@ -6,19 +6,15 @@ from http import HTTPStatus
 from flask import current_app
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import (
+    BaseSettings,
     SettingsConfigDict,
 )
 from werkzeug.local import LocalProxy
 
 from oauthclientbridge.errors import OAuthError
-from oauthclientbridge.settings_source import (
-    ParsedBaseSettings,
-    ParsedMappingField,
-    ParsedSequenceField,
-)
 
 
-class OAuthSettings(ParsedBaseSettings):
+class OAuthSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="OAUTH_")
 
     client_id: str
@@ -30,7 +26,7 @@ class OAuthSettings(ParsedBaseSettings):
     grant_type: str = "refresh_token"
     """Type of grant to request from upstream."""
 
-    scopes: set[str] = ParsedSequenceField(default_factory=set)
+    scopes: set[str] = Field(default_factory=set)
     """List of OAuth scopes to request from the upstream provider:"""
 
     authorization_uri: str
@@ -49,7 +45,7 @@ class OAuthSettings(ParsedBaseSettings):
     """
 
 
-class FetchSettings(ParsedBaseSettings):
+class FetchSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="FETCH_")
 
     total_timeout: float = 20.0
@@ -64,7 +60,7 @@ class FetchSettings(ParsedBaseSettings):
     total_retries: int = 3
     """Maximum number of retries for fetching oauth data."""
 
-    retry_status_codes: tuple[HTTPStatus, ...] = ParsedSequenceField(
+    retry_status_codes: tuple[HTTPStatus, ...] = Field(
         (
             HTTPStatus.TOO_MANY_REQUESTS,
             HTTPStatus.INTERNAL_SERVER_ERROR,
@@ -75,7 +71,7 @@ class FetchSettings(ParsedBaseSettings):
     )
     """Status codes that should be considered retryable for oauth."""
 
-    unavailable_status_codes: tuple[HTTPStatus, ...] = ParsedSequenceField(
+    unavailable_status_codes: tuple[HTTPStatus, ...] = Field(
         (
             HTTPStatus.TOO_MANY_REQUESTS,
             HTTPStatus.BAD_GATEWAY,
@@ -88,7 +84,7 @@ class FetchSettings(ParsedBaseSettings):
     response. Remaining status codes treated as server_error.
     """
 
-    error_types: dict[str, OAuthError] = ParsedMappingField(
+    error_types: dict[str, OAuthError] = Field(
         default_factory=lambda: {"errorTransient": OAuthError.TEMPORARILY_UNAVAILABLE},
     )
     """Non-standard oauth errors and what standard errors to translate them to."""
@@ -97,10 +93,10 @@ class FetchSettings(ParsedBaseSettings):
     """Backoff factor to use for not hammering the oauth server too much."""
 
 
-class DatabaseSettings(ParsedBaseSettings):
+class DatabaseSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="DB_")
 
-    database: str
+    database: str = "./sqlite.db"
     """SQLite3 database to store tokens information in."""
 
     timeout: float = 5
@@ -113,7 +109,7 @@ class DatabaseSettings(ParsedBaseSettings):
     Note, this is JSON formatted in the ENV."""
 
 
-class SentrySettings(ParsedBaseSettings):
+class SentrySettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="SENTRY_")
 
     enabled: bool = False
@@ -145,15 +141,15 @@ class TelemetryComponent(StrEnum):
     METRICS = "metrics"
 
 
-class TelemetrySettings(ParsedBaseSettings):
+class TelemetrySettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="TELEMETRY_")
 
-    components: set[TelemetryComponent] = ParsedSequenceField(
+    components: set[TelemetryComponent] = Field(
         default_factory=lambda: {TelemetryComponent.TRACING}
     )
     """Set of OpenTelemetry components to enable (e.g., TRACING, METRICS)."""
 
-    exporters: set[TelemetryExporter] = ParsedSequenceField(
+    exporters: set[TelemetryExporter] = Field(
         default_factory=set,
     )
     """Set of OpenTelemetry exporters to use (e.g., OTLP_GRPC, CONSOLE)."""
@@ -184,7 +180,7 @@ class LogLevel(IntEnum):
     DEBUG = logging.DEBUG
 
 
-class LogSettings(ParsedBaseSettings):
+class LogSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="LOG_")
 
     level: LogLevel = LogLevel.INFO
@@ -200,7 +196,7 @@ class LogSettings(ParsedBaseSettings):
     """Format string to use for access logs."""
 
 
-class Settings(ParsedBaseSettings):
+class Settings(BaseSettings):
     """
     Application settings for oauthclientbridge.
     """
@@ -235,7 +231,7 @@ class Settings(ParsedBaseSettings):
     num_proxies: int = 0
     """Number proxies to expect in front of us. Used for handling X-Forwarded-For"""
 
-    error_levels: dict[str, LogLevel] = ParsedMappingField(
+    error_levels: dict[str, LogLevel] = Field(
         default_factory=lambda: {
             "access_denied": LogLevel.INFO,
             "invalid_state": LogLevel.WARNING,
