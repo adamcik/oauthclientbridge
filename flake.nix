@@ -56,7 +56,6 @@
     pythonSets = forAllSystems (
       system: let
         pkgs = nixpkgs.legacyPackages.${system};
-        inherit (pkgs) stdenv;
 
         python = pkgs.python312;
 
@@ -64,95 +63,11 @@
         baseSet = pkgs.callPackage pyproject-nix.build.packages {
           inherit python;
         };
-
-        # An overlay of build fixups & test additions
-        pyprojectOverrides = final: prev: {
-          oauthclientbridge = prev.oauthclientbridge.overrideAttrs (old: {
-            # Add tests to passthru.tests
-            #
-            # These attribute are used in Flake checks.
-            passthru =
-              old.passthru
-              // {
-                tests =
-                  (old.tests or {})
-                  // {
-                    pyright = let
-                      venv = final.mkVirtualEnv "oauthclientbridge-typing-env" {
-                        oauthclientbridge = ["typing"];
-                      };
-                    in
-                      stdenv.mkDerivation {
-                        name = "${final.oauthclientbridge.name}-typing";
-                        inherit (final.oauthclientbridge) src;
-                        nativeBuildInputs = [
-                          venv
-                        ];
-                        dontConfigure = true;
-                        dontInstall = true;
-                        buildPhase = ''
-                          mkdir $out
-                          basedpyright src/oauthclientbridge --level error
-                        '';
-                      };
-
-                    ruff = let
-                      venv = final.mkVirtualEnv "oauthclientbridge-lint-env" {
-                        oauthclientbridge = ["lint"];
-                      };
-                    in
-                      stdenv.mkDerivation {
-                        name = "${final.oauthclientbridge.name}-lint";
-                        inherit (final.oauthclientbridge) src;
-                        nativeBuildInputs = [
-                          venv
-                        ];
-                        dontConfigure = true;
-                        dontInstall = true;
-                        buildPhase = ''
-                          mkdir $out
-                          ruff check
-                        '';
-                      };
-
-                    # Run pytest with coverage reports installed into build output
-                    # TODO: Could this be pytestCheckHook instead?
-                    pytest = let
-                      venv = final.mkVirtualEnv "oauthclientbridge-pytest-env" {
-                        oauthclientbridge = ["test"];
-                      };
-                    in
-                      stdenv.mkDerivation {
-                        name = "${final.oauthclientbridge.name}-pytest";
-                        inherit (final.oauthclientbridge) src;
-                        nativeBuildInputs = [
-                          venv
-                        ];
-
-                        dontConfigure = true;
-
-                        buildPhase = ''
-                          runHook preBuild
-                          pytest --cov tests --cov-report html tests
-                          runHook postBuild
-                        '';
-
-                        installPhase = ''
-                          runHook preInstall
-                          mv htmlcov $out
-                          runHook postInstall
-                        '';
-                      };
-                  };
-              };
-          });
-        };
       in
         baseSet.overrideScope (
           lib.composeManyExtensions [
             pyproject-build-systems.overlays.default
             overlay
-            pyprojectOverrides
           ]
         )
     );
@@ -185,13 +100,52 @@
 
     checks = forAllSystems (
       system: let
+        pkgs = nixpkgs.legacyPackages.${system};
         pythonSet = pythonSets.${system};
-      in
-        # Inherit tests from passthru.tests into flake checks
-        pythonSet.oauthclientbridge.passthru.tests
-        // {
-          treefmt = treefmtEval.${system}.config.build.check ./.;
-        }
+        devVenv = pythonSet.mkVirtualEnv "oauthclientbridge-checks-env" {
+          oauthclientbridge = ["dev"];
+        };
+      in {
+        lock =
+          pkgs.runCommand "uv-lock-check" {
+            src = ./.;
+            nativeBuildInputs = [
+              devVenv
+              pkgs.uv
+            ];
+          } ''
+            cd "$src"
+            export HOME="$TMPDIR"
+            export UV_PYTHON="${devVenv}/bin/python"
+            uv lock --check
+            touch "$out"
+          '';
+
+        pyright =
+          pkgs.runCommand "pyright-check" {
+            src = ./.;
+            nativeBuildInputs = [devVenv];
+          } ''
+            cd "$src"
+            export HOME="$TMPDIR"
+            basedpyright src/oauthclientbridge --level error
+            touch "$out"
+          '';
+
+        pytest =
+          pkgs.runCommand "pytest-check" {
+            src = ./.;
+            nativeBuildInputs = [devVenv];
+          } ''
+            cd "$src"
+            export HOME="$TMPDIR"
+            export COVERAGE_FILE="$TMPDIR/.coverage"
+            pytest --cov tests --cov-report html:"$TMPDIR/htmlcov" tests
+            mv "$TMPDIR/htmlcov" "$out"
+          '';
+
+        treefmt = treefmtEval.${system}.config.build.check ./.;
+      }
     );
 
     packages =
