@@ -217,19 +217,19 @@
             #!${pkgs.stdenv.shell}
 
             PORT="''${PORT:-8000}"
-            WORKERS="''${WORKERS:-$(( $(nproc) * 2 + 1 ))}"
+            WORKERS="''${WORKERS:-4}"
             THREADS="''${THREADS:-2}"
 
-            ${uwsgi}/bin/uwsgi \
+            exec ${uwsgi}/bin/uwsgi \
               --plugin python3 \
               --module oauthclientbridge.wsgi:app \
-              --log-format '%(addr) - %(user) [%(ltime)] "%(method) %(uri) %(proto)" %(status) %(size) "%(referer)" "%(uagent)"' \
+              --disable-logging \
               --virtualenv "${runtimeVenv}" \
               --http "0.0.0.0:''${PORT}" \
               --processes "''${WORKERS}" \
               --threads "''${THREADS}" \
               --master \
-              --show-config \
+              --die-on-term \
               --need-app \
               "$@"
           '';
