@@ -43,13 +43,13 @@ def create_app(settings: Settings) -> Flask:
     app.register_blueprint(views.routes)
 
     @app.cli.command("initdb")
-    def initdb():
+    def initdb():  # pyright: ignore[reportUnusedFunction]
         print("Initializing %s" % settings.database.database)
         db.initialize()
 
     @app.cli.command("cleandb")
-    def cleandb():
-        print("Vacummed %s" % settings.database.database)
+    def cleandb():  # pyright: ignore[reportUnusedFunction]
+        print("Vacuumed %s" % settings.database.database)
         db.vacuum()
 
     return app
