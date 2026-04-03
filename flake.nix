@@ -22,6 +22,11 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
+    treefmt-nix = {
+      url = "github:numtide/treefmt-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
     nix2container.url = "github:nlewo/nix2container";
   };
 
@@ -30,6 +35,7 @@
     uv2nix,
     pyproject-nix,
     pyproject-build-systems,
+    treefmt-nix,
     nix2container,
     ...
   }: let
@@ -150,13 +156,42 @@
           ]
         )
     );
+
+    treefmtEval = forAllSystems (
+      system:
+        treefmt-nix.lib.evalModule nixpkgs.legacyPackages.${system} {
+          projectRootFile = "flake.nix";
+          programs = {
+            alejandra.enable = true;
+            ruff-check.enable = true;
+            ruff-format.enable = true;
+          };
+          settings.formatter = {
+            tombi-format = {
+              command = "${nixpkgs.legacyPackages.${system}.tombi}/bin/tombi";
+              includes = ["*.toml"];
+              options = ["format" "--offline"];
+            };
+            tombi-lint = {
+              command = "${nixpkgs.legacyPackages.${system}.tombi}/bin/tombi";
+              includes = ["*.toml"];
+              options = ["lint" "--offline"];
+            };
+          };
+        }
+    );
   in {
+    formatter = forAllSystems (system: treefmtEval.${system}.config.build.wrapper);
+
     checks = forAllSystems (
       system: let
         pythonSet = pythonSets.${system};
       in
         # Inherit tests from passthru.tests into flake checks
         pythonSet.oauthclientbridge.passthru.tests
+        // {
+          treefmt = treefmtEval.${system}.config.build.check ./.;
+        }
     );
 
     packages =
@@ -320,6 +355,8 @@
         default = pkgs.mkShell {
           packages = [
             venv
+            pkgs.tombi
+            treefmtEval.${system}.config.build.wrapper
             pkgs.uv
           ];
           env = {
