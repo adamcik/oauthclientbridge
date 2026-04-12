@@ -26,7 +26,7 @@ from oauthclientbridge.settings import (
 
 from . import otel
 
-pytest_plugins = ["tests.sentry.plugin"]
+pytest_plugins = ["tests.plugins.sentry"]
 
 
 @pytest.fixture(autouse=True)
