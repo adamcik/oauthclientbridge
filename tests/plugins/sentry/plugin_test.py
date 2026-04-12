@@ -9,6 +9,7 @@ from pydantic import SecretStr
 
 from oauthclientbridge import logs, sentry
 from oauthclientbridge.settings import LogLevel, LogSettings, SentrySettings
+
 from . import FakeTransport, SentryCapture
 
 

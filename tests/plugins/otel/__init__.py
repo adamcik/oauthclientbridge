@@ -15,7 +15,6 @@ from .helpers import (
 from .mocker import OTelMocker
 from .plugin import fixture_meter, fixture_otel_mock, fixture_tracer, instrumented
 
-
 __all__ = [
     "OTelMocker",
     "CollectedSpan",
@@ -30,4 +29,8 @@ __all__ = [
     "assert_trace_id",
     "assert_trace_header",
     "latest_metric_data",
+    "fixture_otel_mock",
+    "fixture_tracer",
+    "fixture_meter",
+    "instrumented",
 ]
