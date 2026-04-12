@@ -8,25 +8,17 @@ import structlog
 from flask import Flask
 from flask.ctx import AppContext
 from flask.testing import FlaskClient
-from opentelemetry import metrics, trace
-from opentelemetry.sdk._logs.export import InMemoryLogExporter
-from opentelemetry.sdk.metrics._internal.export import InMemoryMetricReader
-from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from pydantic import SecretStr
 from werkzeug.datastructures import Headers
 
-from oauthclientbridge import create_app, crypto, db, telemetry
+from oauthclientbridge import create_app, crypto, db
 from oauthclientbridge.settings import (
     DatabaseSettings,
     OAuthSettings,
     Settings,
-    TelemetryComponent,
-    TelemetrySettings,
 )
 
-from . import otel
-
-pytest_plugins = ["tests.plugins.sentry"]
+pytest_plugins = ["tests.plugins.sentry", "tests.plugins.otel"]
 
 
 @pytest.fixture(autouse=True)
@@ -37,44 +29,6 @@ def reset_logging_handlers():
         root_logger.removeHandler(handler)
 
     structlog.reset_defaults()
-
-
-@pytest.fixture(name="otel_mock")
-def fixture_otel_mock():
-    settings = TelemetrySettings(
-        components={
-            TelemetryComponent.TRACING,
-            TelemetryComponent.METRICS,
-        }
-    )
-
-    log_exporter = InMemoryLogExporter()
-    span_exporter = InMemorySpanExporter()
-    metric_reader = InMemoryMetricReader()
-
-    with otel.OTelMocker(log_exporter, span_exporter, metric_reader) as mocker:
-        telemetry.init_metrics(settings, metric_reader)
-        telemetry.init_tracing(settings, mocker.span_processor)
-        yield mocker
-
-
-@pytest.fixture(name="tracer")
-def fixture_tracer(otel_mock: otel.OTelMocker):
-    return trace.get_tracer("tests")
-
-
-@pytest.fixture(name="meter")
-def fixture_meter(otel_mock: otel.OTelMocker):
-    return metrics.get_meter("tests")
-
-
-@pytest.fixture
-def instrumented(otel_mock):
-    telemetry.instrument()
-    try:
-        yield
-    finally:
-        telemetry.uninstrument()
 
 
 class ResponseTuple(NamedTuple):

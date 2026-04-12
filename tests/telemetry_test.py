@@ -14,7 +14,7 @@ from oauthclientbridge import db, telemetry
 from oauthclientbridge.settings import TelemetrySettings, current_settings
 from oauthclientbridge.utils import APIResult
 
-from . import otel
+from .plugins import otel
 from .conftest import GetClient, PostClient, TokenTuple
 
 logger: structlog.BoundLogger = structlog.get_logger()
