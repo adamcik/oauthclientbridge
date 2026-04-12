@@ -9,7 +9,7 @@ from pydantic import SecretStr
 
 from oauthclientbridge import logs, sentry
 from oauthclientbridge.settings import LogLevel, LogSettings, SentrySettings
-from tests.plugins.sentry import FakeTransport, SentryCapture
+from . import FakeTransport, SentryCapture
 
 
 @pytest.fixture(autouse=True)

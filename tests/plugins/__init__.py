@@ -1,1 +1,1 @@
-__all__ = ["otel"]
+__all__ = ["otel", "sentry"]
