@@ -1,4 +1,3 @@
-import os
 import re
 import time
 from http import HTTPStatus
@@ -7,11 +6,9 @@ import flask
 import prometheus_client
 import prometheus_client.multiprocess
 
+from oauthclientbridge.settings import current_settings
+
 registry = prometheus_client.CollectorRegistry()
-
-if "prometheus_multiproc_dir" in os.environ:
-    prometheus_client.multiprocess.MultiProcessCollector(registry)
-
 
 TIME_BUCKETS = (
     0.0001,
@@ -175,5 +172,14 @@ def finalize_metrics(response: flask.Response) -> flask.Response:
 
 
 def export_metrics() -> flask.Response:
-    text = prometheus_client.generate_latest(registry)
+    metrics_registry = registry
+    multiproc_dir = current_settings.prometheus.multiproc_dir
+    if multiproc_dir:
+        metrics_registry = prometheus_client.CollectorRegistry()
+        prometheus_client.multiprocess.MultiProcessCollector(
+            metrics_registry,
+            path=str(multiproc_dir),
+        )
+
+    text = prometheus_client.generate_latest(metrics_registry)
     return flask.Response(text, mimetype=prometheus_client.CONTENT_TYPE_LATEST)

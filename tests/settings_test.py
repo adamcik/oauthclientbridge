@@ -1,7 +1,13 @@
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
-from oauthclientbridge.settings import TelemetryExporter, TelemetrySettings
+from oauthclientbridge.settings import (
+    PrometheusSettings,
+    TelemetryExporter,
+    TelemetrySettings,
+)
 
 
 def test_telemetry_settings_defaults() -> None:
@@ -34,3 +40,13 @@ def test_telemetry_settings_valid_if_exporter_and_endpoint() -> None:
 def test_telemetry_settings_valid_if_no_exporter_and_no_endpoint() -> None:
     settings = TelemetrySettings(service_name="my-custom-service")
     assert settings.service_name == "my-custom-service"
+
+
+def test_prometheus_settings_defaults() -> None:
+    settings = PrometheusSettings()
+    assert settings.multiproc_dir is None
+
+
+def test_prometheus_settings_multiproc_dir() -> None:
+    settings = PrometheusSettings(multiproc_dir=Path("/prom"))
+    assert settings.multiproc_dir == Path("/prom")

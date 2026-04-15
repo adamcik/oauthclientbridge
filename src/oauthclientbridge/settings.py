@@ -173,6 +173,13 @@ class TelemetrySettings(BaseSettings):
         return self
 
 
+class PrometheusSettings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="PROMETHEUS_")
+
+    multiproc_dir: Path | None = None
+    """Directory for prometheus-client multiprocess mode files."""
+
+
 class LogLevel(IntEnum):
     CRITICAL = logging.CRITICAL
     ERROR = logging.ERROR
@@ -251,6 +258,7 @@ class Settings(BaseSettings):
     sentry: SentrySettings = Field(default_factory=lambda: SentrySettings())  # pyright: ignore[reportCallIssue]
     log: LogSettings = Field(default_factory=lambda: LogSettings())  # pyright: ignore[reportCallIssue]
     otel: TelemetrySettings = Field(default_factory=lambda: TelemetrySettings())  # pyright: ignore[reportCallIssue]
+    prometheus: PrometheusSettings = Field(default_factory=lambda: PrometheusSettings())  # pyright: ignore[reportCallIssue]
 
     @model_validator(mode="after")
     def load_callback_template_file(self) -> "Settings":
