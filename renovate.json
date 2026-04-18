@@ -1,0 +1,35 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:best-practices"],
+  "nix": {
+    "enabled": true
+  },
+  "labels": ["dependencies"],
+  "platformAutomerge": false,
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 06:00 on Saturday"]
+  },
+  "packageRules": [
+    {
+      "matchManagers": ["github-actions", "nix"],
+      "matchUpdateTypes": ["digest", "pin", "patch", "minor"],
+      "automerge": true,
+      "automergeType": "pr",
+      "minimumReleaseAge": "3 days"
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "groupName": "github actions"
+    },
+    {
+      "matchManagers": ["nix"],
+      "groupName": "nix flake inputs"
+    },
+    {
+      "matchManagers": ["uv", "pep621"],
+      "groupName": "python dependencies",
+      "minimumReleaseAge": "3 days"
+    }
+  ]
+}
