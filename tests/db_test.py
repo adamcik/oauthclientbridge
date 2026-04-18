@@ -29,7 +29,8 @@ TOKEN_TYPE_QUERY = "SELECT token, typeof(token) FROM tokens WHERE client_id = ?"
 
 
 def test_insert(cursor):
-    client_id = db.insert(b"token")
+    client_id = "test_client_id"
+    db.insert(client_id, b"token")
 
     cursor.execute(TOKEN_TYPE_QUERY, (client_id,))
     result, dbtype = cursor.fetchone()
