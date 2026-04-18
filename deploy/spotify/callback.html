@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Connect with Spotify</title>
+    <script>
+      const stateError = {
+        error: "INVALID_STATE",
+        error_description: "Authentication page send wrong state to pop-up.",
+      };
+
+      const state = {{ state|tojson|safe }};
+      const data = {
+        client_id: {{ client_id|tojson|safe }},
+        client_secret: {{ client_secret|tojson|safe }},
+        error: {{ error|tojson|safe }},
+        error_description: {{ description|tojson|safe }},
+      };
+
+      window.addEventListener("message", (event) => {
+        if (event.origin === "https://mopidy.com") {
+          if (!state || state === event.data) {
+            event.source.postMessage(data, event.origin);
+          } else {
+            event.source.postMessage(stateError, event.origin);
+          }
+        }
+      });
+    </script>
+  </head>
+  <body>
+    <p>This popup should automatically close in a few seconds.</p>
+  </body>
+</html>
