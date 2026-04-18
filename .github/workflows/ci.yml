@@ -5,6 +5,9 @@ on:
   push:
     branches:
       - main
+  release:
+    types:
+      - published
 
 jobs:
   ci:
@@ -33,9 +36,17 @@ jobs:
         run: nix build .#image
 
       - name: Login to GHCR
-        if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch
+        if: |
+          (github.event_name == 'push' && github.ref_name == github.event.repository.default_branch) ||
+          github.event_name == 'release'
         run: echo "${{ github.token }}" | skopeo login ghcr.io -u "${{ github.actor }}" --password-stdin
 
       - name: Push image to GHCR
         if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch
         run: nix run .#image.copyToRegistry
+
+      - name: Push release-tagged image to GHCR
+        if: github.event_name == 'release'
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: nix run .#image.copyTo -- "docker://ghcr.io/adamcik/oauthclientbridge:${RELEASE_TAG}"
