@@ -1,0 +1,30 @@
+[Unit]
+Description=OAuth Client Bridge (Spotify)
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image=ghcr.io/adamcik/oauthclientbridge:latest
+ContainerName=oauthclientbridge-spotify
+Pull=always
+User=33:33
+
+EnvironmentFile=/etc/oauthclientbridge/spotify.env
+
+Volume=/srv/virtualenvs/oauthclientbridge/run:/data:Z
+Volume=/run/oauthclientbridge/spotify:/run/uwsgi:Z
+Volume=oauthclientbridge-spotify-prom:/prom:Z
+Volume=/etc/oauthclientbridge/templates:/config:ro,Z
+
+Exec=--socket /run/uwsgi/uwsgi.sock --chmod-socket=660 --vacuum
+
+[Service]
+# We intentionally use ExecStartPre instead of RuntimeDirectory/StateDirectory:
+# exact bind-mount paths + ownership/mode control for caddy socket sharing.
+ExecStartPre=/usr/bin/install -d -o www-data -g www-data -m 0750 /srv/virtualenvs/oauthclientbridge/run
+ExecStartPre=/usr/bin/install -d -o root -g www-data -m 2775 /run/oauthclientbridge/spotify
+Restart=always
+RestartSec=2s
+
+[Install]
+WantedBy=multi-user.target

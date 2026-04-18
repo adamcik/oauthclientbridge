@@ -21,32 +21,44 @@ Install by running:
 
     pip install OAuth-Client-Bridge
 
-See `oauthclientbridge/default_settings.py` for details about the
-configuration options. A minimal setup should set `SECRET_KEY`,
-`OAUTH_DATABASE`, `OAUTH_CLIENT_ID`, `OAUTH_CLIENT_SECRET`,
-`OAUTH_AUTHORIZATION_URI` and `OAUTH_TOKEN_URI`.
+## Settings
 
-Once this is done you can point `OAUTH_SETTINGS` at your new
-configuration file and initialize the database:
+Settings are managed by Pydantic and loaded from environment variables. Each
+setting is prefixed based on its category (e.g., `OAUTH_`, `DB_`, `BRIDGE_`,
+`FETCH_`). Refer to the `Settings` class in `src/oauthclientbridge/settings.py`
+for all available options and their prefixes. Flask-specific settings (e.g.,
+`SECRET_KEY`, `SESSION_COOKIE_SECURE`) are loaded directly by Flask from
+environment variables prefixed with `FLASK_`. A minimal setup should define the
+following environment variables (see `.env.example`):
 
-    FLASK_APP=oauthclientbridge OAUTH_SETTINGS=oauth.cfg flask initdb
+-   `FLASK_SECRET_KEY`: Secret key used for encrypting session cookies.
+-   `DB_DATABASE`: SQLite3 database path.
+-   `OAUTH_CLIENT_ID`: Client ID from your OAuth provider.
+-   `OAUTH_CLIENT_SECRET`: Client secret from your OAuth provider.
+-   `OAUTH_AUTHORIZATION_URI`: Upstream authorization URI.
+-   `OAUTH_TOKEN_URI`: Upstream token URI.
+
+Once these are set (e.g., by sourcing a `.env` file), you can initialize the
+database:
+
+    FLASK_APP=oauthclientbridge flask initdb
 
 Run the development server:
 
-    FLASK_APP=oauthclientbridge OAUTH_SETTINGS=oauth.cfg flask run
+    FLASK_APP=oauthclientbridge flask run
 
 Additionally you might want to run `cleandb` as a cron job to clear out
 stale data every now and then.:
 
-    FLASK_APP=oauthclientbridge OAUTH_SETTINGS=oauth.cfg flask cleandb
+    FLASK_APP=oauthclientbridge flask cleandb
 
 ## Setting up a production instance
 
 -   Always use HTTPS since we are passing access tokens around.
--   Set `SESSION_COOKIE_SECURE` to keep the state used in the redirect
-    safe.
--   Ideally also set `SESSION_COOKIE_DOMAIN` and `SESSION_COOKIE_PATH`.
--   If you are behind a proxy set `OAUTH_NUM_PROXIES` to the number of
+-   Set `FLASK_SESSION_COOKIE_SECURE` to `True` to ensure cookies are only sent
+    over HTTPS.
+-   Ideally also set `FLASK_SESSION_COOKIE_DOMAIN` and `FLASK_SESSION_COOKIE_PATH`.
+-   If you are behind a proxy set `BRIDGE_NUM_PROXIES` to the number of
     proxies. This ensures `X-Forwarded-For` gets respected with the
     value from the proxy.
 
@@ -84,6 +96,32 @@ To get the snippet above to work setup the bridge with the following
 template which will listen for the `postMessage` and then respond with
 the results.:
 
-    OAUTH_CALLBACK_TEMPLATE
+        BRIDGE_CALLBACK_TEMPLATE
 
-  [upstream documentation]: http://flask.pocoo.org/docs/latest/deploying/
+[upstream documentation]: http://flask.pocoo.org/docs/latest/deploying/
+
+## OpenTelemetry Integration
+
+This project integrates with OpenTelemetry for distributed tracing and metrics
+collection. To enable OpenTelemetry, you need to configure the following
+environment variables:
+
+-   `TELEMETRY_COMPONENTS`: A comma-separated list of OpenTelemetry components
+    to enable. Valid values are `tracing` and `metrics`. For example:
+    `TELEMETRY_COMPONENTS=tracing,metrics`.
+
+-   `TELEMETRY_EXPORTERS`: A comma-separated list of exporters to use for traces
+    and metrics. Valid values are `otlp_grpc` and `console`. For example:
+    `TELEMETRY_EXPORTERS=otlp_grpc`.
+
+-   `TELEMETRY_ENDPOINT`: The OTLP collector endpoint (e.g.,
+    `http://localhost:4317`). Required if `otlp_grpc` exporter is used.
+
+-   `TELEMETRY_SERVICE_NAME`: The name of the service to be reported to
+    OpenTelemetry (defaults to `oauthclientbridge`).
+
+-   `TELEMETRY_METRIC_EXPORT_INTERVAL_SECONDS`: The interval in seconds at which
+    metrics are exported (defaults to `5`).
+
+Metrics are pushed over OTLP gRPC as this is the only exporter we support.
+

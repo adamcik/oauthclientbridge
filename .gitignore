@@ -4,7 +4,10 @@
 *.db
 *-journal
 .coverage
+.env
 .tox/
+.direnv/
+result
 MANIFEST
 build/
 dist/

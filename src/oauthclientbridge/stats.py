@@ -1,17 +1,14 @@
-import http.client
-import os
 import re
 import time
+from http import HTTPStatus
 
 import flask
 import prometheus_client
 import prometheus_client.multiprocess
 
+from oauthclientbridge.settings import current_settings
+
 registry = prometheus_client.CollectorRegistry()
-
-if "prometheus_multiproc_dir" in os.environ:
-    prometheus_client.multiprocess.MultiProcessCollector(registry)
-
 
 TIME_BUCKETS = (
     0.0001,
@@ -62,8 +59,7 @@ BYTE_BUCKETS = (
 
 RETRY_BUCKETS = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, float("inf"))
 
-# Rest of these get populated lazily with http_%d as fallback.
-HTTP_STATUS = {429: "http_too_many_requests"}
+HTTP_STATUS_LABELS: dict[HTTPStatus, str] = {}
 
 DBErrorCounter = prometheus_client.Counter(
     "oauth_database_error_total",
@@ -143,25 +139,27 @@ ClientResponseSizeHistogram = prometheus_client.Histogram(
 )
 
 
-def status(code: int) -> str:
-    if code not in HTTP_STATUS:
-        text = http.client.responses.get(code, str(code)).lower()
-        HTTP_STATUS[code] = "http_%s" % re.sub(r"[ -]", "_", text)
-    return HTTP_STATUS[code]
+def status(code: HTTPStatus) -> str:
+    if code not in HTTP_STATUS_LABELS:
+        phrase = re.sub(r"[ -]", "_", code.name.lower())
+        HTTP_STATUS_LABELS[code] = f"http_{phrase}"
+    return HTTP_STATUS_LABELS[code]
 
 
 def endpoint() -> str:
     return getattr(flask.request.url_rule, "endpoint", "notfound")
 
 
-def before_request() -> None:
+def record_metrics() -> None:
     flask.g.stats_latency_start_time = time.time()
 
 
-# TODO: Figure our why I can't type annotate response
-def after_request(response) -> flask.Response:
+def finalize_metrics(response: flask.Response) -> flask.Response:
     request_latency = time.time() - flask.g.stats_latency_start_time
-    labels = {"endpoint": endpoint(), "status": status(response.status_code)}
+    labels = {
+        "endpoint": endpoint(),
+        "status": status(HTTPStatus(response.status_code)),
+    }
 
     ServerLatencyHistogram.labels(**labels).observe(request_latency)
     if response.content_length is not None:
@@ -174,5 +172,14 @@ def after_request(response) -> flask.Response:
 
 
 def export_metrics() -> flask.Response:
-    text = prometheus_client.generate_latest(registry)
+    metrics_registry = registry
+    multiproc_dir = current_settings.prometheus.multiproc_dir
+    if multiproc_dir:
+        metrics_registry = prometheus_client.CollectorRegistry()
+        prometheus_client.multiprocess.MultiProcessCollector(
+            metrics_registry,
+            path=str(multiproc_dir),
+        )
+
+    text = prometheus_client.generate_latest(metrics_registry)
     return flask.Response(text, mimetype=prometheus_client.CONTENT_TYPE_LATEST)

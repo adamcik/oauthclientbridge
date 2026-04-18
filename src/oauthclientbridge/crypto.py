@@ -1,3 +1,4 @@
+import binascii
 import json
 from typing import Any
 
@@ -19,5 +20,8 @@ def dumps(key: str, data: dict[str, Any]) -> bytes:
 
 def loads(key: str, token: bytes) -> dict[str, Any]:
     """Decrypts and verifies token with given key and calls json.loads."""
-    f = fernet.Fernet(key.encode("ascii"))
+    try:
+        f = fernet.Fernet(key.encode("ascii"))
+    except (ValueError, binascii.Error) as e:
+        raise InvalidToken from e
     return json.loads(f.decrypt(token).decode("utf-8"))

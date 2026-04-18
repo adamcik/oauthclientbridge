@@ -1,32 +1,43 @@
 import urllib.parse
 
 import pytest
+from flask.testing import FlaskClient
+from requests_mock import Mocker
 
-from oauthclientbridge import app, crypto, db, errors
+from oauthclientbridge import crypto, db
+from oauthclientbridge.errors import OAuthError
+from oauthclientbridge.settings import Settings
+
+from .conftest import PostClient, ResponseTuple, TokenTuple
 
 
 @pytest.mark.parametrize(
     "data,expected_error,expected_status",
     [
-        ({}, errors.INVALID_CLIENT, 401),
-        ({"grant_type": None}, errors.UNSUPPORTED_GRANT_TYPE, 400),
-        ({"grant_type": ""}, errors.UNSUPPORTED_GRANT_TYPE, 400),
+        ({}, OAuthError.INVALID_CLIENT, 401),
+        ({"grant_type": None}, OAuthError.UNSUPPORTED_GRANT_TYPE, 400),
+        ({"grant_type": ""}, OAuthError.UNSUPPORTED_GRANT_TYPE, 400),
         (
             {"grant_type": "authorization_code"},
-            errors.UNSUPPORTED_GRANT_TYPE,
+            OAuthError.UNSUPPORTED_GRANT_TYPE,
             400,
         ),
-        ({"client_id": None}, errors.INVALID_CLIENT, 401),
-        ({"client_id": ""}, errors.INVALID_CLIENT, 401),
-        ({"client_id": ""}, errors.INVALID_CLIENT, 401),
-        ({"client_secret": None}, errors.INVALID_CLIENT, 401),
-        ({"client_secret": ""}, errors.INVALID_CLIENT, 401),
-        ({"client_secret": "does-not-exist"}, errors.INVALID_CLIENT, 401),
-        ({"scope": "foo"}, errors.INVALID_SCOPE, 400),
-        ({"scope": ""}, errors.INVALID_SCOPE, 400),
+        ({"client_id": None}, OAuthError.INVALID_CLIENT, 401),
+        ({"client_id": ""}, OAuthError.INVALID_CLIENT, 401),
+        ({"client_id": ""}, OAuthError.INVALID_CLIENT, 401),
+        ({"client_secret": None}, OAuthError.INVALID_CLIENT, 401),
+        ({"client_secret": ""}, OAuthError.INVALID_CLIENT, 401),
+        ({"client_secret": "does-not-exist"}, OAuthError.INVALID_CLIENT, 401),
+        ({"scope": "foo"}, OAuthError.INVALID_SCOPE, 400),
+        ({"scope": ""}, OAuthError.INVALID_SCOPE, 400),
     ],
 )
-def test_token_input_validation(post, data, expected_error, expected_status):
+def test_token_input_validation(
+    post: PostClient,
+    data: dict[str, str | None],
+    expected_error: str,
+    expected_status: int,
+):
     initial = {
         "client_id": "does-not-exist",
         "client_secret": "wrong-secret",
@@ -39,28 +50,35 @@ def test_token_input_validation(post, data, expected_error, expected_status):
         else:
             initial[key] = value
 
-    result, status = post("/token", initial)
+    resp: ResponseTuple = post("/token", initial)
 
-    assert status == expected_status
-    assert result["error"] == expected_error
-    assert result["error_description"]
+    assert resp.status == expected_status
+    assert resp.data["error"] == expected_error
+    assert resp.data["error_description"]
 
 
-def test_token_invalid_credentials(post, access_token):
+def test_token_invalid_credentials(
+    post: PostClient,
+    access_token: TokenTuple,
+    settings: Settings,
+):
     data = {
         "client_id": access_token.client_id,
         "client_secret": "invalid",
         "grant_type": "client_credentials",
     }
 
-    result, status = post("/token", data)
+    resp = post("/token", data)
 
-    assert status == 401
-    assert result["error"] == errors.INVALID_CLIENT
-    assert result["error_description"]
+    assert resp.status == 401
+    assert resp.data["error"] == OAuthError.INVALID_CLIENT
+    assert resp.data["error_description"]
+
+    assert "WWW-Authenticate" in resp.headers
+    assert resp.headers["WWW-Authenticate"] == 'Basic realm="oauthclientbridge"'
 
 
-def test_token_multiple_auth_fails(post, access_token):
+def test_token_multiple_auth_fails(post: PostClient, access_token: TokenTuple):
     auth = (access_token.client_id, access_token.client_secret)
 
     data = {
@@ -69,35 +87,34 @@ def test_token_multiple_auth_fails(post, access_token):
         "grant_type": "client_credentials",
     }
 
-    result, status = post("/token", data, auth=auth)
+    resp: ResponseTuple = post("/token", data, auth=auth)
 
-    assert status == 400
-    assert result["error"] == errors.INVALID_REQUEST
-    assert result["error_description"]
+    assert resp.status == 400
+    assert resp.data["error"] == OAuthError.INVALID_REQUEST
+    assert resp.data["error_description"]
 
 
-def test_token(post, access_token):
+def test_token(post: PostClient, access_token: TokenTuple):
     data = {
         "client_id": access_token.client_id,
         "client_secret": access_token.client_secret,
         "grant_type": "client_credentials",
     }
 
-    result, status = post("/token", data)
+    resp = post("/token", data)
 
-    assert status == 200
-    assert access_token.value == result
+    assert resp.status == 200
+    assert resp.data == access_token.value
 
 
-def test_token_basic_auth(post, access_token):
+def test_token_basic_auth(post: PostClient, access_token: TokenTuple):
     auth = (access_token.client_id, access_token.client_secret)
-
     data = {"grant_type": "client_credentials"}
 
-    result, status = post("/token", data, auth=auth)
+    resp = post("/token", data, auth=auth)
 
-    assert status == 200
-    assert access_token.value == result
+    assert resp.status == 200
+    assert resp.data == access_token.value
 
 
 @pytest.mark.parametrize(
@@ -114,39 +131,47 @@ def test_token_basic_auth(post, access_token):
         b"Basic xyz",  # invalid
     ],
 )
-def test_token_bad_basic_auth(post, base64_basic_auth):
+def test_token_bad_basic_auth(
+    post: PostClient,
+    base64_basic_auth: str,
+    settings: Settings,
+):
     headers = {"Authorization": base64_basic_auth}
-
     data = {"grant_type": "client_credentials"}
 
-    result, status = post("/token", data, headers=headers)
+    resp = post("/token", data, headers=headers)
 
-    assert status == 401
-    assert result["error"] == errors.INVALID_CLIENT
+    assert resp.status == 401
+    assert resp.data["error"] == OAuthError.INVALID_CLIENT
+
+    assert "WWW-Authenticate" in resp.headers
+    assert resp.headers["WWW-Authenticate"] == 'Basic realm="oauthclientbridge"'
 
 
-def test_token_wrong_method(client):
+def test_token_wrong_method(client: FlaskClient):
     resp = client.get("/token")
     assert resp.status_code == 405
 
 
-def test_token_revoked(post, access_token):
-    db.update(access_token.client_id, None)  # Revoke directly in the db.
-
+def test_token_revoked(post: PostClient, access_token: TokenTuple):
     data = {
         "client_id": access_token.client_id,
         "client_secret": access_token.client_secret,
         "grant_type": "client_credentials",
     }
 
-    result, status = post("/token", data)
+    _ = db.update(access_token.client_id, None)  # Revoke directly in the db.
 
-    assert status == 400
-    assert result["error"] == errors.INVALID_GRANT
-    assert result["error_description"]
+    resp = post("/token", data)
+
+    assert resp.status == 400
+    assert resp.data["error"] == OAuthError.INVALID_GRANT
+    assert resp.data["error_description"]
 
 
-def test_token_wrong_secret_and_not_found_identical(post, access_token):
+def test_token_wrong_secret_and_not_found_identical(
+    post: PostClient, access_token: TokenTuple
+):
     data1 = {
         "client_id": access_token.client_id,
         "client_secret": "bad-secret",
@@ -158,28 +183,33 @@ def test_token_wrong_secret_and_not_found_identical(post, access_token):
         "grant_type": "client_credentials",
     }
 
-    result1, status1 = post("/token", data1)
-    result2, status2 = post("/token", data2)
+    resp1 = post("/token", data1)
+    resp2 = post("/token", data2)
 
-    assert status1 == status2
-    assert result1 == result2
+    assert resp1.data == resp2.data
+    assert resp2.status == resp2.status
 
 
-def test_token_refresh_post_data(post, refresh_token, requests_mock):
+def test_token_refresh_post_data(
+    post: PostClient,
+    refresh_token: TokenTuple,
+    requests_mock: Mocker,
+    settings: Settings,
+):
     """Test that expected data gets POSTed to provider."""
 
     def match(request):
-        expected = {
-            "client_id": [app.config["OAUTH_CLIENT_ID"]],
-            "client_secret": [app.config["OAUTH_CLIENT_SECRET"]],
-            "grant_type": ["refresh_token"],
+        expected: dict[str, list[str]] = {
+            "client_id": [settings.oauth.client_id],
+            "client_secret": [settings.oauth.client_secret.get_secret_value()],
+            "grant_type": [settings.oauth.grant_type],
             "refresh_token": [refresh_token.value["refresh_token"]],
         }
         assert expected == urllib.parse.parse_qs(request.body)
         return True
 
-    requests_mock.post(
-        app.config["OAUTH_TOKEN_URI"],
+    _ = requests_mock.post(
+        settings.oauth.token_uri,
         json={"access_token": "abc", "grant_type": "test"},
         additional_matcher=match,
     )
@@ -190,7 +220,7 @@ def test_token_refresh_post_data(post, refresh_token, requests_mock):
         "grant_type": "client_credentials",
     }
 
-    post("/token", data)
+    _ = post("/token", data)
 
 
 @pytest.mark.parametrize(
@@ -202,11 +232,21 @@ def test_token_refresh_post_data(post, refresh_token, requests_mock):
         ({"private": "123"}, {}),
     ],
 )
-def test_token_with_extra_values(post, refresh_token, requests_mock, response, updated):
+def test_token_with_extra_values(
+    post: PostClient,
+    refresh_token: TokenTuple,
+    requests_mock: Mocker,
+    response: dict[str, str],
+    updated: dict[str, str],
+    settings: Settings,
+):
     token = {"access_token": "abc", "token_type": "test", "expires_in": 3600}
     token.update(response)
 
-    requests_mock.post(app.config["OAUTH_TOKEN_URI"], json=token)
+    _ = requests_mock.post(
+        settings.oauth.token_uri,
+        json=token,
+    )
 
     data = {
         "client_id": refresh_token.client_id,
@@ -214,23 +254,27 @@ def test_token_with_extra_values(post, refresh_token, requests_mock, response, u
         "grant_type": "client_credentials",
     }
 
-    post("/token", data)
+    _ = post("/token", data)
 
     expected = refresh_token.value.copy()
     expected.update(updated)
 
     # Check that the token we fetched got stored directly in db.
     encrypted = db.lookup(refresh_token.client_id)
-    actuall = crypto.loads(refresh_token.client_secret, encrypted)
+    assert encrypted is not None
 
-    assert expected == actuall
+    actual = crypto.loads(refresh_token.client_secret, encrypted)
+    assert expected == actual
 
 
 def test_token_refresh_token_is_not_returned_from_provider(
-    post, refresh_token, requests_mock
+    post: PostClient,
+    refresh_token: TokenTuple,
+    requests_mock: Mocker,
+    settings: Settings,
 ):
-    requests_mock.post(
-        app.config["OAUTH_TOKEN_URI"],
+    _ = requests_mock.post(
+        settings.oauth.token_uri,
         json={
             "access_token": "abc",
             "token_type": "test",
@@ -244,23 +288,28 @@ def test_token_refresh_token_is_not_returned_from_provider(
         "grant_type": "client_credentials",
     }
 
-    result, status = post("/token", data)
+    resp = post("/token", data)
 
     expected = {"access_token": "abc", "token_type": "test"}
 
-    assert status == 200
-    assert result == expected
+    assert resp.status == 200
+    assert resp.data == expected
 
 
-def test_token_only_returns_values_from_provider(post, refresh_token, requests_mock):
+def test_token_only_returns_values_from_provider(
+    post: PostClient,
+    refresh_token: TokenTuple,
+    requests_mock: Mocker,
+    settings: Settings,
+):
     token = crypto.dumps(
         refresh_token.client_secret,
         {"refresh_token": "abc", "token_type": "test", "private": "foobar"},
     )
-    db.update(refresh_token.client_id, token)
+    _ = db.update(refresh_token.client_id, token)
 
-    requests_mock.post(
-        app.config["OAUTH_TOKEN_URI"],
+    _ = requests_mock.post(
+        settings.oauth.token_uri,
         json={"access_token": "abc", "token_type": "test"},
     )
 
@@ -270,15 +319,20 @@ def test_token_only_returns_values_from_provider(post, refresh_token, requests_m
         "grant_type": "client_credentials",
     }
 
-    result, status = post("/token", data)
+    resp = post("/token", data)
 
     expected = {"access_token": "abc", "token_type": "test"}
 
-    assert status == 200
-    assert result == expected
+    assert resp.status == 200
+    assert resp.data == expected
 
 
-def test_token_cleans_uneeded_data_from_db(post, refresh_token, requests_mock):
+def test_token_cleans_unneeded_data_from_db(
+    post: PostClient,
+    refresh_token: TokenTuple,
+    requests_mock: Mocker,
+    settings: Settings,
+):
     token = crypto.dumps(
         refresh_token.client_secret,
         {
@@ -288,10 +342,10 @@ def test_token_cleans_uneeded_data_from_db(post, refresh_token, requests_mock):
             "expires_in": 3600,
         },
     )
-    db.update(refresh_token.client_id, token)
+    _ = db.update(refresh_token.client_id, token)
 
-    requests_mock.post(
-        app.config["OAUTH_TOKEN_URI"],
+    _ = requests_mock.post(
+        settings.oauth.token_uri,
         json={"access_token": "abc", "token_type": "test"},
     )
 
@@ -301,26 +355,32 @@ def test_token_cleans_uneeded_data_from_db(post, refresh_token, requests_mock):
         "grant_type": "client_credentials",
     }
 
-    post("/token", data)
+    _ = post("/token", data)
 
     expected = {"refresh_token": "abc"}
 
     # Check that the token we fetched got stored directly in db.
     encrypted = db.lookup(refresh_token.client_id)
-    actuall = crypto.loads(refresh_token.client_secret, encrypted)
+    assert encrypted is not None
 
-    assert expected == actuall
+    actual = crypto.loads(refresh_token.client_secret, encrypted)
+    assert expected == actual
 
 
-def test_token_only_returns_scope_from_db(post, refresh_token, requests_mock):
+def test_token_only_returns_scope_from_db(
+    post: PostClient,
+    refresh_token: TokenTuple,
+    requests_mock: Mocker,
+    settings: Settings,
+):
     token = crypto.dumps(
         refresh_token.client_secret,
         {"refresh_token": "abc", "token_type": "test", "scope": "foobar"},
     )
-    db.update(refresh_token.client_id, token)
+    _ = db.update(refresh_token.client_id, token)
 
-    requests_mock.post(
-        app.config["OAUTH_TOKEN_URI"],
+    _ = requests_mock.post(
+        settings.oauth.token_uri,
         json={"access_token": "abc", "token_type": "test"},
     )
 
@@ -330,33 +390,41 @@ def test_token_only_returns_scope_from_db(post, refresh_token, requests_mock):
         "grant_type": "client_credentials",
     }
 
-    result, status = post("/token", data)
+    resp = post("/token", data)
 
     expected = {"access_token": "abc", "token_type": "test", "scope": "foobar"}
 
-    assert status == 200
-    assert result == expected
+    assert resp.status == 200
+    assert resp.data == expected
 
 
 # TODO: fix expected_error and expected_status
 @pytest.mark.parametrize(
     "error,expected_error,expected_status",
     [
-        (errors.INVALID_REQUEST, errors.INVALID_REQUEST, 400),
-        (errors.INVALID_CLIENT, errors.INVALID_CLIENT, 401),
-        (errors.INVALID_GRANT, errors.INVALID_GRANT, 400),
-        (errors.UNAUTHORIZED_CLIENT, errors.UNAUTHORIZED_CLIENT, 400),
-        (errors.UNSUPPORTED_GRANT_TYPE, errors.UNSUPPORTED_GRANT_TYPE, 400),
-        (errors.INVALID_SCOPE, errors.INVALID_SCOPE, 400),
-        ("errorTransient", errors.TEMPORARILY_UNAVAILABLE, 400),
-        ("badError", errors.SERVER_ERROR, 400),
+        (OAuthError.INVALID_REQUEST, OAuthError.INVALID_REQUEST, 400),
+        (OAuthError.INVALID_CLIENT, OAuthError.INVALID_CLIENT, 401),
+        (OAuthError.INVALID_GRANT, OAuthError.INVALID_GRANT, 400),
+        (OAuthError.UNAUTHORIZED_CLIENT, OAuthError.UNAUTHORIZED_CLIENT, 400),
+        (OAuthError.UNSUPPORTED_GRANT_TYPE, OAuthError.UNSUPPORTED_GRANT_TYPE, 400),
+        (OAuthError.INVALID_SCOPE, OAuthError.INVALID_SCOPE, 400),
+        ("errorTransient", OAuthError.TEMPORARILY_UNAVAILABLE, 400),
+        ("badError", OAuthError.SERVER_ERROR, 400),
     ],
 )
 def test_token_provider_errors(
-    post, refresh_token, requests_mock, error, expected_error, expected_status
+    post: PostClient,
+    refresh_token: TokenTuple,
+    requests_mock: Mocker,
+    settings: Settings,
+    error: str,
+    expected_error: str,
+    expected_status: int,
 ):
-    requests_mock.post(
-        app.config["OAUTH_TOKEN_URI"], status_code=400, json={"error": error}
+    _ = requests_mock.post(
+        settings.oauth.token_uri,
+        status_code=400,
+        json={"error": error},
     )
 
     data = {
@@ -365,33 +433,31 @@ def test_token_provider_errors(
         "grant_type": "client_credentials",
     }
 
-    result, status = post("/token", data)
+    resp = post("/token", data)
 
-    assert status == expected_status
-    assert result["error"] == expected_error
-    assert result["error_description"]
-
-
-@pytest.mark.parametrize("token", [{}, {"access_token": "abc"}, {"token_type": "test"}])
-def test_token_provider_invalid_response(post, refresh_token, requests_mock, token):
-    requests_mock.post(app.config["OAUTH_TOKEN_URI"], json=token)
-
-    data = {
-        "client_id": refresh_token.client_id,
-        "client_secret": refresh_token.client_secret,
-        "grant_type": "client_credentials",
-    }
-
-    result, status = post("/token", data)
-
-    assert status == 400
-    assert result["error"] == errors.INVALID_REQUEST
-    assert result["error_description"]
+    assert resp.status == expected_status
+    assert resp.data["error"] == expected_error
+    assert resp.data["error_description"]
 
 
-def test_token_provider_unavailable(post, refresh_token, requests_mock):
-    requests_mock.post(
-        app.config["OAUTH_TOKEN_URI"], status_code=503, text="Unavailable."
+@pytest.mark.parametrize(
+    "token",
+    [
+        {},
+        {"access_token": "abc"},
+        {"token_type": "test"},
+    ],
+)
+def test_token_provider_invalid_response(
+    post: PostClient,
+    refresh_token: TokenTuple,
+    requests_mock: Mocker,
+    settings: Settings,
+    token: dict[str, str],
+):
+    _ = requests_mock.post(
+        settings.oauth.token_uri,
+        json=token,
     )
 
     data = {
@@ -400,11 +466,36 @@ def test_token_provider_unavailable(post, refresh_token, requests_mock):
         "grant_type": "client_credentials",
     }
 
-    result, status = post("/token", data)
+    resp = post("/token", data)
 
-    assert status == 400  # TODO: Make this a 503?
-    assert result["error"] == errors.TEMPORARILY_UNAVAILABLE
-    assert result["error_description"]
+    assert resp.status == 400
+    assert resp.data["error"] == OAuthError.INVALID_REQUEST
+    assert resp.data["error_description"]
+
+
+def test_token_provider_unavailable(
+    post: PostClient,
+    refresh_token: TokenTuple,
+    requests_mock: Mocker,
+    settings: Settings,
+):
+    _ = requests_mock.post(
+        settings.oauth.token_uri,
+        status_code=503,
+        text="Unavailable.",
+    )
+
+    data = {
+        "client_id": refresh_token.client_id,
+        "client_secret": refresh_token.client_secret,
+        "grant_type": "client_credentials",
+    }
+
+    resp = post("/token", data)
+
+    assert resp.status == 400  # TODO: Make this a 503?
+    assert resp.data["error"] == OAuthError.TEMPORARILY_UNAVAILABLE
+    assert resp.data["error_description"]
 
 
 # TODO: Test other than basic auth...

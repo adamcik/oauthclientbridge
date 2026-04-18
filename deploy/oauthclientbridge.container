@@ -1,0 +1,43 @@
+[Unit]
+Description=OAuth Client Bridge (Podman Quadlet)
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image=ghcr.io/adamcik/oauthclientbridge:latest
+ContainerName=oauthclientbridge
+Pull=always
+
+# Initial/simple mode: run app as www-data.
+# Later (recommended): switch to dedicated service uid/gid and add GroupAdd=33
+# so only socket sharing with caddy/www-data is granted.
+User=33:33
+
+# Keep secrets/config outside the unit file.
+EnvironmentFile=/etc/oauthclientbridge/oauthclientbridge.env
+
+# Existing SQLite data directory on host.
+Volume=/var/lib/oauthclientbridge/data:/data:Z
+
+# UWSGI runtime socket directory for reverse proxy integration.
+Volume=/run/oauthclientbridge:/run/uwsgi:Z
+
+# Podman-managed persistent volume for Prometheus multiprocess files.
+Volume=oauthclientbridge-prom-multiproc:/var/lib/oauthclientbridge/prom-multiproc:Z
+
+# Append extra uWSGI args to image entrypoint.
+Exec=--socket /run/uwsgi/oauthclientbridge.sock --chmod-socket=660 --vacuum
+
+[Service]
+# We intentionally use ExecStartPre directory creation instead of
+# RuntimeDirectory=/StateDirectory=.
+# Reason: we need exact host paths and ownership for bind mounts
+# (/run/oauthclientbridge and /var/lib/oauthclientbridge/data), including
+# root:www-data + setgid semantics for socket sharing with caddy.
+ExecStartPre=/usr/bin/install -d -o www-data -g www-data -m 0750 /var/lib/oauthclientbridge/data
+ExecStartPre=/usr/bin/install -d -o root -g www-data -m 2775 /run/oauthclientbridge
+Restart=always
+RestartSec=2s
+
+[Install]
+WantedBy=default.target
