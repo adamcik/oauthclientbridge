@@ -1,6 +1,7 @@
 import pytest
 
 from oauthclientbridge import telemetry
+from tests.plugins.otel.helpers import CollectedLog
 
 from . import OTelMocker
 
@@ -55,3 +56,23 @@ def test_instrumented_fixture_wraps_test(
 ) -> None:
     _ = instrumented
     assert telemetry_instrument_calls == ["instrument"]
+
+
+def test_collected_log_uses_structural_typing_for_new_otel_versions() -> None:
+    class FakeRecord:
+        resource = object()
+        attributes = {"k": "v"}
+        body = "hello"
+
+        def to_json(self) -> str:
+            return "{}"
+
+    class FakeLogData:
+        instrumentation_scope = object()
+        log_record = FakeRecord()
+
+    collected = CollectedLog(FakeLogData())
+
+    assert collected.attributes == {"k": "v"}
+    assert collected.body == "hello"
+    assert str(collected) == "{}"

@@ -154,9 +154,28 @@ def _flask_response_hook(span: trace.Span, status: str, headers):
         )
 
 
+def _logging_log_hook(span: trace.Span, record: object):
+    if not span or not span.is_recording():
+        return
+
+    context = span.get_span_context()
+    if not context.is_valid:
+        return
+
+    setattr(record, "otelTraceID", format(context.trace_id, "032x"))
+    setattr(record, "otelSpanID", format(context.span_id, "016x"))
+    setattr(record, "otelTraceSampled", context.trace_flags.sampled)
+
+    service_name = ""
+    resource = getattr(trace.get_tracer_provider(), "resource", None)
+    if resource is not None:
+        service_name = resource.attributes.get(SERVICE_NAME, "")
+    setattr(record, "otelServiceName", service_name)
+
+
 instrumentors = [
     (SystemMetricsInstrumentor(), {}),
-    (LoggingInstrumentor(), {}),
+    (LoggingInstrumentor(), {"log_hook": _logging_log_hook}),
     (SQLite3Instrumentor(), {}),
     (RequestsInstrumentor(), {"response_hook": _requests_response_hook}),
 ]

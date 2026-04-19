@@ -2,7 +2,6 @@ import typing
 from typing import TypeVar, assert_never
 
 from opentelemetry import trace
-from opentelemetry.sdk._logs import LogData
 from opentelemetry.sdk.metrics.export import (
     ExponentialHistogramDataPoint,
     HistogramDataPoint,
@@ -19,6 +18,19 @@ DataPointType = TypeVar(
         NumberDataPoint, HistogramDataPoint, ExponentialHistogramDataPoint
     ],
 )
+
+
+class _LogRecordLike(typing.Protocol):
+    resource: Resource
+    attributes: typing.Mapping[str, typing.Any] | None
+    body: typing.Any
+
+    def to_json(self) -> str: ...
+
+
+class _LogDataLike(typing.Protocol):
+    instrumentation_scope: InstrumentationScope | None
+    log_record: _LogRecordLike
 
 
 class CollectedSpan:
@@ -59,8 +71,8 @@ class CollectedSpan:
 
 
 class CollectedLog:
-    def __init__(self, log_data: LogData):
-        self._log_data: LogData = log_data
+    def __init__(self, log_data: _LogDataLike):
+        self._log_data: _LogDataLike = log_data
 
     @property
     def scope(self):
