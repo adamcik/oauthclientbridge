@@ -13,6 +13,20 @@
   },
   "packageRules": [
     {
+      "matchManagers": ["uv"],
+      "matchUpdateTypes": ["lockFileMaintenance"],
+      "overrideDepName": "uv lock file maintenance",
+      "groupName": "uv lock file maintenance",
+      "commitMessageTopic": "uv lock file"
+    },
+    {
+      "matchManagers": ["nix"],
+      "matchUpdateTypes": ["lockFileMaintenance"],
+      "overrideDepName": "nix lock file maintenance",
+      "groupName": "nix lock file maintenance",
+      "commitMessageTopic": "nix flake lock file"
+    },
+    {
       "matchManagers": ["github-actions", "nix"],
       "matchUpdateTypes": ["digest", "pin", "patch", "minor"],
       "automerge": true,
