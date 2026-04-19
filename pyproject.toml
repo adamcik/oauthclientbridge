@@ -72,8 +72,3 @@ known-local-folder = ["src"]
 
 [tool.uv]
 required-version = ">=0.7.20"
-
-[tool.pytest.ini_options]
-filterwarnings = [
-  "ignore:The '__version__' attribute is deprecated and will be removed in Flask 3\\.2.*:DeprecationWarning:opentelemetry\\.instrumentation\\.flask",
-]
