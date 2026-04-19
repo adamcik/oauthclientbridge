@@ -5,10 +5,6 @@ from typing import Any, cast
 
 import structlog
 from flask import Flask, Request, Response, g, request
-from opentelemetry.semconv._incubating.attributes.http_attributes import (
-    HTTP_REQUEST_BODY_SIZE,
-    HTTP_RESPONSE_BODY_SIZE,
-)
 from opentelemetry.semconv.attributes.client_attributes import (
     CLIENT_ADDRESS,
     CLIENT_PORT,
@@ -34,6 +30,7 @@ from opentelemetry.semconv.attributes.user_agent_attributes import USER_AGENT_OR
 from structlog.types import EventDict
 from werkzeug.datastructures import Headers
 
+from oauthclientbridge.compat import HTTP_REQUEST_BODY_SIZE, HTTP_RESPONSE_BODY_SIZE
 from oauthclientbridge.settings import LogSettings
 
 access_logger: structlog.BoundLogger = structlog.get_logger("oauthclientbridge.http")
