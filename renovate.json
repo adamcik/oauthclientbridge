@@ -17,14 +17,14 @@
       "matchUpdateTypes": ["lockFileMaintenance"],
       "overrideDepName": "uv lock file maintenance",
       "groupName": "uv lock file maintenance",
-      "commitMessageTopic": "uv lock file"
+      "commitMessageTopic": "uv"
     },
     {
       "matchManagers": ["nix"],
       "matchUpdateTypes": ["lockFileMaintenance"],
       "overrideDepName": "flake lock file maintenance",
       "groupName": "flake lock file maintenance",
-      "commitMessageTopic": "flake lock file"
+      "commitMessageTopic": "flake"
     },
     {
       "matchManagers": ["github-actions", "nix"],
