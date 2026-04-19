@@ -123,9 +123,8 @@
         devVenv = pythonSet.mkVirtualEnv "oauthclientbridge-checks-env" {
           oauthclientbridge = ["dev"];
         };
-      in {
-        lock =
-          pkgs.runCommand "uv-lock-check" {
+        mkCheck = name: script:
+          pkgs.runCommand name {
             src = ./.;
             nativeBuildInputs = [
               devVenv
@@ -134,37 +133,36 @@
           } ''
             cd "$src"
             export HOME="$TMPDIR"
+            export UV_NO_SYNC="1"
             export UV_PYTHON="${devVenv}/bin/python"
-            uv lock --check
-            touch "$out"
+            export UV_PYTHON_DOWNLOADS="never"
+            ${script}
           '';
+      in {
+        lock = mkCheck "uv-lock-check" ''
+          uv lock --check
+          touch "$out"
+        '';
 
-        pyright =
-          pkgs.runCommand "pyright-check" {
-            src = ./.;
-            nativeBuildInputs = [devVenv];
-          } ''
-            cd "$src"
-            export HOME="$TMPDIR"
-            basedpyright src/oauthclientbridge --level error
-            touch "$out"
-          '';
+        pyright = mkCheck "pyright-check" ''
+          basedpyright src/oauthclientbridge --level error
+          touch "$out"
+        '';
 
-        pytest =
-          pkgs.runCommand "pytest-check" {
-            src = ./.;
-            nativeBuildInputs = [devVenv];
-          } ''
-            cd "$src"
-            export HOME="$TMPDIR"
-            export COVERAGE_FILE="$TMPDIR/.coverage"
-            pytest \
-              -o cache_dir="$TMPDIR/.pytest_cache" \
-              --cov tests \
-              --cov-report html:"$TMPDIR/htmlcov" \
-              tests
-            mv "$TMPDIR/htmlcov" "$out"
-          '';
+        pytest = mkCheck "pytest-check" ''
+          export COVERAGE_FILE="$TMPDIR/.coverage"
+          mkdir -p "$out"
+          pytest \
+            --basetemp="$TMPDIR/.pytest_basetemp" \
+            -o cache_dir="$TMPDIR/.pytest_cache" \
+            --cov src/oauthclientbridge \
+            --cov-report term-missing:skip-covered \
+            --cov-report html:"$TMPDIR/htmlcov" \
+            --cov-report xml:"$TMPDIR/coverage.xml" \
+            tests
+          mv "$TMPDIR/htmlcov" "$out/htmlcov"
+          mv "$TMPDIR/coverage.xml" "$out/coverage.xml"
+        '';
 
         treefmt = treefmtEval.${system}.config.build.check ./.;
       }
