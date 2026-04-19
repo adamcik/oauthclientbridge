@@ -2,7 +2,7 @@ from typing import Generator
 
 import pytest
 from opentelemetry import metrics, trace
-from opentelemetry.sdk._logs.export import InMemoryLogExporter
+from opentelemetry.sdk._logs.export import InMemoryLogRecordExporter
 from opentelemetry.sdk.metrics._internal.export import InMemoryMetricReader
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
@@ -21,7 +21,7 @@ def fixture_otel_mock() -> Generator[OTelMocker, None, None]:
         }
     )
 
-    log_exporter = InMemoryLogExporter()
+    log_exporter = InMemoryLogRecordExporter()
     span_exporter = InMemorySpanExporter()
     metric_reader = InMemoryMetricReader()
 

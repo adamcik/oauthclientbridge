@@ -69,6 +69,7 @@ def test_collected_log_uses_structural_typing_for_new_otel_versions() -> None:
 
     class FakeLogData:
         instrumentation_scope = object()
+        resource = object()
         log_record = FakeRecord()
 
     collected = CollectedLog(FakeLogData())
