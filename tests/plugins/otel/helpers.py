@@ -21,7 +21,6 @@ DataPointType = TypeVar(
 
 
 class _LogRecordLike(typing.Protocol):
-    resource: Resource
     attributes: typing.Mapping[str, typing.Any] | None
     body: typing.Any
 
@@ -30,6 +29,7 @@ class _LogRecordLike(typing.Protocol):
 
 class _LogDataLike(typing.Protocol):
     instrumentation_scope: InstrumentationScope | None
+    resource: Resource
     log_record: _LogRecordLike
 
 
@@ -80,7 +80,7 @@ class CollectedLog:
 
     @property
     def resource(self):
-        return self._log_data.log_record.resource
+        return self._log_data.resource
 
     @property
     def attributes(self):

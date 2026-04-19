@@ -3,7 +3,7 @@ import opentelemetry._logs._internal
 import opentelemetry.metrics._internal
 import opentelemetry.trace
 from opentelemetry.sdk._logs.export import (
-    InMemoryLogExporter,
+    InMemoryLogRecordExporter,
     SimpleLogRecordProcessor,
 )
 from opentelemetry.sdk.metrics._internal.export import InMemoryMetricReader
@@ -51,7 +51,7 @@ def _reset_otel_once():
 class OTelMocker:
     def __init__(
         self,
-        log_exporter: InMemoryLogExporter,
+        log_exporter: InMemoryLogRecordExporter,
         span_exporter: InMemorySpanExporter,
         metric_reader: InMemoryMetricReader,
     ):
@@ -69,8 +69,8 @@ class OTelMocker:
 
     def get_finished_logs(self) -> list[CollectedLog]:
         logs: list[CollectedLog] = []
-        for log_data in self._log_exporter.get_finished_logs():
-            logs.append(CollectedLog(log_data))
+        for log_record in self._log_exporter.get_finished_logs():
+            logs.append(CollectedLog(log_record))
         self._log_exporter.clear()
         return logs
 
