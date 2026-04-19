@@ -6,7 +6,6 @@ import pytest
 import sentry_sdk
 from sentry_sdk.envelope import Envelope
 from sentry_sdk.transport import Transport
-from sentry_sdk.types import Event
 
 
 class FakeTransport(Transport):
@@ -25,14 +24,14 @@ class SentryCapture:
     def __init__(self, envelopes: list[Envelope]):
         self.envelopes: list[Envelope] = envelopes
 
-    def get_events(self) -> Generator[Event, None, None]:
+    def get_events(self) -> Generator[dict[str, Any], None, None]:
         sentry_sdk.flush()
         for envelope in self.envelopes:
             event = envelope.get_event()
             if event is not None:
                 yield event
 
-    def get_transactions(self) -> Generator[Event, None, None]:
+    def get_transactions(self) -> Generator[dict[str, Any], None, None]:
         sentry_sdk.flush()
         for envelope in self.envelopes:
             event = envelope.get_transaction_event()
@@ -42,7 +41,8 @@ class SentryCapture:
     def get_spans(self) -> Generator[dict[str, Any], None, None]:
         for transaction in self.get_transactions():
             for span in transaction.get("spans", []):
-                yield span
+                if isinstance(span, dict):
+                    yield span
 
     def get_breadcrumbs(self) -> Generator[dict[str, Any], None, None]:
         for event in self.get_events():
@@ -54,7 +54,7 @@ class SentryCapture:
             for exception in event.get("exception", {}).get("values", []):
                 yield exception
 
-    def find_transaction_by_name(self, name: str) -> Event:
+    def find_transaction_by_name(self, name: str) -> dict[str, Any]:
         for transaction in self.get_transactions():
             if transaction.get("transaction") == name:
                 return transaction
