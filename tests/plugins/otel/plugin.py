@@ -3,7 +3,7 @@ from typing import Generator
 import pytest
 from opentelemetry import metrics, trace
 from opentelemetry.sdk._logs.export import InMemoryLogRecordExporter
-from opentelemetry.sdk.metrics._internal.export import InMemoryMetricReader
+from opentelemetry.sdk.metrics.export import InMemoryMetricReader
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from oauthclientbridge import telemetry
