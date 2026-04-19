@@ -1,0 +1,23 @@
+name: Flake lock changelog
+
+on:
+  pull_request:
+    paths:
+      - flake.lock
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  comment:
+    name: Comment flake.lock changelog
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Comment flake.lock changelog
+        uses: mdarocha/comment-flake-lock-changelog@d476681db90d13c1aeda8df565543a47f67266ce # v1.0.0
+        with:
+          pull-request-number: ${{ github.event.pull_request.number }}
