@@ -43,7 +43,7 @@ dev = [
   { include-group = "sentry" },
 ]
 lint = ["ruff==0.15.10"]
-sentry = ["sentry-sdk[opentelemetry]==2.33.2", "structlog-sentry==2.2.1"]
+sentry = ["sentry-sdk[opentelemetry]==2.58.0", "structlog-sentry==2.2.1"]
 test = [
   "pytest",
   "pytest-cov",
