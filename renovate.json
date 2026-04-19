@@ -5,6 +5,7 @@
     "enabled": true
   },
   "labels": ["dependencies"],
+  "ignorePaths": ["deploy/**"],
   "platformAutomerge": false,
   "lockFileMaintenance": {
     "enabled": true,
@@ -45,7 +46,13 @@
     },
     {
       "matchManagers": ["uv", "pep621"],
+      "rangeStrategy": "pin",
       "minimumReleaseAge": "3 days"
+    },
+    {
+      "matchManagers": ["pep621"],
+      "matchDepNames": ["python"],
+      "enabled": false
     }
   ]
 }
