@@ -28,7 +28,21 @@
     },
     {
       "matchManagers": ["uv", "pep621"],
-      "groupName": "python dependencies",
+      "matchPackagePatterns": ["^opentelemetry-"],
+      "groupName": "opentelemetry"
+    },
+    {
+      "matchManagers": ["uv", "pep621"],
+      "matchPackageNames": ["pydantic", "pydantic-settings"],
+      "groupName": "pydantic"
+    },
+    {
+      "matchManagers": ["uv", "pep621"],
+      "matchPackageNames": ["flask", "werkzeug", "jinja2", "itsdangerous"],
+      "groupName": "flask stack"
+    },
+    {
+      "matchManagers": ["uv", "pep621"],
       "minimumReleaseAge": "3 days"
     }
   ]
