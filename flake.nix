@@ -156,7 +156,11 @@
             cd "$src"
             export HOME="$TMPDIR"
             export COVERAGE_FILE="$TMPDIR/.coverage"
-            pytest --cov tests --cov-report html:"$TMPDIR/htmlcov" tests
+            pytest \
+              -o cache_dir="$TMPDIR/.pytest_cache" \
+              --cov tests \
+              --cov-report html:"$TMPDIR/htmlcov" \
+              tests
             mv "$TMPDIR/htmlcov" "$out"
           '';
 
