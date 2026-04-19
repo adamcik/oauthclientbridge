@@ -136,6 +136,7 @@
             export UV_NO_SYNC="1"
             export UV_PYTHON="${devVenv}/bin/python"
             export UV_PYTHON_DOWNLOADS="never"
+            export UV_NO_MANAGED_PYTHON="1"
             ${script}
           '';
       in {
@@ -328,13 +329,16 @@
       in {
         default = pkgs.mkShell {
           packages = [
+            pkgs.actionlint
             venv
             pkgs.tombi
             treefmtEval.${system}.config.build.wrapper
             pkgs.uv
+            pkgs.zizmor
           ];
           env = {
             UV_NO_SYNC = "1";
+            UV_NO_MANAGED_PYTHON = "1";
             UV_PYTHON = python.interpreter;
             UV_PYTHON_DOWNLOADS = "never";
           };
