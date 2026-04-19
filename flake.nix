@@ -84,6 +84,8 @@
           projectRootFile = "flake.nix";
           programs = {
             alejandra.enable = true;
+            actionlint.enable = true;
+            zizmor.enable = true;
           };
           settings.formatter = {
             ruff-check = {
