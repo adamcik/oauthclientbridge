@@ -13,7 +13,7 @@
   },
   "packageRules": [
     {
-      "matchManagers": ["uv"],
+      "matchManagers": ["uv", "pep621"],
       "matchUpdateTypes": ["lockFileMaintenance"],
       "overrideDepName": "uv lock file maintenance",
       "groupName": "uv lock file maintenance",
@@ -22,9 +22,9 @@
     {
       "matchManagers": ["nix"],
       "matchUpdateTypes": ["lockFileMaintenance"],
-      "overrideDepName": "nix lock file maintenance",
-      "groupName": "nix lock file maintenance",
-      "commitMessageTopic": "nix flake lock file"
+      "overrideDepName": "flake lock file maintenance",
+      "groupName": "flake lock file maintenance",
+      "commitMessageTopic": "flake lock file"
     },
     {
       "matchManagers": ["github-actions", "nix"],
