@@ -28,8 +28,10 @@
     },
     {
       "matchManagers": ["uv", "pep621"],
-      "matchPackagePatterns": ["^opentelemetry-"],
-      "groupName": "opentelemetry"
+      "groupName": "opentelemetry",
+      "matchPackageNames": [
+        "/^opentelemetry-/"
+      ]
     },
     {
       "matchManagers": ["uv", "pep621"],
