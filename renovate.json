@@ -50,6 +50,13 @@
     },
     {
       "matchManagers": ["uv", "pep621"],
+      "matchPackageNames": [
+        "/^opentelemetry-instrumentation-/"
+      ],
+      "ignoreUnstable": false
+    },
+    {
+      "matchManagers": ["uv", "pep621"],
       "matchPackageNames": ["pydantic", "pydantic-settings"],
       "groupName": "pydantic"
     },
