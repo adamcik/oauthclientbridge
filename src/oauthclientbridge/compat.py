@@ -5,8 +5,6 @@ so the rest of the codebase can import from here and avoid scattering
 version-specific paths.
 """
 
-import opentelemetry._events
-import opentelemetry._logs._internal
 import opentelemetry.metrics._internal
 import opentelemetry.trace
 from opentelemetry.sdk._logs.export import (
@@ -42,9 +40,9 @@ def reset_otel_once() -> None:
     # within the same process, this singleton behavior prevents re-initializing
     # providers for subsequent tests.
     #
-    # This hack resets the internal flags that track whether a provider has
-    # been set, allowing `set_tracer_provider()` and similar functions to be
-    # called again.
+    # This hack resets internal flags that track whether providers were set,
+    # allowing tracer/meter providers to be initialized again in the same
+    # process during tests.
     #
     # Alternatives considered:
     # - Using `pytest-xdist` or `pytest-isolate`: While these provide process
@@ -58,6 +56,4 @@ def reset_otel_once() -> None:
     # flags is currently the most pragmatic and least intrusive solution for
     # ensuring a clean OpenTelemetry state before each test.
     opentelemetry.trace._TRACER_PROVIDER_SET_ONCE = Once()
-    opentelemetry._logs._internal._LOGGER_PROVIDER_SET_ONCE = Once()
-    opentelemetry._events._EVENT_LOGGER_PROVIDER_SET_ONCE = Once()
     opentelemetry.metrics._internal._METER_PROVIDER_SET_ONCE = Once()
