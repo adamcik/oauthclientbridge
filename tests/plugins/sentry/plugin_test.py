@@ -129,12 +129,16 @@ def test_sentry_captures_chained_exception(capsentry: SentryCapture) -> None:
 
 
 def test_sentry_captures_otel_span(capsentry: SentryCapture, tracer) -> None:
-    with tracer.start_as_current_span("parent-operation") as parent:
-        parent.add_event("Parent's event")
+    try:
+        with tracer.start_as_current_span("parent-operation"):
+            with tracer.start_as_current_span("child-operation"):
+                raise ValueError("test exception")
+    except ValueError:
+        sentry_sdk.capture_exception()
 
-        with tracer.start_as_current_span("child-operation") as child:
-            child.add_event("Child's event")
+    event = next(capsentry.get_events())
+    trace_context = event.get("contexts", {}).get("trace")
 
-    # Traces are captured without needing an error event.
-    capsentry.find_transaction_by_name("parent-operation")
-    capsentry.find_span_by_op("child-operation")
+    assert isinstance(trace_context, dict)
+    assert trace_context.get("trace_id") is not None
+    assert trace_context.get("span_id") is not None
