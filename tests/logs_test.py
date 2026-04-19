@@ -5,10 +5,6 @@ from typing import cast
 import structlog
 from flask import Flask, Request
 from opentelemetry import trace
-from opentelemetry.semconv._incubating.attributes.http_attributes import (
-    HTTP_REQUEST_BODY_SIZE,
-    HTTP_RESPONSE_BODY_SIZE,
-)
 from opentelemetry.semconv.attributes.client_attributes import (
     CLIENT_ADDRESS,
     CLIENT_PORT,
@@ -35,6 +31,7 @@ from werkzeug.datastructures import Headers
 from werkzeug.routing import Rule
 
 from oauthclientbridge import logs
+from oauthclientbridge.compat import HTTP_REQUEST_BODY_SIZE, HTTP_RESPONSE_BODY_SIZE
 from oauthclientbridge.settings import LogLevel, LogSettings
 
 tracer = trace.get_tracer(__name__)
