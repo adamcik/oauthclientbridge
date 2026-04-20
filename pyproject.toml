@@ -24,7 +24,7 @@ dependencies = [
   "opentelemetry-instrumentation-system-metrics==0.62b0",
   "opentelemetry-sdk==1.41.0",
   "prometheus-client==0.25.0",
-  "pydantic==2.13.1",
+  "pydantic==2.13.2",
   "pydantic-settings==2.13.1",
   "requests==2.33.1",
   "structlog==25.5.0",
