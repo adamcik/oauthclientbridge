@@ -11,9 +11,9 @@ User=33:33
 
 EnvironmentFile=/etc/oauthclientbridge/spotify.env
 
-Volume=/srv/virtualenvs/oauthclientbridge/run:/data:Z
+Volume=/var/lib/oauthclientbridge/spotify:/data:Z
 Volume=/run/oauthclientbridge/spotify:/run/uwsgi:Z
-Volume=oauthclientbridge-spotify-prom:/prom:Z
+Tmpfs=/prom:rw,size=64m,mode=0770,uid=33,gid=33
 Volume=/etc/oauthclientbridge/templates:/config:ro,Z
 
 Exec=--socket /run/uwsgi/uwsgi.sock --chmod-socket=660 --vacuum
@@ -21,7 +21,7 @@ Exec=--socket /run/uwsgi/uwsgi.sock --chmod-socket=660 --vacuum
 [Service]
 # We intentionally use ExecStartPre instead of RuntimeDirectory/StateDirectory:
 # exact bind-mount paths + ownership/mode control for caddy socket sharing.
-ExecStartPre=/usr/bin/install -d -o www-data -g www-data -m 0750 /srv/virtualenvs/oauthclientbridge/run
+ExecStartPre=/usr/bin/install -d -o www-data -g www-data -m 0750 /var/lib/oauthclientbridge/spotify
 ExecStartPre=/usr/bin/install -d -o root -g www-data -m 2775 /run/oauthclientbridge/spotify
 Restart=always
 RestartSec=2s

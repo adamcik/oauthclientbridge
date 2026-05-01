@@ -11,15 +11,15 @@ User=33:33
 
 EnvironmentFile=/etc/oauthclientbridge/soundcloud.env
 
-Volume=/srv/virtualenvs/oauthclientbridge/run:/data:Z
+Volume=/var/lib/oauthclientbridge/soundcloud:/data:Z
 Volume=/run/oauthclientbridge/soundcloud:/run/uwsgi:Z
-Volume=oauthclientbridge-soundcloud-prom:/prom:Z
+Tmpfs=/prom:rw,size=64m,mode=0770,uid=33,gid=33
 Volume=/etc/oauthclientbridge/templates:/config:ro,Z
 
 Exec=--socket /run/uwsgi/uwsgi.sock --chmod-socket=660 --vacuum
 
 [Service]
-ExecStartPre=/usr/bin/install -d -o www-data -g www-data -m 0750 /srv/virtualenvs/oauthclientbridge/run
+ExecStartPre=/usr/bin/install -d -o www-data -g www-data -m 0750 /var/lib/oauthclientbridge/soundcloud
 ExecStartPre=/usr/bin/install -d -o root -g www-data -m 2775 /run/oauthclientbridge/soundcloud
 Restart=always
 RestartSec=2s
