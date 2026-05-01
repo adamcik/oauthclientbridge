@@ -20,6 +20,6 @@ jobs:
           persist-credentials: false
 
       - name: Comment flake.lock changelog
-        uses: mdarocha/comment-flake-lock-changelog@d476681db90d13c1aeda8df565543a47f67266ce # v1.0.0
+        uses: mdarocha/comment-flake-lock-changelog@5592bcf08217f166caf5381fc90dcb8e8b5e521c # v1.0.1
         with:
           pull-request-number: ${{ github.event.pull_request.number }}
