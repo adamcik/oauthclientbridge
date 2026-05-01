@@ -226,21 +226,23 @@
           entrypoint = pkgs.writeScript "entrypoint" ''
             #!${pkgs.stdenv.shell}
 
-            PORT="''${PORT:-8000}"
             WORKERS="''${WORKERS:-4}"
             THREADS="''${THREADS:-2}"
 
+            uwsgi_args=(
+              --plugin python3
+              --module oauthclientbridge.wsgi:app
+              --disable-logging
+              --virtualenv "${runtimeVenv}"
+              --processes "''${WORKERS}"
+              --threads "''${THREADS}"
+              --master
+              --die-on-term
+              --need-app
+            )
+
             exec ${uwsgi}/bin/uwsgi \
-              --plugin python3 \
-              --module oauthclientbridge.wsgi:app \
-              --disable-logging \
-              --virtualenv "${runtimeVenv}" \
-              --http "0.0.0.0:''${PORT}" \
-              --processes "''${WORKERS}" \
-              --threads "''${THREADS}" \
-              --master \
-              --die-on-term \
-              --need-app \
+              "''${uwsgi_args[@]}" \
               "$@"
           '';
         in
