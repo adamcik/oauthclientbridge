@@ -253,24 +253,13 @@
               tag = "latest";
               # created = "now";
               config = {
-                entrypoint = ["${entrypoint}"];
+                entrypoint = ["/entrypoint"];
                 user = user;
               };
 
               layers = let
                 baseLayer = nix2containerPkgs.buildLayer {
                   deps = [uwsgi];
-                  copyToRoot = [
-                    (pkgs.buildEnv {
-                      name = "root";
-                      paths = with pkgs; [
-                        bashInteractive
-                        coreutils
-                      ];
-                      pathsToLink = ["/bin" "/etc" "/run"];
-                    })
-                    mkUser
-                  ];
                 };
 
                 depsLayer = nix2containerPkgs.buildLayer {
@@ -285,10 +274,31 @@
                     depsLayer
                   ];
                 };
+
+                metadataLayer = nix2containerPkgs.buildLayer {
+                  copyToRoot = [
+                    entrypoint
+                    (pkgs.buildEnv {
+                      name = "root";
+                      paths = with pkgs; [
+                        bashInteractive
+                        coreutils
+                      ];
+                      pathsToLink = ["/bin" "/etc" "/run"];
+                    })
+                    mkUser
+                  ];
+                  layers = [
+                    baseLayer
+                    depsLayer
+                    appLayer
+                  ];
+                };
               in [
                 baseLayer
                 depsLayer
                 appLayer
+                metadataLayer
               ];
             };
           }
