@@ -14,7 +14,7 @@ Pull=always
 User=33:33
 
 # Keep secrets/config outside the unit file.
-EnvironmentFile=/etc/oauthclientbridge/oauthclientbridge.env
+EnvironmentFile=/etc/oauthclientbridge/oauthclientbridge/env
 
 # Existing SQLite data directory on host.
 Volume=/var/lib/oauthclientbridge/data:/data:Z
@@ -22,8 +22,11 @@ Volume=/var/lib/oauthclientbridge/data:/data:Z
 # UWSGI runtime socket directory for reverse proxy integration.
 Volume=/run/oauthclientbridge:/run/uwsgi:Z
 
-# Podman-managed persistent volume for Prometheus multiprocess files.
-Volume=oauthclientbridge-prom-multiproc:/var/lib/oauthclientbridge/prom-multiproc:Z
+# Callback template mounted at standardized in-container path.
+Volume=/etc/oauthclientbridge/oauthclientbridge/callback.html:/config/callback.html:ro,Z
+
+# Ephemeral multiprocess metrics dir; reset cleanly on service restart.
+Tmpfs=/run/prom:rw,size=64m,mode=0770,uid=33,gid=33
 
 # Append extra uWSGI args to image entrypoint.
 Exec=--socket /run/uwsgi/oauthclientbridge.sock --chmod-socket=660 --vacuum

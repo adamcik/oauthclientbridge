@@ -9,12 +9,12 @@ ContainerName=oauthclientbridge-soundcloud
 Pull=always
 User=33:33
 
-EnvironmentFile=/etc/oauthclientbridge/soundcloud.env
+EnvironmentFile=/etc/oauthclientbridge/soundcloud/env
 
 Volume=/var/lib/oauthclientbridge/soundcloud:/data:Z
 Volume=/run/oauthclientbridge/soundcloud:/run/uwsgi:Z
-Tmpfs=/prom:rw,size=64m,mode=0770,uid=33,gid=33
-Volume=/etc/oauthclientbridge/templates:/config:ro,Z
+Tmpfs=/run/prom:rw,size=64m,mode=0770,uid=33,gid=33
+Volume=/etc/oauthclientbridge/soundcloud/callback.html:/config/callback.html:ro,Z
 
 Exec=--socket /run/uwsgi/uwsgi.sock --chmod-socket=660 --vacuum
 

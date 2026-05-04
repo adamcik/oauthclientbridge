@@ -20,7 +20,8 @@ Note: this flow uses `podman create` + `podman generate systemd --new`.
 
 ```bash
 sudo install -d -m 0750 /etc/oauthclientbridge
-sudo install -d -m 0755 /etc/oauthclientbridge/templates
+sudo install -d -m 0755 /etc/oauthclientbridge/spotify
+sudo install -d -m 0755 /etc/oauthclientbridge/soundcloud
 
 sudo install -d -o www-data -g www-data -m 0750 /var/lib/oauthclientbridge
 sudo install -d -o www-data -g www-data -m 0750 /var/lib/oauthclientbridge/spotify
@@ -29,19 +30,23 @@ sudo install -d -o www-data -g www-data -m 0750 /var/lib/oauthclientbridge/sound
 sudo install -d -o root -g www-data -m 2775 /run/oauthclientbridge/spotify
 sudo install -d -o root -g www-data -m 2775 /run/oauthclientbridge/soundcloud
 
-sudo cp deploy/spotify/env /etc/oauthclientbridge/spotify.env
-sudo cp deploy/soundcloud/env /etc/oauthclientbridge/soundcloud.env
+sudo cp deploy/spotify/env /etc/oauthclientbridge/spotify/env
+sudo cp deploy/soundcloud/env /etc/oauthclientbridge/soundcloud/env
 
-sudo cp deploy/spotify/callback.html /etc/oauthclientbridge/templates/spotify-callback.html
-sudo cp deploy/soundcloud/callback.html /etc/oauthclientbridge/templates/soundcloud-callback.html
+sudo cp deploy/spotify/callback.html /etc/oauthclientbridge/spotify/callback.html
+sudo cp deploy/soundcloud/callback.html /etc/oauthclientbridge/soundcloud/callback.html
 
-sudo editor /etc/oauthclientbridge/spotify.env
-sudo editor /etc/oauthclientbridge/soundcloud.env
+sudo editor /etc/oauthclientbridge/spotify/env
+sudo editor /etc/oauthclientbridge/soundcloud/env
 ```
 
-Ensure both env files set:
+Image defaults (via nix2container) pin these settings:
 
-- `PROMETHEUS_MULTIPROC_DIR=/prom`
+- `DB_DATABASE=/data/sqlite.db`
+- `BRIDGE_CALLBACK_TEMPLATE_FILE=/config/callback.html`
+- `PROMETHEUS_MULTIPROC_DIR=/run/prom`
+
+Use per-instance env files for secrets/provider settings; only set these in env files when intentionally overriding defaults.
 
 SoundCloud note:
 
@@ -53,8 +58,8 @@ SoundCloud note:
 ```bash
 sudo systemctl stop oauthclientbridge-spotify.service oauthclientbridge-soundcloud.service || true
 
-sudo cp -a /srv/virtualenvs/oauthclientbridge/run/spotify.db* /var/lib/oauthclientbridge/spotify/
-sudo cp -a /srv/virtualenvs/oauthclientbridge/run/soundcloud.db* /var/lib/oauthclientbridge/soundcloud/
+sudo install -D -o www-data -g www-data -m 0640 /srv/virtualenvs/oauthclientbridge/run/spotify.db /var/lib/oauthclientbridge/spotify/sqlite.db
+sudo install -D -o www-data -g www-data -m 0640 /srv/virtualenvs/oauthclientbridge/run/soundcloud.db /var/lib/oauthclientbridge/soundcloud/sqlite.db
 
 sudo chown -R www-data:www-data /var/lib/oauthclientbridge/spotify
 sudo chown -R www-data:www-data /var/lib/oauthclientbridge/soundcloud
@@ -75,11 +80,11 @@ sudo podman create \
   --name oauthclientbridge-spotify \
   --network host \
   --user 33:33 \
-  --env-file /etc/oauthclientbridge/spotify.env \
+  --env-file /etc/oauthclientbridge/spotify/env \
   -v /var/lib/oauthclientbridge/spotify:/data \
   -v /run/oauthclientbridge/spotify:/run/uwsgi \
-  -v /etc/oauthclientbridge/templates:/config:ro \
-  --tmpfs /prom:rw,size=64m,mode=1777 \
+  -v /etc/oauthclientbridge/spotify/callback.html:/config/callback.html:ro \
+  --tmpfs /run/prom:rw,size=64m,mode=1777 \
   ghcr.io/adamcik/oauthclientbridge:latest \
   --socket /run/uwsgi/uwsgi.sock --chmod-socket=660 --vacuum
 
@@ -87,11 +92,11 @@ sudo podman create \
   --name oauthclientbridge-soundcloud \
   --network host \
   --user 33:33 \
-  --env-file /etc/oauthclientbridge/soundcloud.env \
+  --env-file /etc/oauthclientbridge/soundcloud/env \
   -v /var/lib/oauthclientbridge/soundcloud:/data \
   -v /run/oauthclientbridge/soundcloud:/run/uwsgi \
-  -v /etc/oauthclientbridge/templates:/config:ro \
-  --tmpfs /prom:rw,size=64m,mode=1777 \
+  -v /etc/oauthclientbridge/soundcloud/callback.html:/config/callback.html:ro \
+  --tmpfs /run/prom:rw,size=64m,mode=1777 \
   ghcr.io/adamcik/oauthclientbridge:latest \
   --socket /run/uwsgi/uwsgi.sock --chmod-socket=660 --vacuum
 ```
@@ -208,5 +213,5 @@ sudo systemctl reload caddy
 
 - Image entrypoint does not implicitly bind an HTTP port. Listener mode is set explicitly
   via container args (for example `--socket ...` in this deployment).
-- `tmpfs /prom` is intentionally ephemeral to avoid stale Prometheus multiprocess files.
+- `tmpfs /run/prom` is intentionally ephemeral to avoid stale Prometheus multiprocess files.
 - Secrets are currently mixed into env files; move to sops-managed env files later if desired.

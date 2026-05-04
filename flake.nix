@@ -223,6 +223,13 @@
             EOF
           '';
 
+          runtimeDirs = pkgs.runCommand "oauthclientbridge-runtime-dirs" {} ''
+            mkdir -p $out/data
+            mkdir -p $out/config
+            mkdir -p $out/run/prom
+            mkdir -p $out/run/uwsgi
+          '';
+
           entrypoint = pkgs.writeScript "entrypoint" ''
             #!${pkgs.stdenv.shell}
 
@@ -255,6 +262,11 @@
               config = {
                 entrypoint = ["/entrypoint"];
                 user = user;
+                env = [
+                  "DB_DATABASE=/data/sqlite.db"
+                  "BRIDGE_CALLBACK_TEMPLATE_FILE=/config/callback.html"
+                  "PROMETHEUS_MULTIPROC_DIR=/run/prom"
+                ];
               };
 
               layers = let
@@ -287,6 +299,7 @@
                       pathsToLink = ["/bin" "/etc" "/run"];
                     })
                     mkUser
+                    runtimeDirs
                   ];
                   layers = [
                     baseLayer
