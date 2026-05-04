@@ -183,6 +183,7 @@
 
           depsVenv = pythonSet.mkVirtualEnv "oauthclientbridge-deps-env" (
             pythonSet.oauthclientbridge.dependencies
+            // pythonSet.oauthclientbridge."dependency-groups".sentry
           );
 
           python = pkgs.python312;
@@ -192,57 +193,31 @@
             plugins = ["python3"];
           };
 
-          user = "uwsgi";
-          group = "uwsgi";
-          uid = "1000";
-          gid = "1000";
-
-          shellBin = "/bin/bash";
-
-          mkUser = pkgs.runCommand "mkUser" {} ''
-            mkdir -p $out/etc
-
-            cat<<EOF > $out/etc/passwd
-            root:x:0:0::/root:${shellBin}
-            ${user}:x:${uid}:${gid}::
-            EOF
-
-            cat<<EOF > $out/etc/shadow
-            root:!x:::::::
-            ${user}:!x:::::::
-            EOF
-
-            cat<<EOF > $out/etc/group
-            root:x:0:0::/root:${shellBin}
-            ${user}:x:${toString uid}:${toString gid}::/home/${user}:
-            EOF
-
-            cat<<EOF > $out/etc/gshadow
-            root:x::
-            ${user}:x::
-            EOF
-          '';
+          # Default to a non-root runtime identity; override at run-time when bind-mount
+          # ownership needs to match host users (for example: --user 33:33 for www-data).
+          uid = "65532";
+          gid = "65532";
 
           runtimeDirs = pkgs.runCommand "oauthclientbridge-runtime-dirs" {} ''
             mkdir -p $out/data
             mkdir -p $out/config
             mkdir -p $out/run/prom
             mkdir -p $out/run/uwsgi
+            mkdir -p $out/tmp
+
+            chmod 0777 $out/run/prom
+            chmod 0777 $out/run/uwsgi
+            chmod 1777 $out/tmp
           '';
 
-          entrypoint = pkgs.writeScript "entrypoint" ''
-            #!${pkgs.stdenv.shell}
-
-            WORKERS="''${WORKERS:-4}"
-            THREADS="''${THREADS:-2}"
-
+          entrypoint = pkgs.writeShellScriptBin "entrypoint" ''
             uwsgi_args=(
               --plugin python3
               --module oauthclientbridge.wsgi:app
               --disable-logging
               --virtualenv "${runtimeVenv}"
-              --processes "''${WORKERS}"
-              --threads "''${THREADS}"
+              --processes "''${WORKERS:-4}"
+              --threads "''${THREADS:-1}"
               --master
               --die-on-term
               --need-app
@@ -260,8 +235,8 @@
               tag = "latest";
               # created = "now";
               config = {
-                entrypoint = ["/entrypoint"];
-                user = user;
+                entrypoint = ["/bin/entrypoint"];
+                user = "${uid}:${gid}";
                 env = [
                   "DB_DATABASE=/data/sqlite.db"
                   "BRIDGE_CALLBACK_TEMPLATE_FILE=/config/callback.html"
@@ -290,15 +265,6 @@
                 metadataLayer = nix2containerPkgs.buildLayer {
                   copyToRoot = [
                     entrypoint
-                    (pkgs.buildEnv {
-                      name = "root";
-                      paths = with pkgs; [
-                        bashInteractive
-                        coreutils
-                      ];
-                      pathsToLink = ["/bin" "/etc" "/run"];
-                    })
-                    mkUser
                     runtimeDirs
                   ];
                   layers = [
