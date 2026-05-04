@@ -80,11 +80,15 @@ sudo podman create \
   --name oauthclientbridge-spotify \
   --network host \
   --user 33:33 \
+  --cap-drop=ALL \
+  --security-opt no-new-privileges \
+  --read-only \
   --env-file /etc/oauthclientbridge/spotify/env \
-  -v /var/lib/oauthclientbridge/spotify:/data \
-  -v /run/oauthclientbridge/spotify:/run/uwsgi \
+  -v /var/lib/oauthclientbridge/spotify:/data:rw,nosuid,nodev,noexec \
+  -v /run/oauthclientbridge/spotify:/run/uwsgi:rw,nosuid,nodev,noexec \
   -v /etc/oauthclientbridge/spotify/callback.html:/config/callback.html:ro \
-  --tmpfs /run/prom:rw,size=64m,mode=1777 \
+  --tmpfs /tmp:rw,nosuid,nodev,noexec,size=256m,mode=1777 \
+  --tmpfs /run/prom:rw,nosuid,nodev,noexec,size=64m,mode=1777 \
   ghcr.io/adamcik/oauthclientbridge:latest \
   --socket /run/uwsgi/uwsgi.sock --chmod-socket=660 --vacuum
 
@@ -92,11 +96,15 @@ sudo podman create \
   --name oauthclientbridge-soundcloud \
   --network host \
   --user 33:33 \
+  --cap-drop=ALL \
+  --security-opt no-new-privileges \
+  --read-only \
   --env-file /etc/oauthclientbridge/soundcloud/env \
-  -v /var/lib/oauthclientbridge/soundcloud:/data \
-  -v /run/oauthclientbridge/soundcloud:/run/uwsgi \
+  -v /var/lib/oauthclientbridge/soundcloud:/data:rw,nosuid,nodev,noexec \
+  -v /run/oauthclientbridge/soundcloud:/run/uwsgi:rw,nosuid,nodev,noexec \
   -v /etc/oauthclientbridge/soundcloud/callback.html:/config/callback.html:ro \
-  --tmpfs /run/prom:rw,size=64m,mode=1777 \
+  --tmpfs /tmp:rw,nosuid,nodev,noexec,size=256m,mode=1777 \
+  --tmpfs /run/prom:rw,nosuid,nodev,noexec,size=64m,mode=1777 \
   ghcr.io/adamcik/oauthclientbridge:latest \
   --socket /run/uwsgi/uwsgi.sock --chmod-socket=660 --vacuum
 ```
@@ -213,5 +221,6 @@ sudo systemctl reload caddy
 
 - Image entrypoint does not implicitly bind an HTTP port. Listener mode is set explicitly
   via container args (for example `--socket ...` in this deployment).
+- Containers run with `--read-only`; writable paths are provided via bind mounts and tmpfs.
 - `tmpfs /run/prom` is intentionally ephemeral to avoid stale Prometheus multiprocess files.
 - Secrets are currently mixed into env files; move to sops-managed env files later if desired.

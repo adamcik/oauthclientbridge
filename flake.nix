@@ -237,12 +237,13 @@
               config = {
                 entrypoint = ["/bin/entrypoint"];
                 user = "${uid}:${gid}";
-                env = [
-                  "DB_DATABASE=/data/sqlite.db"
-                  "BRIDGE_CALLBACK_TEMPLATE_FILE=/config/callback.html"
-                  "PROMETHEUS_MULTIPROC_DIR=/run/prom"
-                ];
-              };
+                 env = [
+                    "DB_DATABASE=/data/sqlite.db"
+                    "BRIDGE_CALLBACK_TEMPLATE_FILE=/config/callback.html"
+                    "PROMETHEUS_MULTIPROC_DIR=/run/prom"
+                    "PYTHONDONTWRITEBYTECODE=1"
+                  ];
+               };
 
               layers = let
                 baseLayer = nix2containerPkgs.buildLayer {
