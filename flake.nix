@@ -28,20 +28,42 @@
     };
 
     nix2container.url = "github:nlewo/nix2container";
+
+    version-override = {
+      url = "path:./.version-override";
+      flake = false;
+    };
   };
 
   outputs = {
+    self,
     nixpkgs,
     uv2nix,
     pyproject-nix,
     pyproject-build-systems,
     treefmt-nix,
     nix2container,
+    version-override,
     ...
   }: let
     inherit (nixpkgs) lib;
     forAllSystems = lib.genAttrs lib.systems.flakeExposed;
 
+    # Pull in version string to use from .version-override file:
+    overrideVersion = let
+      lines = lib.strings.splitString "\n" (builtins.readFile version-override);
+      cleaned =
+        builtins.filter (
+          line: let
+            trimmed = lib.strings.trim line;
+          in
+            trimmed != "" && !(lib.strings.hasPrefix "#" trimmed)
+        )
+        lines;
+    in
+      if cleaned == []
+      then ""
+      else lib.strings.trim (builtins.head cleaned);
     workspace = uv2nix.lib.workspace.loadWorkspace {workspaceRoot = ./.;};
 
     overlay = workspace.mkPyprojectOverlay {
@@ -68,6 +90,15 @@
           lib.composeManyExtensions [
             pyproject-build-systems.overlays.default
             overlay
+            (final: prev: {
+              oauthclientbridge = prev.oauthclientbridge.overrideAttrs (old: {
+                env =
+                  (old.env or {})
+                  // lib.optionalAttrs (overrideVersion != "") {
+                    SETUPTOOLS_SCM_PRETEND_VERSION = overrideVersion;
+                  };
+              });
+            })
           ]
         )
     );

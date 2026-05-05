@@ -102,7 +102,8 @@
         "pyproject-build-systems": "pyproject-build-systems",
         "pyproject-nix": "pyproject-nix",
         "treefmt-nix": "treefmt-nix",
-        "uv2nix": "uv2nix"
+        "uv2nix": "uv2nix",
+        "version-override": "version-override"
       }
     },
     "treefmt-nix": {
@@ -147,6 +148,18 @@
         "repo": "uv2nix",
         "type": "github"
       }
+    },
+    "version-override": {
+      "flake": false,
+      "locked": {
+        "path": "./.version-override",
+        "type": "path"
+      },
+      "original": {
+        "path": "./.version-override",
+        "type": "path"
+      },
+      "parent": []
     }
   },
   "root": "root",
