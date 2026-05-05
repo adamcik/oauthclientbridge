@@ -240,11 +240,15 @@
               --plugin python3
               --module oauthclientbridge.wsgi:app
               --disable-logging
+              --catch-exceptions
+              --log-5xx
+              --log-master
               --virtualenv "${runtimeVenv}"
               --processes "''${WORKERS:-4}"
               --threads "''${THREADS:-1}"
               --master
               --die-on-term
+              --show-config
               --need-app
             )
 

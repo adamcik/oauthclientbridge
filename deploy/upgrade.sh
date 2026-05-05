@@ -64,6 +64,16 @@ log() {
   printf '\n==> %s\n' "$*"
 }
 
+revert_image_ref() {
+  local image_name="$1"
+  local image_id="$2"
+  if [[ "$image_name" == *@* ]]; then
+    printf '%s\n' "$image_name"
+  else
+    printf '%s@%s\n' "${image_name%%:*}" "$image_id"
+  fi
+}
+
 for container in "${CONTAINERS[@]}"; do
   if ! sudo podman container exists "$container"; then
     echo "Container does not exist: $container" >&2
@@ -185,6 +195,10 @@ if [ "$all_match" -ne 1 ]; then
   fi
   exit 1
 fi
+
+log "Revert command"
+revert_ref="$(revert_image_ref "${BEFORE_NAME[oauthclientbridge-spotify]}" "${BEFORE_ID[oauthclientbridge-spotify]}")"
+echo "$0 --recreate --image $revert_ref"
 
 log "Recent logs"
 sudo podman logs --tail 50 oauthclientbridge-spotify || true
