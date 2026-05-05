@@ -20,6 +20,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Install Nix
@@ -38,7 +39,7 @@ jobs:
         run: |
           VERSION_OVERRIDE="${RUNNER_TEMP}/.version-override"
           echo "VERSION_OVERRIDE=${VERSION_OVERRIDE}" >> "$GITHUB_ENV"
-          nix develop -c hatchling version > "$VERSION_OVERRIDE"
+          nix develop -c hatchling version | tee "$VERSION_OVERRIDE"
           test -s "$VERSION_OVERRIDE"
 
       - name: Build image
