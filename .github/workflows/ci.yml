@@ -34,8 +34,15 @@ jobs:
       - name: Run nix flake check
         run: nix flake check
 
+      - name: Compute version override
+        run: |
+          VERSION_OVERRIDE="${RUNNER_TEMP}/.version-override"
+          echo "VERSION_OVERRIDE=${VERSION_OVERRIDE}" >> "$GITHUB_ENV"
+          nix develop -c hatchling version > "$VERSION_OVERRIDE"
+          test -s "$VERSION_OVERRIDE"
+
       - name: Build image
-        run: nix build .#image
+        run: nix build .#image --override-input version-override "path:${VERSION_OVERRIDE}"
 
       - name: Login to GHCR
         if: |
@@ -48,10 +55,10 @@ jobs:
 
       - name: Push image to GHCR
         if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch
-        run: nix run .#image.copyToRegistry
+        run: nix run .#image.copyToRegistry --override-input version-override "path:${VERSION_OVERRIDE}"
 
       - name: Push release-tagged image to GHCR
         if: github.event_name == 'release'
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: nix run .#image.copyTo -- "docker://ghcr.io/adamcik/oauthclientbridge:${RELEASE_TAG}"
+        run: nix run .#image.copyTo --override-input version-override "path:${VERSION_OVERRIDE}" -- "docker://ghcr.io/adamcik/oauthclientbridge:${RELEASE_TAG}"
