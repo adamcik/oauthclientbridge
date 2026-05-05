@@ -184,6 +184,10 @@ route {
 
     handle_path /spotify/* {
       reverse_proxy unix//run/oauthclientbridge/spotify/uwsgi.sock {
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-Host {host}
+        header_up X-Forwarded-Port {server_port}
         transport uwsgi
       }
     }
@@ -191,6 +195,10 @@ route {
     redir /soundcloud /soundcloud/ 308
     handle_path /soundcloud/* {
       reverse_proxy unix//run/oauthclientbridge/soundcloud/uwsgi.sock {
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-Host {host}
+        header_up X-Forwarded-Port {server_port}
         transport uwsgi
       }
     }
@@ -198,11 +206,19 @@ route {
 
   rewrite /spotify /spotify/
   reverse_proxy /spotify/* unix//run/uwsgi/app/auth-spotify/socket {
+    header_up X-Forwarded-For {remote_host}
+    header_up X-Forwarded-Proto {scheme}
+    header_up X-Forwarded-Host {host}
+    header_up X-Forwarded-Port {server_port}
     transport uwsgi
   }
 
   rewrite /soundcloud /soundcloud/
   reverse_proxy /soundcloud/* unix//run/uwsgi/app/auth-soundcloud/socket {
+    header_up X-Forwarded-For {remote_host}
+    header_up X-Forwarded-Proto {scheme}
+    header_up X-Forwarded-Host {host}
+    header_up X-Forwarded-Port {server_port}
     transport uwsgi
   }
 
