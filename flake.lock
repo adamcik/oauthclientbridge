@@ -1,5 +1,17 @@
 {
   "nodes": {
+    "build-overrides": {
+      "flake": false,
+      "locked": {
+        "path": "./.build-overrides",
+        "type": "path"
+      },
+      "original": {
+        "path": "./.build-overrides",
+        "type": "path"
+      },
+      "parent": []
+    },
     "nix2container": {
       "inputs": {
         "nixpkgs": "nixpkgs"
@@ -97,13 +109,13 @@
     },
     "root": {
       "inputs": {
+        "build-overrides": "build-overrides",
         "nix2container": "nix2container",
         "nixpkgs": "nixpkgs_2",
         "pyproject-build-systems": "pyproject-build-systems",
         "pyproject-nix": "pyproject-nix",
         "treefmt-nix": "treefmt-nix",
-        "uv2nix": "uv2nix",
-        "version-override": "version-override"
+        "uv2nix": "uv2nix"
       }
     },
     "treefmt-nix": {
@@ -148,18 +160,6 @@
         "repo": "uv2nix",
         "type": "github"
       }
-    },
-    "version-override": {
-      "flake": false,
-      "locked": {
-        "path": "./.version-override",
-        "type": "path"
-      },
-      "original": {
-        "path": "./.version-override",
-        "type": "path"
-      },
-      "parent": []
     }
   },
   "root": "root",

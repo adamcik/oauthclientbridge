@@ -29,8 +29,8 @@
 
     nix2container.url = "github:nlewo/nix2container";
 
-    version-override = {
-      url = "path:./.version-override";
+    build-overrides = {
+      url = "path:./.build-overrides";
       flake = false;
     };
   };
@@ -43,30 +43,15 @@
     pyproject-build-systems,
     treefmt-nix,
     nix2container,
-    version-override,
+    build-overrides,
     ...
   }: let
     inherit (nixpkgs) lib;
     forAllSystems = lib.genAttrs lib.systems.flakeExposed;
 
-    # Pull in version string to use from .version-override file:
-    overrideVersion = let
-      lines = lib.strings.splitString "\n" (builtins.readFile version-override);
-      cleaned =
-        builtins.filter (
-          line: let
-            trimmed = lib.strings.trim line;
-          in
-            trimmed != "" && !(lib.strings.hasPrefix "#" trimmed)
-        )
-        lines;
-    in
-      if cleaned == []
-      then ""
-      else lib.strings.trim (builtins.head cleaned);
+    overrideMetadata = builtins.fromJSON (builtins.readFile build-overrides);
 
-    # Convert last modified to rfc3339 format:
-    createdRfc3339 = let
+    fallbackCreated = let
       d = self.lastModifiedDate or "";
     in
       if d == "" || builtins.stringLength d < 14
@@ -103,8 +88,8 @@
               oauthclientbridge = prev.oauthclientbridge.overrideAttrs (old: {
                 env =
                   (old.env or {})
-                  // lib.optionalAttrs (overrideVersion != "") {
-                    SETUPTOOLS_SCM_PRETEND_VERSION = overrideVersion;
+                  // lib.optionalAttrs ((overrideMetadata.version or null) != null) {
+                    SETUPTOOLS_SCM_PRETEND_VERSION = overrideMetadata.version;
                   };
               });
             })
@@ -273,7 +258,10 @@
             image = nix2containerPkgs.buildImage {
               name = "ghcr.io/adamcik/oauthclientbridge";
               tag = "latest";
-              created = createdRfc3339;
+              created =
+                if ((overrideMetadata.created or null) != null)
+                then overrideMetadata.created
+                else fallbackCreated;
 
               config = {
                 entrypoint = ["/bin/entrypoint"];
@@ -286,17 +274,24 @@
                   "PYTHONDONTWRITEBYTECODE=1"
                 ];
 
-                labels = {
-                  "org.opencontainers.image.created" = createdRfc3339;
-                  "org.opencontainers.image.description" = "Bridge OAuth2 Authorization Code grants to OAuth2 Client Credentials clients.";
-                  "org.opencontainers.image.revision" = self.rev or (self.dirtyRev or "unknown");
-                  "org.opencontainers.image.source" = "https://github.com/adamcik/oauthclientbridge";
-                  "org.opencontainers.image.title" = "oauthclientbridge";
-                  "org.opencontainers.image.version" =
-                    if overrideVersion != ""
-                    then overrideVersion
-                    else "unknown";
-                };
+                labels = let
+                  created =
+                    if ((overrideMetadata.created or null) != null)
+                    then overrideMetadata.created
+                    else fallbackCreated;
+                in
+                  {
+                    "org.opencontainers.image.created" = created;
+                    "org.opencontainers.image.description" = "Bridge OAuth2 Authorization Code grants to OAuth2 Client Credentials clients.";
+                    "org.opencontainers.image.source" = "https://github.com/adamcik/oauthclientbridge";
+                    "org.opencontainers.image.title" = "oauthclientbridge";
+                  }
+                  // lib.optionalAttrs ((overrideMetadata.revision or null) != null) {
+                    "org.opencontainers.image.revision" = overrideMetadata.revision;
+                  }
+                  // lib.optionalAttrs ((overrideMetadata.version or null) != null) {
+                    "org.opencontainers.image.version" = overrideMetadata.version;
+                  };
               };
 
               layers = let

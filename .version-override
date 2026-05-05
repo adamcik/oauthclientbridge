@@ -1,3 +1,0 @@
-# Optional version override for Nix flake input `version-override`.
-# Leave empty (or comments only) to use default VCS-derived versioning.
-# CI can write a single PEP440 version line here via --override-input.

@@ -38,13 +38,21 @@ jobs:
 
       - name: Compute version override
         run: |
-          VERSION_OVERRIDE="${RUNNER_TEMP}/.version-override"
-          echo "VERSION_OVERRIDE=${VERSION_OVERRIDE}" >> "$GITHUB_ENV"
-          nix develop -c hatchling version | tee "$VERSION_OVERRIDE"
-          test -s "$VERSION_OVERRIDE"
+          BUILD_OVERRIDES="${RUNNER_TEMP}/.build-overrides"
+          echo "BUILD_OVERRIDES=${BUILD_OVERRIDES}" >> "$GITHUB_ENV"
+          VERSION="$(nix develop -c hatchling version)"
+          REVISION="$(git rev-parse HEAD)"
+          CREATED="$(git show -s --format=%cI HEAD)"
+          jq -n \
+            --arg version "$VERSION" \
+            --arg revision "$REVISION" \
+            --arg created "$CREATED" \
+            '{version:$version, revision:$revision, created:$created}' \
+            | tee "$BUILD_OVERRIDES"
+          test -s "$BUILD_OVERRIDES"
 
       - name: Build image
-        run: nix build .#image --override-input version-override "path:${VERSION_OVERRIDE}"
+        run: nix build .#image --override-input build-overrides "path:${BUILD_OVERRIDES}"
 
       - name: Login to GHCR
         if: |
@@ -57,10 +65,10 @@ jobs:
 
       - name: Push image to GHCR
         if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch
-        run: nix run .#image.copyToRegistry --override-input version-override "path:${VERSION_OVERRIDE}"
+        run: nix run .#image.copyToRegistry --override-input build-overrides "path:${BUILD_OVERRIDES}"
 
       - name: Push release-tagged image to GHCR
         if: github.event_name == 'release'
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: nix run .#image.copyTo --override-input version-override "path:${VERSION_OVERRIDE}" -- "docker://ghcr.io/adamcik/oauthclientbridge:${RELEASE_TAG}"
+        run: nix run .#image.copyTo --override-input build-overrides "path:${BUILD_OVERRIDES}" -- "docker://ghcr.io/adamcik/oauthclientbridge:${RELEASE_TAG}"
