@@ -5,10 +5,7 @@ from typing import Any, cast
 
 import structlog
 from flask import Flask, Request, Response, g, request
-from opentelemetry.semconv.attributes.client_attributes import (
-    CLIENT_ADDRESS,
-    CLIENT_PORT,
-)
+from opentelemetry.semconv.attributes.client_attributes import CLIENT_ADDRESS
 from opentelemetry.semconv.attributes.http_attributes import (
     HTTP_REQUEST_HEADER_TEMPLATE,
     HTTP_REQUEST_METHOD,
@@ -28,7 +25,6 @@ from opentelemetry.semconv.attributes.url_attributes import (
 )
 from opentelemetry.semconv.attributes.user_agent_attributes import USER_AGENT_ORIGINAL
 from structlog.types import EventDict
-from werkzeug.datastructures import Headers
 
 from oauthclientbridge.compat import HTTP_REQUEST_BODY_SIZE, HTTP_RESPONSE_BODY_SIZE
 from oauthclientbridge.settings import LogSettings
@@ -137,15 +133,10 @@ def add_otel_context_processor(_: Any, __: str, event_dict: EventDict) -> EventD
     return event_dict
 
 
-def get_remote_port(headers: Headers, environ: dict[str, Any]) -> str | None:
-    return headers.get("X-Forwarded-Port") or environ.get("REMOTE_PORT")
-
-
 def get_request_info(req: Request, duration_ns: int) -> dict[str, Any]:
     return {
         # "user.name": req.remote_user,  # No direct OTel constant for remote_user
         CLIENT_ADDRESS: req.remote_addr,
-        CLIENT_PORT: get_remote_port(req.headers, req.environ),
         HTTP_SERVER_DURATION: duration_ns / 1e9,
         HTTP_REQUEST_METHOD: req.method,
         HTTP_REQUEST_BODY_SIZE: len(req.get_data()),
@@ -178,6 +169,11 @@ def get_response_info(resp: Response) -> dict[str, Any]:
 
 
 def init_access_logs(settings: LogSettings, app: Flask):
+    if app.extensions.get("oauthclientbridge_access_logs_initialized"):
+        logger.warning("Access logs already initialized for app")
+        return
+    app.extensions["oauthclientbridge_access_logs_initialized"] = True
+
     formatter = AccessLogFormatter()
 
     @app.before_request

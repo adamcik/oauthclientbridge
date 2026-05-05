@@ -7,7 +7,6 @@ from flask import Flask, Request
 from opentelemetry import trace
 from opentelemetry.semconv.attributes.client_attributes import (
     CLIENT_ADDRESS,
-    CLIENT_PORT,
 )
 from opentelemetry.semconv.attributes.http_attributes import (
     HTTP_REQUEST_HEADER_TEMPLATE,
@@ -131,6 +130,31 @@ def test_flask_request_logging(capsys):
     assert record["event"] == expected_access_log
 
 
+def test_access_log_not_duplicated_if_initialized_twice(capsys):
+    log_settings = LogSettings(
+        level=LogLevel.DEBUG,
+        colors=False,
+        json_output=True,
+    )
+    logs.init_logging(log_settings)
+
+    app = Flask(__name__)
+    logs.init_access_logs(log_settings, app)
+    logs.init_access_logs(log_settings, app)
+
+    @app.route("/")
+    def index():
+        return "Hello, World!"
+
+    with app.test_client() as client:
+        response = client.get("/")
+        assert response.status_code == 200
+
+    records = parse_logs(capsys)
+    access_logs = [r for r in records if r.get("logger") == "oauthclientbridge.http"]
+    assert len(access_logs) == 1
+
+
 def test_get_request_info():
     req = cast(
         Request,
@@ -143,7 +167,6 @@ def test_get_request_info():
             ),
             environ_overrides={
                 "REMOTE_ADDR": "127.0.0.1",
-                "REMOTE_PORT": "12345",
                 "SERVER_PROTOCOL": "HTTP/1.1",
             },
             data=b"",
@@ -155,7 +178,6 @@ def test_get_request_info():
     info = logs.get_request_info(req, duration_ns)
 
     assert info[CLIENT_ADDRESS] == "127.0.0.1"
-    assert info[CLIENT_PORT] == "12345"
     assert info[HTTP_REQUEST_METHOD] == "GET"
     assert info[HTTP_REQUEST_BODY_SIZE] == 0
     assert info[HTTP_ROUTE] == "/test"
