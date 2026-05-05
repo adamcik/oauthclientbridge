@@ -288,6 +288,7 @@
 
                 labels = {
                   "org.opencontainers.image.created" = createdRfc3339;
+                  "org.opencontainers.image.description" = "Bridge OAuth2 Authorization Code grants to OAuth2 Client Credentials clients.";
                   "org.opencontainers.image.revision" = self.rev or (self.dirtyRev or "unknown");
                   "org.opencontainers.image.source" = "https://github.com/adamcik/oauthclientbridge";
                   "org.opencontainers.image.title" = "oauthclientbridge";
