@@ -26,6 +26,9 @@ def create_app(settings: Settings) -> Flask:
         wrapper = ProxyFix(
             app.wsgi_app,
             x_for=int(settings.num_proxies),
+            x_proto=int(settings.num_proxies),
+            x_host=int(settings.num_proxies),
+            x_port=int(settings.num_proxies),
         )
         app.wsgi_app = wrapper
 
