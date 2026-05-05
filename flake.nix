@@ -64,6 +64,15 @@
       if cleaned == []
       then ""
       else lib.strings.trim (builtins.head cleaned);
+
+    # Convert last modified to rfc3339 format:
+    createdRfc3339 = let
+      d = self.lastModifiedDate or "";
+    in
+      if d == "" || builtins.stringLength d < 14
+      then "0001-01-01T00:00:00Z"
+      else "${builtins.substring 0 4 d}-${builtins.substring 4 2 d}-${builtins.substring 6 2 d}T${builtins.substring 8 2 d}:${builtins.substring 10 2 d}:${builtins.substring 12 2 d}Z";
+
     workspace = uv2nix.lib.workspace.loadWorkspace {workspaceRoot = ./.;};
 
     overlay = workspace.mkPyprojectOverlay {
@@ -264,17 +273,30 @@
             image = nix2containerPkgs.buildImage {
               name = "ghcr.io/adamcik/oauthclientbridge";
               tag = "latest";
-              # created = "now";
+              created = createdRfc3339;
+
               config = {
                 entrypoint = ["/bin/entrypoint"];
                 user = "${uid}:${gid}";
-                 env = [
-                    "DB_DATABASE=/data/sqlite.db"
-                    "BRIDGE_CALLBACK_TEMPLATE_FILE=/config/callback.html"
-                    "PROMETHEUS_MULTIPROC_DIR=/run/prom"
-                    "PYTHONDONTWRITEBYTECODE=1"
-                  ];
-               };
+
+                env = [
+                  "DB_DATABASE=/data/sqlite.db"
+                  "BRIDGE_CALLBACK_TEMPLATE_FILE=/config/callback.html"
+                  "PROMETHEUS_MULTIPROC_DIR=/run/prom"
+                  "PYTHONDONTWRITEBYTECODE=1"
+                ];
+
+                labels = {
+                  "org.opencontainers.image.created" = createdRfc3339;
+                  "org.opencontainers.image.revision" = self.rev or (self.dirtyRev or "unknown");
+                  "org.opencontainers.image.source" = "https://github.com/adamcik/oauthclientbridge";
+                  "org.opencontainers.image.title" = "oauthclientbridge";
+                  "org.opencontainers.image.version" =
+                    if overrideVersion != ""
+                    then overrideVersion
+                    else "unknown";
+                };
+              };
 
               layers = let
                 baseLayer = nix2containerPkgs.buildLayer {
