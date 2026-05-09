@@ -240,7 +240,6 @@
               --plugin python3
               --module oauthclientbridge.wsgi:app
               --disable-logging
-              --catch-exceptions
               --log-5xx
               --log-master
               --virtualenv "${runtimeVenv}"
