@@ -133,7 +133,7 @@ class SentrySettings(BaseSettings):
 
 
 class TelemetryExporter(StrEnum):
-    OTLP_GRPC = "otlp_grpc"
+    OTLP_HTTP = "otlp_http"
     CONSOLE = "console"
 
 
@@ -153,9 +153,9 @@ class TelemetrySettings(BaseSettings):
     exporters: set[TelemetryExporter] = Field(
         default_factory=set,
     )
-    """Set of OpenTelemetry exporters to use (e.g., OTLP_GRPC, CONSOLE)."""
+    """Set of OpenTelemetry exporters to use (e.g., OTLP_HTTP, CONSOLE)."""
 
-    endpoint: str | None = "http://localhost:4317"
+    endpoint: str | None = "http://localhost:4318"
     """OpenTelemetry collector endpoint."""
 
     service_name: str = "oauthclientbridge"
@@ -165,10 +165,10 @@ class TelemetrySettings(BaseSettings):
     """Interval in seconds for exporting metrics."""
 
     @model_validator(mode="after")
-    def check_endpoint_if_otlp_grpc(self) -> "TelemetrySettings":
-        if TelemetryExporter.OTLP_GRPC in self.exporters and self.endpoint is None:
+    def check_endpoint_if_otlp_http(self) -> "TelemetrySettings":
+        if TelemetryExporter.OTLP_HTTP in self.exporters and self.endpoint is None:
             raise ValueError(
-                "OTEL_ENDPOINT must be set if OTLP_GRPC is in TELEMETRY_EXPORTERS"
+                "OTEL_ENDPOINT must be set if OTLP_HTTP is in TELEMETRY_EXPORTERS"
             )
         return self
 

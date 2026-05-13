@@ -5,8 +5,8 @@ import requests
 from flask import Flask
 from opentelemetry import trace
 from opentelemetry.baggage.propagation import W3CBaggagePropagator
-from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
-from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.flask import FlaskInstrumentor
 from opentelemetry.instrumentation.logging import LoggingInstrumentor
 from opentelemetry.instrumentation.propagators import (
@@ -216,7 +216,7 @@ def init_tracing(
 
     for exporter_protocol in settings.exporters:
         match exporter_protocol:
-            case TelemetryExporter.OTLP_GRPC:
+            case TelemetryExporter.OTLP_HTTP:
                 provider.add_span_processor(
                     BatchSpanProcessor(OTLPSpanExporter(endpoint=settings.endpoint))
                 )
@@ -264,7 +264,7 @@ def init_metrics(
 
     for exporter_protocol in settings.exporters:
         match exporter_protocol:
-            case TelemetryExporter.OTLP_GRPC:
+            case TelemetryExporter.OTLP_HTTP:
                 exporter = OTLPMetricExporter(endpoint=settings.endpoint)
                 readers.append(
                     PeriodicExportingMetricReader(

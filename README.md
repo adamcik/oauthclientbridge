@@ -111,11 +111,11 @@ environment variables:
     `TELEMETRY_COMPONENTS=tracing,metrics`.
 
 -   `TELEMETRY_EXPORTERS`: A comma-separated list of exporters to use for traces
-    and metrics. Valid values are `otlp_grpc` and `console`. For example:
-    `TELEMETRY_EXPORTERS=otlp_grpc`.
+    and metrics. Valid values are `otlp_http` and `console`. For example:
+    `TELEMETRY_EXPORTERS=otlp_http`.
 
 -   `TELEMETRY_ENDPOINT`: The OTLP collector endpoint (e.g.,
-    `http://localhost:4317`). Required if `otlp_grpc` exporter is used.
+    `http://localhost:4318`). Required if `otlp_http` exporter is used.
 
 -   `TELEMETRY_SERVICE_NAME`: The name of the service to be reported to
     OpenTelemetry (defaults to `oauthclientbridge`).
@@ -123,5 +123,4 @@ environment variables:
 -   `TELEMETRY_METRIC_EXPORT_INTERVAL_SECONDS`: The interval in seconds at which
     metrics are exported (defaults to `5`).
 
-Metrics are pushed over OTLP gRPC as this is the only exporter we support.
-
+Metrics are pushed over OTLP HTTP as this is the only exporter we support.

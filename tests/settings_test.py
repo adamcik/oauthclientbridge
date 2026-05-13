@@ -13,28 +13,28 @@ from oauthclientbridge.settings import (
 def test_telemetry_settings_defaults() -> None:
     settings = TelemetrySettings()
     assert settings.exporters == set()
-    assert settings.endpoint == "http://localhost:4317"
+    assert settings.endpoint == "http://localhost:4318"
     assert settings.service_name == "oauthclientbridge"
 
 
 def test_telemetry_settings_invalid_if_exporter_and_no_endpoint() -> None:
     with pytest.raises(ValidationError) as excinfo:
         TelemetrySettings(
-            exporters={TelemetryExporter.OTLP_GRPC},
+            exporters={TelemetryExporter.OTLP_HTTP},
             endpoint=None,
         )
-    assert "OTEL_ENDPOINT must be set if OTLP_GRPC is in TELEMETRY_EXPORTERS" in str(
+    assert "OTEL_ENDPOINT must be set if OTLP_HTTP is in TELEMETRY_EXPORTERS" in str(
         excinfo.value
     )
 
 
 def test_telemetry_settings_valid_if_exporter_and_endpoint() -> None:
     settings = TelemetrySettings(
-        exporters={TelemetryExporter.OTLP_GRPC},
-        endpoint="http://my-collector:4317",
+        exporters={TelemetryExporter.OTLP_HTTP},
+        endpoint="http://my-collector:4318",
     )
-    assert settings.exporters == {TelemetryExporter.OTLP_GRPC}
-    assert settings.endpoint == "http://my-collector:4317"
+    assert settings.exporters == {TelemetryExporter.OTLP_HTTP}
+    assert settings.endpoint == "http://my-collector:4318"
 
 
 def test_telemetry_settings_valid_if_no_exporter_and_no_endpoint() -> None:
