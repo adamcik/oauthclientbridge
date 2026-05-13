@@ -216,6 +216,9 @@
           uwsgi = pkgs.uwsgi.override {
             python3 = python;
             plugins = ["python3"];
+            withPAM = false;
+            withSystemd = false;
+            withCap = false;
           };
 
           # Default to a non-root runtime identity; override at run-time when bind-mount
