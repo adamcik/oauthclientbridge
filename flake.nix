@@ -68,12 +68,31 @@
       root = "$REPO_ROOT";
     };
 
+    projectPython = forAllSystems (
+      system:
+        nixpkgs.legacyPackages.${system}.python312.override {
+          bluezSupport = false;
+          stripConfig = true;
+          stripIdlelib = true;
+          stripTests = true;
+          stripTkinter = true;
+
+          rebuildBytecode = false;
+          stripBytecode = true;
+
+          readline = null;
+          ncurses = null;
+          gdbm = null;
+          withSqlite = true;
+        }
+    );
+
     # Python sets grouped per system
     pythonSets = forAllSystems (
       system: let
         pkgs = nixpkgs.legacyPackages.${system};
 
-        python = pkgs.python312;
+        python = projectPython.${system};
 
         # Base Python package set from pyproject.V
         baseSet = pkgs.callPackage pyproject-nix.build.packages {
@@ -211,7 +230,7 @@
             // pythonSet.oauthclientbridge."dependency-groups".sentry
           );
 
-          python = pkgs.python312;
+          python = projectPython.${system};
 
           uwsgi = pkgs.uwsgi.override {
             python3 = python;
@@ -345,7 +364,7 @@
       system: let
         pkgs = nixpkgs.legacyPackages.${system};
 
-        python = pkgs.python312;
+        python = projectPython.${system};
 
         editablePythonSet = pythonSets.${system}.overrideScope (
           lib.composeManyExtensions [
