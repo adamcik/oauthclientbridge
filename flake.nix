@@ -50,6 +50,10 @@
     forAllSystems = lib.genAttrs lib.systems.flakeExposed;
 
     overrideMetadata = builtins.fromJSON (builtins.readFile build-overrides);
+    buildRevision =
+      if ((overrideMetadata.revision or null) != null)
+      then overrideMetadata.revision
+      else (self.rev or null);
 
     fallbackCreated = let
       d = self.lastModifiedDate or "";
@@ -298,8 +302,7 @@
                   "BRIDGE_CALLBACK_TEMPLATE_FILE=/config/callback.html"
                   "PROMETHEUS_MULTIPROC_DIR=/run/prom"
                   "PYTHONDONTWRITEBYTECODE=1"
-                ] ++ lib.optionals ((overrideMetadata.revision or null) != null) [
-                  "TELEMETRY_VCS_REVISION=${overrideMetadata.revision}"
+                  "TELEMETRY_VCS_REVISION=${if buildRevision != null then buildRevision else "unknown"}"
                 ];
 
                 labels = let
@@ -314,8 +317,8 @@
                     "org.opencontainers.image.source" = "https://github.com/adamcik/oauthclientbridge";
                     "org.opencontainers.image.title" = "oauthclientbridge";
                   }
-                  // lib.optionalAttrs ((overrideMetadata.revision or null) != null) {
-                    "org.opencontainers.image.revision" = overrideMetadata.revision;
+                  // lib.optionalAttrs (buildRevision != null) {
+                    "org.opencontainers.image.revision" = buildRevision;
                   }
                   // lib.optionalAttrs ((overrideMetadata.version or null) != null) {
                     "org.opencontainers.image.version" = overrideMetadata.version;
