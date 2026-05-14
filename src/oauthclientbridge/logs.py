@@ -129,6 +129,15 @@ def add_otel_context_processor(_: Any, __: str, event_dict: EventDict) -> EventD
         event_dict["otelTraceSampled"] = getattr(record, "otelTraceSampled")
         if hasattr(record, "otelServiceName"):
             event_dict["otelServiceName"] = getattr(record, "otelServiceName")
+        if hasattr(record, "otelServiceVersion"):
+            event_dict["otelServiceVersion"] = getattr(record, "otelServiceVersion")
+        if hasattr(record, "otelDeploymentEnvironment"):
+            event_dict["otelDeploymentEnvironment"] = getattr(
+                record,
+                "otelDeploymentEnvironment",
+            )
+        if hasattr(record, "otelVcsRevision"):
+            event_dict["otelVcsRevision"] = getattr(record, "otelVcsRevision")
 
     return event_dict
 

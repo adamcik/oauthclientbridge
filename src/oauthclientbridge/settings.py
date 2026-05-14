@@ -2,6 +2,7 @@ import logging
 import sys
 from enum import IntEnum, StrEnum
 from http import HTTPStatus
+from importlib.metadata import PackageNotFoundError, metadata, version
 from pathlib import Path
 
 from flask import current_app
@@ -161,6 +162,23 @@ class TelemetrySettings(BaseSettings):
     service_name: str = "oauthclientbridge"
     """Service name for OpenTelemetry traces and metrics."""
 
+    service_version: str = Field(
+        default_factory=lambda: _current_package_version(),
+    )
+    """Service version for OpenTelemetry resources and Prometheus build info."""
+
+    deployment_environment: str = "unknown"
+    """Deployment environment for telemetry data (e.g., production, staging)."""
+
+    vcs_revision: str | None = None
+    """VCS revision (e.g., git commit SHA) for telemetry data."""
+
+    @model_validator(mode="after")
+    def default_vcs_revision_from_package_metadata(self) -> "TelemetrySettings":
+        if self.vcs_revision is None:
+            self.vcs_revision = _current_package_revision()
+        return self
+
     metric_export_interval_seconds: float = 60.0
     """Interval in seconds for exporting metrics."""
 
@@ -270,3 +288,23 @@ class Settings(BaseSettings):
 current_settings: LocalProxy[Settings] = LocalProxy(
     lambda: current_app.config["SETTINGS"]
 )
+
+
+def _current_package_version() -> str:
+    try:
+        return version("oauthclientbridge")
+    except PackageNotFoundError:
+        return "unknown"
+
+
+def _current_package_revision() -> str | None:
+    try:
+        pkg_metadata = metadata("oauthclientbridge")
+    except PackageNotFoundError:
+        return None
+
+    revision = pkg_metadata.get("Vcs-Revision")
+    if revision:
+        return revision
+
+    return None

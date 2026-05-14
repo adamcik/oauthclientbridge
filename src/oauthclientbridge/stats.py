@@ -138,6 +138,15 @@ ClientResponseSizeHistogram = prometheus_client.Histogram(
     registry=registry,
 )
 
+BuildInfoGauge = prometheus_client.Gauge(
+    "oauth_build_info",
+    "Build and deployment metadata.",
+    ["service", "version", "revision", "environment"],
+    registry=registry,
+)
+
+_build_info_values: tuple[str, str, str, str] | None = None
+
 
 def status(code: HTTPStatus) -> str:
     if code not in HTTP_STATUS_LABELS:
@@ -183,3 +192,24 @@ def export_metrics() -> flask.Response:
 
     text = prometheus_client.generate_latest(metrics_registry)
     return flask.Response(text, mimetype=prometheus_client.CONTENT_TYPE_LATEST)
+
+
+def set_build_info(
+    service_name: str,
+    service_version: str,
+    deployment_environment: str,
+    vcs_revision: str | None,
+) -> None:
+    global _build_info_values
+
+    labels = (
+        service_name,
+        service_version,
+        vcs_revision or "unknown",
+        deployment_environment,
+    )
+    if _build_info_values == labels:
+        return
+
+    BuildInfoGauge.labels(*labels).set(1)
+    _build_info_values = labels

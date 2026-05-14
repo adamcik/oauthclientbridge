@@ -258,6 +258,9 @@ def assert_has_otel_records(record, span: trace.Span):
     assert "otelSpanID" in record
     assert "otelTraceSampled" in record
     assert "otelServiceName" in record
+    assert "otelServiceVersion" in record
+    assert "otelDeploymentEnvironment" in record
+    assert "otelVcsRevision" in record
 
     assert int(record["otelTraceID"], 16) == span.get_span_context().trace_id
     assert int(record["otelSpanID"], 16) == span.get_span_context().span_id

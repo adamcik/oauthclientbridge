@@ -167,10 +167,21 @@ def _logging_log_hook(span: trace.Span, record: object):
     setattr(record, "otelTraceSampled", context.trace_flags.sampled)
 
     service_name = ""
+    service_version = ""
+    deployment_environment = ""
+    vcs_revision = ""
     resource = getattr(trace.get_tracer_provider(), "resource", None)
     if resource is not None:
         service_name = resource.attributes.get(SERVICE_NAME, "")
+        service_version = resource.attributes.get("service.version", "")
+        deployment_environment = resource.attributes.get(
+            "deployment.environment", ""
+        )
+        vcs_revision = resource.attributes.get("vcs.revision", "")
     setattr(record, "otelServiceName", service_name)
+    setattr(record, "otelServiceVersion", service_version)
+    setattr(record, "otelDeploymentEnvironment", deployment_environment)
+    setattr(record, "otelVcsRevision", vcs_revision)
 
 
 instrumentors = [
@@ -207,9 +218,7 @@ def init_tracing(
     if TelemetryComponent.TRACING not in settings.components:
         return
 
-    provider = TracerProvider(
-        resource=Resource.create({SERVICE_NAME: settings.service_name})
-    )
+    provider = TracerProvider(resource=_resource(settings))
 
     if span_processor:
         provider.add_span_processor(span_processor)
@@ -256,7 +265,7 @@ def init_metrics(
     if TelemetryComponent.METRICS not in settings.components:
         return
 
-    resource = Resource.create({SERVICE_NAME: settings.service_name})
+    resource = _resource(settings)
 
     readers: list[MetricReader] = []
     if metric_reader:
@@ -325,3 +334,15 @@ def init_metrics(
             ],
         )
     )
+
+
+def _resource(settings: TelemetrySettings) -> Resource:
+    attributes: dict[str, str] = {
+        SERVICE_NAME: settings.service_name,
+        "service.version": settings.service_version,
+        "deployment.environment": settings.deployment_environment,
+    }
+    if settings.vcs_revision:
+        attributes["vcs.revision"] = settings.vcs_revision
+
+    return Resource.create(attributes)

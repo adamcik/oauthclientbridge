@@ -11,7 +11,11 @@ from opentelemetry.sdk.metrics.export import HistogramDataPoint, NumberDataPoint
 from requests_mock import Mocker
 
 from oauthclientbridge import db, telemetry
-from oauthclientbridge.settings import TelemetrySettings, current_settings
+from oauthclientbridge.settings import (
+    TelemetryComponent,
+    TelemetrySettings,
+    current_settings,
+)
 from oauthclientbridge.utils import APIResult
 
 from .conftest import GetClient, PostClient, TokenTuple
@@ -82,11 +86,33 @@ def test_init_metrics_disabled() -> None:
     settings = telemetry.TelemetrySettings(components=set())
 
     with unittest.mock.patch(
-        "opentelemetry.metrics.set_meter_provider"
+        "oauthclientbridge.telemetry.set_meter_provider"
     ) as mock_set_meter_provider:
         telemetry.init_metrics(settings)
 
     mock_set_meter_provider.assert_not_called()
+
+
+def test_init_metrics_sets_resource_attributes() -> None:
+    settings = TelemetrySettings(
+        components={TelemetryComponent.METRICS},
+        service_name="test-service",
+        service_version="1.2.3",
+        deployment_environment="testing",
+        vcs_revision="abc1234",
+    )
+
+    with unittest.mock.patch(
+        "oauthclientbridge.telemetry.set_meter_provider"
+    ) as mock_set_meter_provider:
+        telemetry.init_metrics(settings)
+
+    provider = mock_set_meter_provider.call_args.args[0]
+    attrs = provider._sdk_config.resource.attributes
+    assert attrs["service.name"] == "test-service"
+    assert attrs["service.version"] == "1.2.3"
+    assert attrs["deployment.environment"] == "testing"
+    assert attrs["vcs.revision"] == "abc1234"
 
 
 def test_requests_creates_spans(

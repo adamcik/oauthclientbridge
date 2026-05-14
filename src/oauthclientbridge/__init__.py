@@ -43,6 +43,13 @@ def create_app(settings: Settings) -> Flask:
     _ = app.before_request(stats.record_metrics)
     _ = app.after_request(stats.finalize_metrics)
 
+    stats.set_build_info(
+        service_name=settings.otel.service_name,
+        service_version=settings.otel.service_version,
+        deployment_environment=settings.otel.deployment_environment,
+        vcs_revision=settings.otel.vcs_revision,
+    )
+
     app.register_blueprint(views.routes)
 
     @app.cli.command("initdb")

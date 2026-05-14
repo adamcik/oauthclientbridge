@@ -120,6 +120,16 @@ environment variables:
 -   `TELEMETRY_SERVICE_NAME`: The name of the service to be reported to
     OpenTelemetry (defaults to `oauthclientbridge`).
 
+-   `TELEMETRY_SERVICE_VERSION`: Service version reported as
+    `service.version` in OpenTelemetry resources (defaults to package version).
+
+-   `TELEMETRY_DEPLOYMENT_ENVIRONMENT`: Deployment environment reported as
+    `deployment.environment` in OpenTelemetry resources (defaults to
+    `unknown`).
+
+-   `TELEMETRY_VCS_REVISION`: VCS revision (for example, git commit SHA)
+    reported as `vcs.revision` in OpenTelemetry resources.
+
 -   `TELEMETRY_METRIC_EXPORT_INTERVAL_SECONDS`: The interval in seconds at which
     metrics are exported (defaults to `5`).
 

@@ -298,6 +298,8 @@
                   "BRIDGE_CALLBACK_TEMPLATE_FILE=/config/callback.html"
                   "PROMETHEUS_MULTIPROC_DIR=/run/prom"
                   "PYTHONDONTWRITEBYTECODE=1"
+                ] ++ lib.optionals ((overrideMetadata.revision or null) != null) [
+                  "TELEMETRY_VCS_REVISION=${overrideMetadata.revision}"
                 ];
 
                 labels = let
