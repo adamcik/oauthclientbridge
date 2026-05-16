@@ -25,7 +25,7 @@ dependencies = [
   "prometheus-client==0.25.0",
   "pydantic==2.13.4",
   "pydantic-settings==2.14.1",
-  "requests==2.33.1",
+  "requests==2.34.1",
   "structlog==25.5.0",
   "werkzeug==3.1.8",
 ]
