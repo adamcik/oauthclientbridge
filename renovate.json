@@ -9,7 +9,7 @@
   "platformAutomerge": false,
   "lockFileMaintenance": {
     "enabled": true,
-    "schedule": ["before 06:00 on Saturday"]
+    "schedule": ["before 06:00 on the first day of the month"]
   },
   "packageRules": [
     {
@@ -64,6 +64,15 @@
       "matchManagers": ["uv", "pep621"],
       "matchPackageNames": ["flask", "werkzeug", "jinja2", "itsdangerous"],
       "groupName": "flask stack"
+    },
+    {
+      "matchManagers": ["uv", "pep621"],
+      "matchUpdateTypes": ["patch"],
+      "groupName": "python patch updates",
+      "automerge": true,
+      "automergeType": "pr",
+      "minimumReleaseAge": "5 days",
+      "schedule": ["before 06:00 on Saturday"]
     },
     {
       "matchManagers": ["uv", "pep621"],
