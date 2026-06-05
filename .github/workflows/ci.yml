@@ -27,7 +27,7 @@ jobs:
         uses: cachix/install-nix-action@b97f05dcb019ddea06450a50ef6203d2fdc19fee # v31
 
       - name: Set up Cachix
-        uses: cachix/cachix-action@97e5ff84d02b3b4f9936339f767e17f03c9252ed # v16
+        uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71 # v17
         with:
           name: oauthclientbridge
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
