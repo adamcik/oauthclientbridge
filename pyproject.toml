@@ -41,7 +41,7 @@ dev = [
   { include-group = "test" },
   { include-group = "typing" },
 ]
-lint = ["ruff==0.15.14"]
+lint = ["ruff==0.15.15"]
 sentry = ["sentry-sdk[opentelemetry]==2.61.1", "structlog-sentry==2.2.1"]
 test = [
   "pytest",
