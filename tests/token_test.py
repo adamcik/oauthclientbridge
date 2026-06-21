@@ -498,5 +498,34 @@ def test_token_provider_unavailable(
     assert resp.data["error_description"]
 
 
+def test_token_invalid_grant_revokes_stored_refresh_token(
+    post: PostClient,
+    refresh_token: TokenTuple,
+    requests_mock: Mocker,
+    settings: Settings,
+):
+    requests_mock.post(
+        settings.oauth.token_uri,
+        status_code=400,
+        json={"error": OAuthError.INVALID_GRANT},
+    )
+
+    data = {
+        "client_id": refresh_token.client_id,
+        "client_secret": refresh_token.client_secret,
+        "grant_type": "client_credentials",
+    }
+
+    first = post("/token", data)
+    second = post("/token", data)
+
+    assert first.status == 400
+    assert first.data["error"] == OAuthError.INVALID_GRANT
+    assert second.status == 400
+    assert second.data["error"] == OAuthError.INVALID_GRANT
+    assert db.lookup(refresh_token.client_id) is None
+    assert len(requests_mock.request_history) == 1
+
+
 # TODO: Test other than basic auth...
 # TODO: Test oauth helpers directly?

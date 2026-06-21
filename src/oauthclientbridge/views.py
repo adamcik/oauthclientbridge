@@ -218,13 +218,11 @@ def token() -> flask.Response:
         )
 
         if error == OAuthError.INVALID_GRANT:
-            # TODO: Store when we got an invalid grant? Or just cache this so
-            # we have fewer backend calls to provider?
-
-            # NOTE: This was commented out to avoid invalidating things in case
-            # something went wrong upstream.
-            # db.update(client_id, None)
-            logger.warning("Invalid grant")
+            # Cache terminal refresh failures locally so older clients stop
+            # repeatedly sending the same dead refresh token upstream.
+            # Spotify refresh token expiry: https://developer.spotify.com/blog/2026-06-18-refresh-token-expiration
+            db.update(client_id, None)
+            logger.warning("Invalid grant; revoking stored token")
         elif error == OAuthError.TEMPORARILY_UNAVAILABLE:
             logger.warning("Token refresh failed", refresh_result=refresh_result)
         else:
