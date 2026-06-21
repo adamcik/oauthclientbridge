@@ -11,8 +11,10 @@ Note: this flow uses `podman create` + `podman generate systemd --new`.
 
 ## Files in this directory
 
+- `spotify/container`
 - `spotify/env`
 - `spotify/callback.html`
+- `soundcloud/container`
 - `soundcloud/env`
 - `soundcloud/callback.html`
 
