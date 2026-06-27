@@ -527,5 +527,30 @@ def test_token_invalid_grant_revokes_stored_refresh_token(
     assert len(requests_mock.request_history) == 1
 
 
+def test_token_retryable_invalid_grant_does_not_revoke_refresh_token(
+    post: PostClient,
+    refresh_token: TokenTuple,
+    requests_mock: Mocker,
+    settings: Settings,
+):
+    requests_mock.post(
+        settings.oauth.token_uri,
+        status_code=503,
+        json={"error": OAuthError.INVALID_GRANT},
+    )
+
+    data = {
+        "client_id": refresh_token.client_id,
+        "client_secret": refresh_token.client_secret,
+        "grant_type": "client_credentials",
+    }
+
+    resp = post("/token", data)
+
+    assert resp.status == 503
+    assert resp.data["error"] == OAuthError.TEMPORARILY_UNAVAILABLE
+    assert db.lookup(refresh_token.client_id) is not None
+
+
 # TODO: Test other than basic auth...
 # TODO: Test oauth helpers directly?
