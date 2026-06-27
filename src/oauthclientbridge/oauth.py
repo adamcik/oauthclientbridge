@@ -113,8 +113,11 @@ def error_handler(e: Error) -> flask.Response:
             f'Basic realm="{current_settings.auth_realm}"'
         )
     elif e.retry_after:
-        response.headers["Retry-After"] = int(e.retry_after + 1)
-        response.status_code = HTTPStatus.TOO_MANY_REQUESTS
+        response.headers["Retry-After"] = int(e.retry_after)
+        if e.error == OAuthError.TEMPORARILY_UNAVAILABLE:
+            response.status_code = HTTPStatus.SERVICE_UNAVAILABLE
+        else:
+            response.status_code = HTTPStatus.TOO_MANY_REQUESTS
     else:
         response.status_code = HTTPStatus.BAD_REQUEST
 
@@ -283,6 +286,9 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
         if error_type:
             attributes["error.type"] = error_type
             span.set_status(trace.Status(trace.StatusCode.ERROR, str(result)))
+
+        if "error" in result and retry:
+            result["retry_after"] = retry
 
         span.set_attribute("total_retries", i)
         for key, value in attributes.items():

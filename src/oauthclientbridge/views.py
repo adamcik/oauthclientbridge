@@ -113,7 +113,7 @@ def callback() -> flask.Response:
         current_span = trace.get_current_span()
         current_span.add_event("token_error", result)
 
-        return _error(error, desc, client_state)
+        return _error(error, desc, client_state, result.get("retry_after"))
 
     if "refresh_token" in result:
         result = oauth.scrub_refresh_token(result)
@@ -240,6 +240,7 @@ def token() -> flask.Response:
             error,
             refresh_result.get("error_description"),
             refresh_result.get("error_uri"),
+            refresh_result.get("retry_after"),
         )
 
     if not oauth.validate_token(refresh_result):
@@ -275,9 +276,12 @@ def _error(
     error: OAuthError | str,
     description: str | None = None,
     state: str | None = None,
+    retry_after: int | None = None,
 ) -> flask.Response:
     if error == OAuthError.INVALID_CLIENT:
         status = HTTPStatus.UNAUTHORIZED
+    elif error == OAuthError.TEMPORARILY_UNAVAILABLE:
+        status = HTTPStatus.SERVICE_UNAVAILABLE
     else:
         status = HTTPStatus.BAD_REQUEST
 
@@ -304,6 +308,8 @@ def _error(
 
     response = _render(error=error_code, description=description, state=state)
     response.status_code = status
+    if retry_after is not None and status == HTTPStatus.SERVICE_UNAVAILABLE:
+        response.headers["Retry-After"] = int(retry_after)
     return response
 
 
