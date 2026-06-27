@@ -281,6 +281,19 @@ def test_oauth_fetch_uses_remaining_budget_for_retry_timeout(
     assert fake_time[0] == pytest.approx(1.0)
 
 
+def test_oauth_fetch_does_not_call_requests_with_expired_deadline(
+    app_context: flask.ctx.AppContext,
+) -> None:
+    current_settings.fetch.total_timeout = 0.0
+    current_settings.fetch.total_retries = 1
+
+    with unittest.mock.patch("oauthclientbridge.oauth.get_session") as mock_get_session:
+        result = oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+
+    assert result["error"] == "server_error"
+    assert mock_get_session.call_count == 0
+
+
 def test_oauth_fetch_jitters_retry_after_sleep(
     app_context: flask.ctx.AppContext,
     requests_mock: RequestsMocker,

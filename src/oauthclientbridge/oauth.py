@@ -373,6 +373,18 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
                 else RetryAttemptKind.INITIAL,
             )
 
+            if remaining_timeout <= 0:
+                _record_retry_decision(
+                    endpoint,
+                    RetryDecision(
+                        RetryDecisionAction.SKIP,
+                        RetryReason.DEADLINE_EXCEEDED,
+                    ),
+                )
+                span.add_event("No timeout remaining")
+                logger.debug("Abort %s no timeout remaining.", prefix)
+                break
+
             result, status, retry = _fetch(
                 span,
                 prepared,
@@ -415,6 +427,11 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
                 pending_retry_decision = None
                 break  # No error reported so might as well return it.
             else:
+                try:
+                    if OAuthError(result["error"]) in TOKEN_ERRORS:
+                        result["error"] = OAuthError.TEMPORARILY_UNAVAILABLE.value
+                except ValueError:
+                    result["error"] = OAuthError.TEMPORARILY_UNAVAILABLE.value
                 pending_retry_decision = RetryDecision(
                     RetryDecisionAction.RETRY,
                     _retry_reason_for_status(status),
