@@ -43,6 +43,7 @@ def test_oauth_fetch_does_not_start_retry_after_sleep_exhausts_deadline(
     fetch_side_effect.call_count = 0
 
     with (
+        unittest.mock.patch("random.uniform", return_value=1.25),
         unittest.mock.patch("oauthclientbridge.oauth.time.time", side_effect=now),
         unittest.mock.patch("oauthclientbridge.oauth.time.monotonic", side_effect=now),
         unittest.mock.patch("oauthclientbridge.oauth.time.sleep", side_effect=sleep),
@@ -53,7 +54,7 @@ def test_oauth_fetch_does_not_start_retry_after_sleep_exhausts_deadline(
         result = oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
 
     assert result["error"] == "temporarily_unavailable"
-    assert fake_time[0] == pytest.approx(1.0)
+    assert fake_time[0] == pytest.approx(0.2)
 
 
 def test_oauth_fetch_uses_remaining_budget_for_retry_timeout(
@@ -91,6 +92,7 @@ def test_oauth_fetch_uses_remaining_budget_for_retry_timeout(
         )
 
     with (
+        unittest.mock.patch("random.uniform", return_value=0.75),
         unittest.mock.patch("oauthclientbridge.oauth.time.time", side_effect=now),
         unittest.mock.patch("oauthclientbridge.oauth.time.monotonic", side_effect=now),
         unittest.mock.patch("oauthclientbridge.oauth.time.sleep", side_effect=sleep),
@@ -102,8 +104,83 @@ def test_oauth_fetch_uses_remaining_budget_for_retry_timeout(
 
     assert result["access_token"] == "mock_token"
     assert observed_timeouts[0] == pytest.approx(1.0)
-    assert observed_timeouts[1] == pytest.approx(0.5)
+    assert observed_timeouts[1] == pytest.approx(0.575)
     assert fake_time[0] == pytest.approx(1.0)
+
+
+def test_oauth_fetch_jitters_retry_after_sleep(
+    app_context: flask.ctx.AppContext,
+    requests_mock: RequestsMocker,
+) -> None:
+    requests_mock.post(
+        current_settings.oauth.token_uri,
+        [
+            {"status_code": 429, "headers": {"Retry-After": "10"}},
+            {
+                "json": {"access_token": "mock_token", "token_type": "Bearer"},
+                "status_code": 200,
+            },
+        ],
+    )
+
+    with (
+        unittest.mock.patch("random.uniform", return_value=0.75),
+        unittest.mock.patch("time.sleep") as mock_sleep,
+    ):
+        oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+
+    mock_sleep.assert_called_once_with(7.5)
+
+
+def test_oauth_fetch_jitters_retry_backoff_within_bounds(
+    app_context: flask.ctx.AppContext,
+    requests_mock: RequestsMocker,
+) -> None:
+    requests_mock.post(
+        current_settings.oauth.token_uri,
+        [
+            {"status_code": 503},
+            {
+                "json": {"access_token": "mock_token", "token_type": "Bearer"},
+                "status_code": 200,
+            },
+        ],
+    )
+
+    with (
+        unittest.mock.patch("random.uniform", return_value=1.25),
+        unittest.mock.patch("time.sleep") as mock_sleep,
+    ):
+        oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+
+    mock_sleep.assert_called_once_with(0.125)
+
+
+def test_oauth_fetch_jitters_retry_after_sleeps_independently(
+    app_context: flask.ctx.AppContext,
+    requests_mock: RequestsMocker,
+) -> None:
+    requests_mock.post(
+        current_settings.oauth.token_uri,
+        [
+            {"status_code": 429, "headers": {"Retry-After": "10"}},
+            {"status_code": 429, "headers": {"Retry-After": "10"}},
+            {
+                "json": {"access_token": "mock_token", "token_type": "Bearer"},
+                "status_code": 200,
+            },
+        ],
+    )
+
+    with (
+        unittest.mock.patch("random.uniform", side_effect=[0.75, 1.25]),
+        unittest.mock.patch("time.sleep") as mock_sleep,
+    ):
+        oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+
+    assert mock_sleep.call_args_list[0].args[0] == 7.5
+    assert mock_sleep.call_args_list[1].args[0] == 12.5
+    assert mock_sleep.call_args_list[0].args[0] != mock_sleep.call_args_list[1].args[0]
 
 
 def test_oauth_fetch_retries_on_failure_then_success(
@@ -193,9 +270,12 @@ def test_oauth_fetch_respects_retry_after_header(
         ],
     )
 
-    with unittest.mock.patch("time.sleep") as mock_sleep:
+    with (
+        unittest.mock.patch("random.uniform", return_value=0.75),
+        unittest.mock.patch("time.sleep") as mock_sleep,
+    ):
         oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
-        mock_sleep.assert_called_once_with(10)
+        mock_sleep.assert_called_once_with(7.5)
 
 
 def test_oauth_fetch_does_not_retry_on_non_retryable_status_code(
