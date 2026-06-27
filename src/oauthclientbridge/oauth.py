@@ -329,7 +329,10 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
                         logger.debug("Abort %s retry budget exhausted.", prefix)
                         break
 
-                    sleep_for = jitter_delay(retry or backoff)
+                    base_delay = retry if retry else backoff
+                    sleep_for = jitter_delay(base_delay)
+                    if retry:
+                        sleep_for = max(retry, sleep_for)
                     if sleep_for > remaining_timeout:
                         _record_retry_decision(
                             endpoint,
