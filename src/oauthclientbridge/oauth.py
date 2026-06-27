@@ -3,6 +3,7 @@ import functools
 import importlib.metadata
 import random
 import re
+import threading
 import time
 from http import HTTPStatus
 from typing import Any, override
@@ -41,6 +42,35 @@ _oauth_client_retries_histogram = meter.create_histogram(
 # TODO: This should be a stricter type or a pydantic model
 OAuthResponse = dict[str, Any]
 URIParam = dict[str, str]
+
+
+class RetryLimiter:
+    def __init__(self, capacity: int, refill_per_initial: float):
+        self.capacity = capacity
+        self.refill_per_initial = refill_per_initial
+        self._tokens = capacity
+        self._lock = threading.Lock()
+
+    def record_initial(self) -> None:
+        with self._lock:
+            self._tokens = min(self.capacity, self._tokens + self.refill_per_initial)
+
+    def allow_retry(self) -> bool:
+        with self._lock:
+            if self._tokens < 1:
+                return False
+
+            self._tokens -= 1
+            return True
+
+    def record_retry(self) -> None:
+        pass
+
+
+@functools.lru_cache()
+def _get_retry_limiter(capacity: int, refill_per_initial: float) -> RetryLimiter:
+    return RetryLimiter(capacity, refill_per_initial)
+
 
 # https://tools.ietf.org/html/rfc6749#section-4.1.2.1
 AUTHORIZATION_ERRORS = {
@@ -190,6 +220,11 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
     with tracer.start_as_current_span(f"OAUTH {endpoint}") as span:
         req = requests.Request("POST", uri, data=data, auth=auth)
         prepared = req.prepare()
+        retry_limiter = _get_retry_limiter(
+            current_settings.fetch.retry_budget_capacity,
+            current_settings.fetch.retry_budget_refill_per_initial,
+        )
+        retry_limiter.record_initial()
 
         timeout = time.time() + current_settings.fetch.total_timeout
         retry = 0
@@ -213,6 +248,11 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
                 # TODO: This should probably be a timeout outcome.
                 break
             elif (retry or backoff) > 0:
+                if not retry_limiter.allow_retry():
+                    span.add_event("Retry budget exhausted")
+                    logger.debug("Abort %s retry budget exhausted.", prefix)
+                    break
+
                 sleep_for = jitter_delay(retry or backoff)
                 if sleep_for > remaining_timeout:
                     span.add_event("No timeout remaining")
@@ -227,6 +267,8 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
                     span.add_event("No timeout remaining")
                     logger.debug("Abort %s no timeout remaining.", prefix)
                     break
+
+                retry_limiter.record_retry()
 
             result, status, retry = _fetch(
                 span,
