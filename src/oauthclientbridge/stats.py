@@ -122,6 +122,20 @@ ClientRetryHistogram = prometheus_client.Histogram(
     registry=registry,
 )
 
+ClientAttemptCounter = prometheus_client.Counter(
+    "oauth_client_attempts",
+    "OAuth client attempts, including retries.",
+    ["endpoint", "kind"],
+    registry=registry,
+)
+
+ClientRetryDecisionCounter = prometheus_client.Counter(
+    "oauth_client_retry_decisions",
+    "OAuth retry decisions and reasons.",
+    ["endpoint", "decision", "reason"],
+    registry=registry,
+)
+
 ClientLatencyHistogram = prometheus_client.Histogram(
     "oauth_client_latency_seconds",
     "Overall request latency.",

@@ -1,5 +1,6 @@
 import sqlite3
 import unittest.mock
+from http import HTTPStatus
 
 import flask
 import pytest
@@ -10,7 +11,7 @@ from opentelemetry import metrics, trace
 from opentelemetry.sdk.metrics.export import HistogramDataPoint, NumberDataPoint
 from requests_mock import Mocker
 
-from oauthclientbridge import db, telemetry
+from oauthclientbridge import db, oauth, telemetry
 from oauthclientbridge.settings import (
     TelemetryComponent,
     TelemetrySettings,
@@ -457,6 +458,211 @@ def test_oauth_client_retries_metric_success(
     assert "error.type" not in retries_data.attributes
     assert retries_data.sum == 0  # No retries on success
     assert retries_data.count == 1
+
+
+def test_oauth_client_retry_metrics_record_attempts_and_reasons(
+    requests_mock: Mocker,
+    client: FlaskClient,
+    state: str,
+):
+    requests_mock.post(
+        current_settings.oauth.token_uri,
+        [
+            {"status_code": 503, "json": {"error": "temporarily_unavailable"}},
+            {
+                "json": {"access_token": "mock_token", "token_type": "Bearer"},
+                "status_code": 200,
+            },
+        ],
+    )
+
+    class FakeRetryLimiter:
+        def record_initial(self) -> None:
+            self.initial_calls = getattr(self, "initial_calls", 0) + 1
+
+        def allow_retry(self) -> bool:
+            return True
+
+        def record_retry(self) -> None:
+            self.retry_calls = getattr(self, "retry_calls", 0) + 1
+
+    with (
+        unittest.mock.patch.object(
+            oauth, "_get_retry_limiter", return_value=FakeRetryLimiter()
+        ),
+        unittest.mock.patch("random.uniform", return_value=1.0),
+        unittest.mock.patch("time.sleep"),
+    ):
+        client.get("/callback?code=1234&state=" + state)
+
+    metrics_resp = client.get("/metrics")
+
+    assert b"oauth_client_attempts_total" in metrics_resp.data
+    assert b'endpoint="token"' in metrics_resp.data
+    assert b'kind="initial"' in metrics_resp.data
+    assert b'kind="retry"' in metrics_resp.data
+    assert b"oauth_client_retry_decisions_total" in metrics_resp.data
+    assert b'decision="retry"' in metrics_resp.data
+    assert b'reason="unavailable"' in metrics_resp.data
+
+
+def test_oauth_client_retry_metrics_bucket_429_as_resource_exhausted(
+    requests_mock: Mocker,
+    client: FlaskClient,
+):
+    endpoint = "rate-limit-reason-test"
+    requests_mock.post(
+        current_settings.oauth.token_uri,
+        [
+            {"status_code": 429, "json": {"error": "temporarily_unavailable"}},
+            {
+                "json": {"access_token": "mock_token", "token_type": "Bearer"},
+                "status_code": 200,
+            },
+        ],
+    )
+
+    class FakeRetryLimiter:
+        def record_initial(self) -> None:
+            pass
+
+        def allow_retry(self) -> bool:
+            return True
+
+        def record_retry(self) -> None:
+            pass
+
+    with (
+        unittest.mock.patch.object(
+            oauth, "_get_retry_limiter", return_value=FakeRetryLimiter()
+        ),
+        unittest.mock.patch("random.uniform", return_value=1.0),
+        unittest.mock.patch("time.sleep"),
+    ):
+        oauth.fetch(current_settings.oauth.token_uri, endpoint)
+
+    metrics_resp = client.get("/metrics")
+    assert b"oauth_client_retry_decisions_total" in metrics_resp.data
+    assert b'decision="retry"' in metrics_resp.data
+    assert b'reason="resource_exhausted"' in metrics_resp.data
+
+
+def test_oauth_client_retry_metrics_record_budget_skip(
+    requests_mock: Mocker,
+    client: FlaskClient,
+):
+    requests_mock.post(
+        current_settings.oauth.token_uri,
+        [
+            {"status_code": 503, "json": {"error": "temporarily_unavailable"}},
+            {
+                "json": {"access_token": "mock_token", "token_type": "Bearer"},
+                "status_code": 200,
+            },
+        ],
+    )
+
+    class FakeRetryLimiter:
+        def record_initial(self) -> None:
+            pass
+
+        def allow_retry(self) -> bool:
+            return False
+
+        def record_retry(self) -> None:
+            pass
+
+    with unittest.mock.patch.object(
+        oauth, "_get_retry_limiter", return_value=FakeRetryLimiter()
+    ):
+        oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+
+    metrics_resp = client.get("/metrics")
+
+    assert b"oauth_client_retry_decisions_total" in metrics_resp.data
+    assert b'decision="skip"' in metrics_resp.data
+    assert b'reason="resource_exhausted"' in metrics_resp.data
+
+
+def test_oauth_client_retry_metrics_record_deadline_skip(
+    client: FlaskClient,
+):
+    current_settings.fetch.total_timeout = 1.0
+    current_settings.fetch.total_retries = 2
+    current_settings.fetch.backoff_factor = 0.8
+
+    class FakeRetryLimiter:
+        def record_initial(self) -> None:
+            pass
+
+        def allow_retry(self) -> bool:
+            return True
+
+        def record_retry(self) -> None:
+            pass
+
+    fake_time = [0.0]
+
+    def now() -> float:
+        return fake_time[0]
+
+    def sleep(duration: float) -> None:
+        fake_time[0] += duration
+
+    def fetch_side_effect(*args, **kwargs):
+        if fetch_side_effect.call_count == 0:
+            fetch_side_effect.call_count += 1
+            fake_time[0] += 0.2
+            return (
+                {"error": "temporarily_unavailable"},
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                0,
+            )
+
+        raise AssertionError("unexpected retry attempt")
+
+    fetch_side_effect.call_count = 0
+
+    with (
+        unittest.mock.patch.object(
+            oauth, "_get_retry_limiter", return_value=FakeRetryLimiter()
+        ),
+        unittest.mock.patch("oauthclientbridge.oauth.time.time", side_effect=now),
+        unittest.mock.patch("oauthclientbridge.oauth.time.sleep", side_effect=sleep),
+        unittest.mock.patch("random.uniform", return_value=1.25),
+        unittest.mock.patch(
+            "oauthclientbridge.oauth._fetch", side_effect=fetch_side_effect
+        ),
+    ):
+        oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+
+    metrics_resp = client.get("/metrics")
+
+    assert b"oauth_client_retry_decisions_total" in metrics_resp.data
+    assert b'decision="skip"' in metrics_resp.data
+    assert b'reason="deadline_exceeded"' in metrics_resp.data
+
+
+def test_oauth_client_retry_metrics_record_attempt_limit_skip(
+    requests_mock: Mocker,
+    client: FlaskClient,
+):
+    current_settings.fetch.total_retries = 1
+    endpoint = "attempt-limit-reason-test"
+    requests_mock.post(
+        current_settings.oauth.token_uri,
+        json={"error": "temporarily_unavailable"},
+        status_code=503,
+    )
+
+    with unittest.mock.patch("time.sleep"):
+        oauth.fetch(current_settings.oauth.token_uri, endpoint)
+
+    metrics_resp = client.get("/metrics")
+
+    assert b"oauth_client_retry_decisions_total" in metrics_resp.data
+    assert b'decision="skip"' in metrics_resp.data
+    assert b'reason="unavailable"' in metrics_resp.data
 
 
 def test_oauth_client_metrics_failure(

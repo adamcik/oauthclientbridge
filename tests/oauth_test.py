@@ -45,12 +45,17 @@ def test_retry_limiter_refills_from_initial_usage() -> None:
     assert limiter.allow_retry() is True
 
 
-def test_retry_limiter_factory_is_cached() -> None:
+def test_retry_limiter_factory_is_cached(app_context: flask.ctx.AppContext) -> None:
     oauth._get_retry_limiter.cache_clear()
-    limiter1 = oauth._get_retry_limiter(1, 0.25)
-    limiter2 = oauth._get_retry_limiter(1, 0.25)
+    current_settings.fetch.retry_budget_capacity = 8
+    current_settings.fetch.retry_budget_refill_per_initial = 0.5
+
+    limiter1 = oauth._get_retry_limiter(8, 0.5)
+    limiter2 = oauth._get_retry_limiter(8, 0.5)
 
     assert limiter1 is limiter2
+    assert limiter1.capacity == 8
+    assert limiter1.refill_per_initial == 0.5
 
 
 def test_retry_limiter_factory_refreshes_when_settings_change() -> None:
@@ -322,6 +327,33 @@ def test_oauth_fetch_jitters_retry_backoff_within_bounds(
         oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
 
     mock_sleep.assert_called_once_with(0.125)
+
+
+def test_oauth_fetch_uses_configured_jitter_bounds(
+    app_context: flask.ctx.AppContext,
+    requests_mock: RequestsMocker,
+) -> None:
+    current_settings.fetch.backoff_jitter_min = 1.0
+    current_settings.fetch.backoff_jitter_max = 2.0
+
+    requests_mock.post(
+        current_settings.oauth.token_uri,
+        [
+            {"status_code": 503},
+            {
+                "json": {"access_token": "mock_token", "token_type": "Bearer"},
+                "status_code": 200,
+            },
+        ],
+    )
+
+    with (
+        unittest.mock.patch("random.uniform", side_effect=lambda low, high: high),
+        unittest.mock.patch("time.sleep") as mock_sleep,
+    ):
+        oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+
+    mock_sleep.assert_called_once_with(0.2)
 
 
 def test_oauth_fetch_jitters_retry_after_sleeps_independently(

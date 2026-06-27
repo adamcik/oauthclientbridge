@@ -5,6 +5,8 @@ import random
 import re
 import threading
 import time
+from dataclasses import dataclass
+from enum import StrEnum
 from http import HTTPStatus
 from typing import Any, override
 
@@ -44,7 +46,38 @@ OAuthResponse = dict[str, Any]
 URIParam = dict[str, str]
 
 
+class RetryAttemptKind(StrEnum):
+    INITIAL = "initial"
+    RETRY = "retry"
+
+
+class RetryDecisionAction(StrEnum):
+    RETRY = "retry"
+    SKIP = "skip"
+
+
+class RetryReason(StrEnum):
+    UNAVAILABLE = "unavailable"
+    RESOURCE_EXHAUSTED = "resource_exhausted"
+    DEADLINE_EXCEEDED = "deadline_exceeded"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True)
+class RetryDecision:
+    action: RetryDecisionAction
+    reason: RetryReason
+
+
 class RetryLimiter:
+    """Process-local retry budget.
+
+    We model this as a bounded bucket of retry tokens. First attempts replenish
+    the bucket by a configured fraction, while each admitted retry consumes one
+    whole token. This keeps the implementation local and simple, but it means
+    the budget is per-process and only approximates fleet-wide retry volume.
+    """
+
     def __init__(self, capacity: int, refill_per_initial: float):
         self.capacity = capacity
         self.refill_per_initial = refill_per_initial
@@ -70,6 +103,30 @@ class RetryLimiter:
 @functools.lru_cache()
 def _get_retry_limiter(capacity: int, refill_per_initial: float) -> RetryLimiter:
     return RetryLimiter(capacity, refill_per_initial)
+
+
+def _record_attempt(endpoint: str, attempt_kind: RetryAttemptKind) -> None:
+    stats.ClientAttemptCounter.labels(endpoint=endpoint, kind=attempt_kind).inc()
+
+
+def _record_retry_decision(endpoint: str, decision: RetryDecision) -> None:
+    stats.ClientRetryDecisionCounter.labels(
+        endpoint=endpoint,
+        decision=decision.action,
+        reason=decision.reason,
+    ).inc()
+
+
+def _retry_reason_for_status(status: HTTPStatus) -> RetryReason:
+    if status == HTTPStatus.TOO_MANY_REQUESTS:
+        return RetryReason.RESOURCE_EXHAUSTED
+    if status in {
+        HTTPStatus.BAD_GATEWAY,
+        HTTPStatus.SERVICE_UNAVAILABLE,
+        HTTPStatus.GATEWAY_TIMEOUT,
+    }:
+        return RetryReason.UNAVAILABLE
+    return RetryReason.UNKNOWN
 
 
 # https://tools.ietf.org/html/rfc6749#section-4.1.2.1
@@ -229,6 +286,7 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
         timeout = time.time() + current_settings.fetch.total_timeout
         retry = 0
         status: HTTPStatus | None = None  # Set a default value for status
+        pending_retry_decision: RetryDecision | None = None
 
         result = OAuthError.SERVER_ERROR.json(
             description="An unknown error occurred talking to provider."
@@ -237,38 +295,73 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
         i = 0
         for i in range(current_settings.fetch.total_retries):
             prefix = "attempt #%d %s" % (i + 1, uri)
+            _record_attempt(
+                endpoint, RetryAttemptKind.RETRY if i > 0 else RetryAttemptKind.INITIAL
+            )
 
             # TODO: Add jitter to backoff and/or retry after?
             backoff = (2**i - 1) * current_settings.fetch.backoff_factor
             remaining_timeout = timeout - time.time()
 
-            if (retry or backoff) > remaining_timeout:
-                span.add_event("No timeout remaining")
-                logger.debug("Abort %s no timeout remaining.", prefix)
-                # TODO: This should probably be a timeout outcome.
-                break
-            elif (retry or backoff) > 0:
-                if not retry_limiter.allow_retry():
-                    span.add_event("Retry budget exhausted")
-                    logger.debug("Abort %s retry budget exhausted.", prefix)
-                    break
-
-                sleep_for = jitter_delay(retry or backoff)
-                if sleep_for > remaining_timeout:
+            if pending_retry_decision is not None:
+                if (retry or backoff) > remaining_timeout:
+                    _record_retry_decision(
+                        endpoint,
+                        RetryDecision(
+                            RetryDecisionAction.SKIP,
+                            RetryReason.DEADLINE_EXCEEDED,
+                        ),
+                    )
                     span.add_event("No timeout remaining")
                     logger.debug("Abort %s no timeout remaining.", prefix)
+                    # TODO: This should probably be a timeout outcome.
                     break
+                elif (retry or backoff) > 0:
+                    if not retry_limiter.allow_retry():
+                        _record_retry_decision(
+                            endpoint,
+                            RetryDecision(
+                                RetryDecisionAction.SKIP,
+                                RetryReason.RESOURCE_EXHAUSTED,
+                            ),
+                        )
+                        span.add_event("Retry budget exhausted")
+                        logger.debug("Abort %s retry budget exhausted.", prefix)
+                        break
 
-                span.add_event("Sleeping", {"duration": sleep_for})
-                logger.debug("Retry %s [sleep %.3f]", prefix, sleep_for)
-                time.sleep(sleep_for)
-                remaining_timeout = timeout - time.time()
-                if remaining_timeout <= 0:
-                    span.add_event("No timeout remaining")
-                    logger.debug("Abort %s no timeout remaining.", prefix)
-                    break
+                    sleep_for = jitter_delay(retry or backoff)
+                    if sleep_for > remaining_timeout:
+                        _record_retry_decision(
+                            endpoint,
+                            RetryDecision(
+                                RetryDecisionAction.SKIP,
+                                RetryReason.DEADLINE_EXCEEDED,
+                            ),
+                        )
+                        span.add_event("No timeout remaining")
+                        logger.debug("Abort %s no timeout remaining.", prefix)
+                        break
 
-                retry_limiter.record_retry()
+                    _record_retry_decision(endpoint, pending_retry_decision)
+                    span.add_event("Sleeping", {"duration": sleep_for})
+                    logger.debug("Retry %s [sleep %.3f]", prefix, sleep_for)
+                    time.sleep(sleep_for)
+                    remaining_timeout = timeout - time.time()
+                    if remaining_timeout <= 0:
+                        _record_retry_decision(
+                            endpoint,
+                            RetryDecision(
+                                RetryDecisionAction.SKIP,
+                                RetryReason.DEADLINE_EXCEEDED,
+                            ),
+                        )
+                        span.add_event("No timeout remaining")
+                        logger.debug("Abort %s no timeout remaining.", prefix)
+                        break
+
+                    retry_limiter.record_retry()
+
+                pending_retry_decision = None
 
             result, status, retry = _fetch(
                 span,
@@ -295,22 +388,43 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
 
             if status is None:
                 span.add_event("Missing response")
+                pending_retry_decision = RetryDecision(
+                    RetryDecisionAction.RETRY,
+                    RetryReason.UNAVAILABLE,
+                )
                 pass  # We didn't even get a response, so try again.
             elif status.is_success:
                 span.add_event("Success")
+                pending_retry_decision = None
                 break
             elif status not in current_settings.fetch.retry_status_codes:
                 span.add_event("Aborted", {"status": status})
+                pending_retry_decision = None
                 break
             elif "error" not in result:
                 span.add_event("Non-OK without error!?")
+                pending_retry_decision = None
                 break  # No error reported so might as well return it.
+            else:
+                pending_retry_decision = RetryDecision(
+                    RetryDecisionAction.RETRY,
+                    _retry_reason_for_status(status),
+                )
 
             # TODO: Call out other inconsistent mixes/states?
             # TODO: Cleanup this logging to use structlog or tracing
             logger.debug(
                 "Result %s [status %s] [retry after %s]", prefix, status, retry
             )
+        else:
+            if pending_retry_decision is not None:
+                _record_retry_decision(
+                    endpoint,
+                    RetryDecision(
+                        RetryDecisionAction.SKIP,
+                        pending_retry_decision.reason,
+                    ),
+                )
 
         if status is None:
             final_result = APIResult.TIMEOUT
@@ -472,7 +586,10 @@ def parse_retry(value: str | None) -> int:
 
 
 def jitter_delay(delay: float) -> float:
-    return delay * random.uniform(0.75, 1.25)
+    return delay * random.uniform(
+        current_settings.fetch.backoff_jitter_min,
+        current_settings.fetch.backoff_jitter_max,
+    )
 
 
 def redirect(uri: str, **params: str) -> flask.Response:
