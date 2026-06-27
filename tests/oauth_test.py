@@ -302,7 +302,7 @@ def test_oauth_fetch_jitters_retry_after_sleep(
     ):
         oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
 
-    mock_sleep.assert_called_once_with(7.5)
+    mock_sleep.assert_called_once_with(10)
 
 
 def test_oauth_fetch_jitters_retry_backoff_within_bounds(
@@ -378,7 +378,7 @@ def test_oauth_fetch_jitters_retry_after_sleeps_independently(
     ):
         oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
 
-    assert mock_sleep.call_args_list[0].args[0] == 7.5
+    assert mock_sleep.call_args_list[0].args[0] == 10
     assert mock_sleep.call_args_list[1].args[0] == 12.5
     assert mock_sleep.call_args_list[0].args[0] != mock_sleep.call_args_list[1].args[0]
 
@@ -475,7 +475,7 @@ def test_oauth_fetch_respects_retry_after_header(
         unittest.mock.patch("time.sleep") as mock_sleep,
     ):
         oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
-        mock_sleep.assert_called_once_with(7.5)
+        mock_sleep.assert_called_once_with(10)
 
 
 def test_oauth_fetch_does_not_retry_on_non_retryable_status_code(
