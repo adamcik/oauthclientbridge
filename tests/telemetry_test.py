@@ -460,6 +460,66 @@ def test_oauth_client_retries_metric_success(
     assert retries_data.count == 1
 
 
+def test_oauth_client_retries_metric_records_completed_retry_count(
+    requests_mock: Mocker,
+    otel_mock: otel.OTelMocker,
+    get: GetClient,
+    state: str,
+):
+    requests_mock.post(
+        current_settings.oauth.token_uri,
+        [
+            {"status_code": 503, "json": {"error": "temporarily_unavailable"}},
+            {
+                "json": {"access_token": "mock_token", "token_type": "Bearer"},
+                "status_code": 200,
+            },
+        ],
+    )
+
+    get("/callback?code=1234&state=" + state)
+
+    retries_data = otel.latest_metric_data(
+        otel_mock.get_metrics_data(),
+        "oauth.client.retries",
+        HistogramDataPoint,
+        attributes={"operation": "token"},
+        scope="oauthclientbridge.oauth",
+    )
+    assert retries_data.attributes is not None
+    assert retries_data.attributes["final.result"] == APIResult.SUCCESS
+    assert retries_data.sum == 1
+    assert retries_data.count == 1
+
+
+def test_oauth_client_retries_metric_prometheus_uses_final_status(
+    requests_mock: Mocker,
+    client: FlaskClient,
+):
+    requests_mock.post(
+        current_settings.oauth.token_uri,
+        [
+            {"status_code": 503, "json": {"error": "temporarily_unavailable"}},
+            {
+                "json": {"access_token": "mock_token", "token_type": "Bearer"},
+                "status_code": 200,
+            },
+        ],
+    )
+
+    with unittest.mock.patch("time.sleep"):
+        oauth.fetch(current_settings.oauth.token_uri, "retry-metric-test")
+
+    metrics_resp = client.get("/metrics")
+    body = metrics_resp.data.decode()
+
+    assert body.count('oauth_client_retries_count{endpoint="retry-metric-test"') == 1
+    assert (
+        'oauth_client_retries_count{endpoint="retry-metric-test",status="http_service_unavailable"}'
+        not in body
+    )
+
+
 def test_oauth_client_retry_metrics_record_attempts_and_reasons(
     requests_mock: Mocker,
     client: FlaskClient,
@@ -582,6 +642,54 @@ def test_oauth_client_retry_metrics_record_budget_skip(
     assert b"oauth_client_retry_decisions_total" in metrics_resp.data
     assert b'decision="skip"' in metrics_resp.data
     assert b'reason="resource_exhausted"' in metrics_resp.data
+
+
+def test_oauth_client_retry_metrics_do_not_count_skipped_retry_attempts(
+    requests_mock: Mocker,
+    otel_mock: otel.OTelMocker,
+    client: FlaskClient,
+):
+    endpoint = "budget-skip-retry-count-test"
+    requests_mock.post(
+        current_settings.oauth.token_uri,
+        [
+            {"status_code": 503, "json": {"error": "temporarily_unavailable"}},
+            {
+                "json": {"access_token": "mock_token", "token_type": "Bearer"},
+                "status_code": 200,
+            },
+        ],
+    )
+
+    class FakeRetryLimiter:
+        def record_initial(self) -> None:
+            pass
+
+        def allow_retry(self) -> bool:
+            return False
+
+        def record_retry(self) -> None:
+            pass
+
+    with unittest.mock.patch.object(
+        oauth, "_get_retry_limiter", return_value=FakeRetryLimiter()
+    ):
+        oauth.fetch(current_settings.oauth.token_uri, endpoint)
+
+    retries_data = otel.latest_metric_data(
+        otel_mock.get_metrics_data(),
+        "oauth.client.retries",
+        HistogramDataPoint,
+        attributes={"operation": endpoint},
+        scope="oauthclientbridge.oauth",
+    )
+    assert retries_data.sum == 0
+
+    metrics_resp = client.get("/metrics")
+    assert (
+        f'oauth_client_attempts_total{{endpoint="{endpoint}",kind="retry"}}'.encode()
+        not in metrics_resp.data
+    )
 
 
 def test_oauth_client_retry_metrics_record_deadline_skip(
