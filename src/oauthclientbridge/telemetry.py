@@ -174,9 +174,7 @@ def _logging_log_hook(span: trace.Span, record: object):
     if resource is not None:
         service_name = resource.attributes.get(SERVICE_NAME, "")
         service_version = resource.attributes.get("service.version", "")
-        deployment_environment = resource.attributes.get(
-            "deployment.environment", ""
-        )
+        deployment_environment = resource.attributes.get("deployment.environment", "")
         vcs_revision = resource.attributes.get("vcs.revision", "")
     setattr(record, "otelServiceName", service_name)
     setattr(record, "otelServiceVersion", service_version)
