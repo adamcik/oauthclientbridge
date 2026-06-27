@@ -358,6 +358,10 @@ def _fetch(
         length = len(resp.content)
         retry_after = parse_retry(resp.headers.get("retry-after"))
 
+        if status in current_settings.fetch.retry_status_codes:
+            span.add_event("Closing session to get new server")
+            session.close()
+
     labels = {"endpoint": endpoint, "status": status_label}
     if length is not None:
         stats.ClientResponseSizeHistogram.labels(**labels).observe(length)
