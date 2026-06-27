@@ -62,7 +62,7 @@ class FetchSettings(BaseSettings):
     total_retries: int = 3
     """Maximum number of retries for fetching oauth data."""
 
-    retry_budget_capacity: int = 4
+    retry_budget_capacity: int = 8
     """Per-process maximum number of outgoing retries held in budget."""
 
     retry_budget_refill_per_initial: float = 0.25
@@ -98,6 +98,12 @@ class FetchSettings(BaseSettings):
 
     backoff_factor: float = 0.1
     """Backoff factor to use for not hammering the oauth server too much."""
+
+    backoff_jitter_min: float = 0.75
+    """Lower multiplier bound for retry backoff jitter."""
+
+    backoff_jitter_max: float = 1.25
+    """Upper multiplier bound for retry backoff jitter."""
 
 
 class DatabaseSettings(BaseSettings):
