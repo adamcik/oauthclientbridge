@@ -8,7 +8,21 @@ from freezegun import freeze_time
 from requests_mock import Mocker as RequestsMocker
 
 from oauthclientbridge import oauth
+from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import current_settings
+
+
+def test_error_handler_returns_503_for_temporarily_unavailable_retry_after(
+    app: flask.Flask,
+) -> None:
+    with app.test_request_context("/callback"):
+        response = oauth.error_handler(
+            oauth.Error(OAuthError.TEMPORARILY_UNAVAILABLE, retry_after=10)
+        )
+
+    assert response.status_code == 503
+    assert response.headers["Retry-After"] == "10"
+    assert response.json["error"] == "temporarily_unavailable"
 
 
 def test_oauth_fetch_does_not_start_retry_after_sleep_exhausts_deadline(

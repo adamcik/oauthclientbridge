@@ -1,3 +1,4 @@
+import unittest.mock
 import urllib.parse
 
 import pytest
@@ -69,39 +70,67 @@ def test_callback_authorization_client_state(
 
 
 @pytest.mark.parametrize(
-    "query,expected_error",
+    "query,expected_error,expected_status",
     [
-        ("", OAuthError.INVALID_REQUEST),
-        ("?code", OAuthError.INVALID_STATE),
-        ("?state", OAuthError.INVALID_STATE),
-        ("?state=&code=", OAuthError.INVALID_STATE),
-        ("?code=1234", OAuthError.INVALID_STATE),
-        ("?state={state}", OAuthError.INVALID_REQUEST),
-        ("?state={state}&code=", OAuthError.INVALID_REQUEST),
-        ("?state={state}&error=invalid_request", OAuthError.INVALID_REQUEST),
-        ("?state={state}&error=unauthorized_client", OAuthError.UNAUTHORIZED_CLIENT),
-        ("?state={state}&error=access_denied", OAuthError.ACCESS_DENIED),
+        ("", OAuthError.INVALID_REQUEST, 400),
+        ("?code", OAuthError.INVALID_STATE, 400),
+        ("?state", OAuthError.INVALID_STATE, 400),
+        ("?state=&code=", OAuthError.INVALID_STATE, 400),
+        ("?code=1234", OAuthError.INVALID_STATE, 400),
+        ("?state={state}", OAuthError.INVALID_REQUEST, 400),
+        ("?state={state}&code=", OAuthError.INVALID_REQUEST, 400),
+        ("?state={state}&error=invalid_request", OAuthError.INVALID_REQUEST, 400),
+        (
+            "?state={state}&error=unauthorized_client",
+            OAuthError.UNAUTHORIZED_CLIENT,
+            400,
+        ),
+        ("?state={state}&error=access_denied", OAuthError.ACCESS_DENIED, 400),
         (
             "?state={state}&error=unsupported_response_type",
             OAuthError.UNSUPPORTED_RESPONSE_TYPE,
+            400,
         ),
-        ("?state={state}&error=invalid_scope", OAuthError.INVALID_SCOPE),
-        ("?state={state}&error=server_error", OAuthError.SERVER_ERROR),
+        ("?state={state}&error=invalid_scope", OAuthError.INVALID_SCOPE, 400),
+        ("?state={state}&error=server_error", OAuthError.SERVER_ERROR, 400),
         (
             "?state={state}&error=temporarily_unavailable",
             OAuthError.TEMPORARILY_UNAVAILABLE,
+            503,
         ),
-        ("?state={state}&error=badErrorCode", OAuthError.SERVER_ERROR),
+        ("?state={state}&error=badErrorCode", OAuthError.SERVER_ERROR, 400),
     ],
 )
 def test_callback_error_handling(
-    query: str, expected_error: str, client_state: str, get: GetClient, state: str
+    query: str,
+    expected_error: str,
+    expected_status: int,
+    client_state: str,
+    get: GetClient,
+    state: str,
 ):
     resp = get("/callback" + query.format(state=state))
 
-    assert resp.status == 400
+    assert resp.status == expected_status
     assert resp.data["error"] == expected_error
     assert resp.data["state"] == client_state
+
+
+def test_callback_preserves_retry_after_for_temporarily_unavailable(
+    client_state: str,
+    get: GetClient,
+    state: str,
+):
+    with unittest.mock.patch(
+        "oauthclientbridge.views.oauth.fetch",
+        return_value={"error": "temporarily_unavailable", "retry_after": 10},
+    ):
+        resp = get("/callback?state={state}&code=abc".format(state=state))
+
+    assert resp.status == 503
+    assert resp.data["error"] == OAuthError.TEMPORARILY_UNAVAILABLE
+    assert resp.data["state"] == client_state
+    assert resp.headers["Retry-After"] == "10"
 
 
 # TODO: Revisit all of the status codes returned, since this is not an API
@@ -141,9 +170,9 @@ def test_callback_error_handling(
         (
             {"error": OAuthError.TEMPORARILY_UNAVAILABLE},
             OAuthError.TEMPORARILY_UNAVAILABLE,
-            400,
+            503,
         ),
-        ({"error": "errorTransient"}, OAuthError.TEMPORARILY_UNAVAILABLE, 400),
+        ({"error": "errorTransient"}, OAuthError.TEMPORARILY_UNAVAILABLE, 503),
         ({"error": "badErrorCode"}, OAuthError.SERVER_ERROR, 400),
     ],
 )
