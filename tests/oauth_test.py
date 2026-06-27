@@ -140,6 +140,41 @@ def test_oauth_fetch_does_not_retry_on_success(
         mock_sleep.assert_not_called()
 
 
+def test_oauth_fetch_closes_session_before_retrying_retryable_status(
+    app_context: flask.ctx.AppContext,
+) -> None:
+    """Verify that retryable HTTP responses reset the pooled session."""
+
+    first_response = unittest.mock.Mock(spec=requests.Response)
+    first_response.json.return_value = {"error": "temporarily_unavailable"}
+    first_response.status_code = 503
+    first_response.content = b'{"error": "temporarily_unavailable"}'
+    first_response.headers = {}
+
+    second_response = unittest.mock.Mock(spec=requests.Response)
+    second_response.json.return_value = {
+        "access_token": "mock_token",
+        "token_type": "Bearer",
+    }
+    second_response.status_code = 200
+    second_response.content = b'{"access_token": "mock_token", "token_type": "Bearer"}'
+    second_response.headers = {}
+
+    session = unittest.mock.Mock(spec=requests.Session)
+    session.send.side_effect = [first_response, second_response]
+
+    with (
+        unittest.mock.patch(
+            "oauthclientbridge.oauth.get_session", return_value=session
+        ),
+        unittest.mock.patch("time.sleep"),
+    ):
+        result = oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+
+    assert result["access_token"] == "mock_token"
+    session.close.assert_called_once_with()
+
+
 def test_parse_retry_with_seconds() -> None:
     assert oauth.parse_retry("10") == 10
 
