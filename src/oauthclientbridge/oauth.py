@@ -199,12 +199,13 @@ def error_handler(e: Error) -> flask.Response:
         response.headers["WWW-Authenticate"] = (
             f'Basic realm="{current_settings.auth_realm}"'
         )
+    elif e.error == OAuthError.TEMPORARILY_UNAVAILABLE:
+        response.status_code = HTTPStatus.SERVICE_UNAVAILABLE
+        if e.retry_after is not None:
+            response.headers["Retry-After"] = int(e.retry_after)
     elif e.retry_after:
         response.headers["Retry-After"] = int(e.retry_after)
-        if e.error == OAuthError.TEMPORARILY_UNAVAILABLE:
-            response.status_code = HTTPStatus.SERVICE_UNAVAILABLE
-        else:
-            response.status_code = HTTPStatus.TOO_MANY_REQUESTS
+        response.status_code = HTTPStatus.TOO_MANY_REQUESTS
     else:
         response.status_code = HTTPStatus.BAD_REQUEST
 

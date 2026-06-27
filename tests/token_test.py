@@ -408,7 +408,7 @@ def test_token_only_returns_scope_from_db(
         (OAuthError.UNAUTHORIZED_CLIENT, OAuthError.UNAUTHORIZED_CLIENT, 400),
         (OAuthError.UNSUPPORTED_GRANT_TYPE, OAuthError.UNSUPPORTED_GRANT_TYPE, 400),
         (OAuthError.INVALID_SCOPE, OAuthError.INVALID_SCOPE, 400),
-        ("errorTransient", OAuthError.TEMPORARILY_UNAVAILABLE, 400),
+        ("errorTransient", OAuthError.TEMPORARILY_UNAVAILABLE, 503),
         ("badError", OAuthError.SERVER_ERROR, 400),
     ],
 )
@@ -493,7 +493,7 @@ def test_token_provider_unavailable(
 
     resp = post("/token", data)
 
-    assert resp.status == 400  # TODO: Make this a 503?
+    assert resp.status == 503
     assert resp.data["error"] == OAuthError.TEMPORARILY_UNAVAILABLE
     assert resp.data["error_description"]
 
