@@ -1,12 +1,109 @@
 import unittest.mock
+from http import HTTPStatus
 
 import flask.ctx
+import pytest
 import requests
 from freezegun import freeze_time
 from requests_mock import Mocker as RequestsMocker
 
 from oauthclientbridge import oauth
 from oauthclientbridge.settings import current_settings
+
+
+def test_oauth_fetch_does_not_start_retry_after_sleep_exhausts_deadline(
+    app_context: flask.ctx.AppContext,
+) -> None:
+    current_settings.fetch.total_timeout = 1.0
+    current_settings.fetch.total_retries = 2
+    current_settings.fetch.backoff_factor = 0.8
+
+    fake_time = [0.0]
+
+    def now() -> float:
+        return fake_time[0]
+
+    def sleep(duration: float) -> None:
+        fake_time[0] += duration
+
+    first_result = (
+        {"error": "temporarily_unavailable"},
+        HTTPStatus.SERVICE_UNAVAILABLE,
+        0,
+    )
+
+    def fetch_side_effect(*args, **kwargs):
+        if fetch_side_effect.call_count == 0:
+            fetch_side_effect.call_count += 1
+            fake_time[0] += 0.2
+            return first_result
+
+        raise AssertionError("unexpected retry attempt")
+
+    fetch_side_effect.call_count = 0
+
+    with (
+        unittest.mock.patch("oauthclientbridge.oauth.time.time", side_effect=now),
+        unittest.mock.patch("oauthclientbridge.oauth.time.monotonic", side_effect=now),
+        unittest.mock.patch("oauthclientbridge.oauth.time.sleep", side_effect=sleep),
+        unittest.mock.patch(
+            "oauthclientbridge.oauth._fetch", side_effect=fetch_side_effect
+        ),
+    ):
+        result = oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+
+    assert result["error"] == "temporarily_unavailable"
+    assert fake_time[0] == pytest.approx(1.0)
+
+
+def test_oauth_fetch_uses_remaining_budget_for_retry_timeout(
+    app_context: flask.ctx.AppContext,
+) -> None:
+    current_settings.fetch.total_timeout = 1.0
+    current_settings.fetch.total_retries = 2
+    current_settings.fetch.backoff_factor = 0.3
+
+    fake_time = [0.0]
+    observed_timeouts: list[float] = []
+
+    def now() -> float:
+        return fake_time[0]
+
+    def sleep(duration: float) -> None:
+        fake_time[0] += duration
+
+    def fetch_side_effect(*args, **kwargs):
+        timeout = args[2]
+        observed_timeouts.append(timeout)
+        if len(observed_timeouts) == 1:
+            fake_time[0] += 0.2
+            return (
+                {"error": "temporarily_unavailable"},
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                0,
+            )
+
+        fake_time[0] += timeout
+        return (
+            {"access_token": "mock_token", "token_type": "Bearer"},
+            HTTPStatus.OK,
+            0,
+        )
+
+    with (
+        unittest.mock.patch("oauthclientbridge.oauth.time.time", side_effect=now),
+        unittest.mock.patch("oauthclientbridge.oauth.time.monotonic", side_effect=now),
+        unittest.mock.patch("oauthclientbridge.oauth.time.sleep", side_effect=sleep),
+        unittest.mock.patch(
+            "oauthclientbridge.oauth._fetch", side_effect=fetch_side_effect
+        ),
+    ):
+        result = oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+
+    assert result["access_token"] == "mock_token"
+    assert observed_timeouts[0] == pytest.approx(1.0)
+    assert observed_timeouts[1] == pytest.approx(0.5)
+    assert fake_time[0] == pytest.approx(1.0)
 
 
 def test_oauth_fetch_retries_on_failure_then_success(
