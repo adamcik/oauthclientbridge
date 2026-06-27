@@ -212,6 +212,11 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
                 span.add_event("Sleeping", {"duration": retry or backoff})
                 logger.debug("Retry %s [sleep %.3f]", prefix, retry or backoff)
                 time.sleep(retry or backoff)
+                remaining_timeout = timeout - time.time()
+                if remaining_timeout <= 0:
+                    span.add_event("No timeout remaining")
+                    logger.debug("Abort %s no timeout remaining.", prefix)
+                    break
 
             result, status, retry = _fetch(
                 span,
@@ -293,8 +298,7 @@ def _fetch(
     timeout: float,
     endpoint: str,
 ) -> tuple[OAuthResponse, HTTPStatus | None, int]:
-    # Make sure we always have at least a minimal timeout.
-    timeout = max(1.0, min(current_settings.fetch.timeout, timeout))
+    timeout = min(current_settings.fetch.timeout, timeout)
     start_time = time.time()
 
     session = get_session()
