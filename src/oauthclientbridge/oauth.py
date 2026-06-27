@@ -1,6 +1,7 @@
 import email.utils
 import functools
 import importlib.metadata
+import random
 import re
 import time
 from http import HTTPStatus
@@ -209,9 +210,15 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
                 # TODO: This should probably be a timeout outcome.
                 break
             elif (retry or backoff) > 0:
-                span.add_event("Sleeping", {"duration": retry or backoff})
-                logger.debug("Retry %s [sleep %.3f]", prefix, retry or backoff)
-                time.sleep(retry or backoff)
+                sleep_for = jitter_delay(retry or backoff)
+                if sleep_for > remaining_timeout:
+                    span.add_event("No timeout remaining")
+                    logger.debug("Abort %s no timeout remaining.", prefix)
+                    break
+
+                span.add_event("Sleeping", {"duration": sleep_for})
+                logger.debug("Retry %s [sleep %.3f]", prefix, sleep_for)
+                time.sleep(sleep_for)
                 remaining_timeout = timeout - time.time()
                 if remaining_timeout <= 0:
                     span.add_event("No timeout remaining")
@@ -414,6 +421,10 @@ def parse_retry(value: str | None) -> int:
         else:
             seconds = int(email.utils.mktime_tz(parsed) - time.time())
     return max(0, seconds)
+
+
+def jitter_delay(delay: float) -> float:
+    return delay * random.uniform(0.75, 1.25)
 
 
 def redirect(uri: str, **params: str) -> flask.Response:
