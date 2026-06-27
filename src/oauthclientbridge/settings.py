@@ -62,6 +62,12 @@ class FetchSettings(BaseSettings):
     total_retries: int = 3
     """Maximum number of retries for fetching oauth data."""
 
+    retry_budget_capacity: int = 4
+    """Per-process maximum number of outgoing retries held in budget."""
+
+    retry_budget_refill_per_initial: float = 0.25
+    """How much retry budget each initial outgoing request replenishes."""
+
     retry_status_codes: tuple[HTTPStatus, ...] = Field(
         (
             HTTPStatus.TOO_MANY_REQUESTS,

@@ -25,6 +25,160 @@ def test_error_handler_returns_503_for_temporarily_unavailable_retry_after(
     assert response.json["error"] == "temporarily_unavailable"
 
 
+def test_retry_limiter_consumes_token_on_admission() -> None:
+    limiter = oauth.RetryLimiter(capacity=1, refill_per_initial=0.25)
+
+    assert limiter.allow_retry() is True
+    assert limiter.allow_retry() is False
+
+
+def test_retry_limiter_refills_from_initial_usage() -> None:
+    limiter = oauth.RetryLimiter(capacity=1, refill_per_initial=0.25)
+
+    assert limiter.allow_retry() is True
+    limiter.record_initial()
+    limiter.record_initial()
+    limiter.record_initial()
+    assert limiter.allow_retry() is False
+
+    limiter.record_initial()
+    assert limiter.allow_retry() is True
+
+
+def test_retry_limiter_factory_is_cached() -> None:
+    oauth._get_retry_limiter.cache_clear()
+    limiter1 = oauth._get_retry_limiter(1, 0.25)
+    limiter2 = oauth._get_retry_limiter(1, 0.25)
+
+    assert limiter1 is limiter2
+
+
+def test_retry_limiter_factory_refreshes_when_settings_change() -> None:
+    oauth._get_retry_limiter.cache_clear()
+    limiter1 = oauth._get_retry_limiter(8, 0.5)
+    limiter2 = oauth._get_retry_limiter(3, 1.0)
+
+    assert limiter2 is not limiter1
+    assert limiter2.capacity == 3
+    assert limiter2.refill_per_initial == 1.0
+
+
+def test_oauth_fetch_skips_retry_when_retry_budget_exhausted(
+    app_context: flask.ctx.AppContext,
+    requests_mock: RequestsMocker,
+) -> None:
+    requests_mock.post(
+        current_settings.oauth.token_uri,
+        [
+            {"status_code": 503, "json": {"error": "temporarily_unavailable"}},
+            {
+                "json": {"access_token": "mock_token", "token_type": "Bearer"},
+                "status_code": 200,
+            },
+        ],
+    )
+
+    class FakeRetryLimiter:
+        def record_initial(self) -> None:
+            self.initial_calls = getattr(self, "initial_calls", 0) + 1
+
+        def allow_retry(self) -> bool:
+            self.allow_calls = getattr(self, "allow_calls", 0) + 1
+            return False
+
+        def record_retry(self) -> None:
+            self.retry_calls = getattr(self, "retry_calls", 0) + 1
+
+    fake_limiter = FakeRetryLimiter()
+
+    with (
+        unittest.mock.patch.object(
+            oauth, "_get_retry_limiter", return_value=fake_limiter
+        ),
+        unittest.mock.patch("time.sleep") as mock_sleep,
+    ):
+        result = oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+
+    mock_sleep.assert_not_called()
+    assert result["error"] == "temporarily_unavailable"
+    assert getattr(fake_limiter, "initial_calls", 0) == 1
+    assert getattr(fake_limiter, "allow_calls", 0) == 1
+    assert getattr(fake_limiter, "retry_calls", 0) == 0
+
+
+def test_oauth_fetch_still_runs_first_attempt_when_retry_budget_exhausted(
+    app_context: flask.ctx.AppContext,
+    requests_mock: RequestsMocker,
+) -> None:
+    requests_mock.post(
+        current_settings.oauth.token_uri,
+        json={"access_token": "mock_token", "token_type": "Bearer"},
+        status_code=200,
+    )
+
+    class FakeRetryLimiter:
+        def record_initial(self) -> None:
+            self.initial_calls = getattr(self, "initial_calls", 0) + 1
+
+        def allow_retry(self) -> bool:
+            self.allow_calls = getattr(self, "allow_calls", 0) + 1
+            return False
+
+        def record_retry(self) -> None:
+            self.retry_calls = getattr(self, "retry_calls", 0) + 1
+
+    fake_limiter = FakeRetryLimiter()
+
+    with unittest.mock.patch.object(
+        oauth, "_get_retry_limiter", return_value=fake_limiter
+    ):
+        result = oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+
+    assert result["access_token"] == "mock_token"
+    assert getattr(fake_limiter, "initial_calls", 0) == 1
+    assert getattr(fake_limiter, "allow_calls", 0) == 0
+    assert getattr(fake_limiter, "retry_calls", 0) == 0
+
+
+def test_oauth_fetch_retries_when_retry_budget_is_available(
+    app_context: flask.ctx.AppContext,
+    requests_mock: RequestsMocker,
+) -> None:
+    requests_mock.post(
+        current_settings.oauth.token_uri,
+        [
+            {"status_code": 503, "json": {"error": "temporarily_unavailable"}},
+            {
+                "json": {"access_token": "mock_token", "token_type": "Bearer"},
+                "status_code": 200,
+            },
+        ],
+    )
+
+    class FakeRetryLimiter:
+        def record_initial(self) -> None:
+            self.initial_calls = getattr(self, "initial_calls", 0) + 1
+
+        def allow_retry(self) -> bool:
+            self.allow_calls = getattr(self, "allow_calls", 0) + 1
+            return True
+
+        def record_retry(self) -> None:
+            self.retry_calls = getattr(self, "retry_calls", 0) + 1
+
+    fake_limiter = FakeRetryLimiter()
+
+    with unittest.mock.patch.object(
+        oauth, "_get_retry_limiter", return_value=fake_limiter
+    ):
+        result = oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+
+    assert result["access_token"] == "mock_token"
+    assert getattr(fake_limiter, "initial_calls", 0) == 1
+    assert getattr(fake_limiter, "allow_calls", 0) == 1
+    assert getattr(fake_limiter, "retry_calls", 0) == 1
+
+
 def test_oauth_fetch_does_not_start_retry_after_sleep_exhausts_deadline(
     app_context: flask.ctx.AppContext,
 ) -> None:
