@@ -300,6 +300,50 @@ def test_oauth_fetch_does_not_retry_on_non_retryable_status_code(
         mock_sleep.assert_not_called()
 
 
+def test_oauth_fetch_does_not_retry_on_500_status_code(
+    app_context: flask.ctx.AppContext,
+    requests_mock: RequestsMocker,
+) -> None:
+    requests_mock.post(
+        current_settings.oauth.token_uri,
+        [
+            {"status_code": 500},
+            {
+                "json": {"access_token": "mock_token", "token_type": "Bearer"},
+                "status_code": 200,
+            },
+        ],
+    )
+
+    with unittest.mock.patch("time.sleep") as mock_sleep:
+        result = oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+
+    mock_sleep.assert_not_called()
+    assert result["error"] == "server_error"
+
+
+def test_oauth_fetch_retries_on_502_status_code(
+    app_context: flask.ctx.AppContext,
+    requests_mock: RequestsMocker,
+) -> None:
+    requests_mock.post(
+        current_settings.oauth.token_uri,
+        [
+            {"status_code": 502},
+            {
+                "json": {"access_token": "mock_token", "token_type": "Bearer"},
+                "status_code": 200,
+            },
+        ],
+    )
+
+    with unittest.mock.patch("time.sleep") as mock_sleep:
+        result = oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+
+    mock_sleep.assert_called_once()
+    assert result["access_token"] == "mock_token"
+
+
 def test_oauth_fetch_does_not_retry_on_success(
     app_context: flask.ctx.AppContext,
     requests_mock: RequestsMocker,
