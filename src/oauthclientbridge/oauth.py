@@ -286,6 +286,7 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
 
         timeout = time.time() + current_settings.fetch.total_timeout
         retry = 0
+        completed_retries = 0
         status: HTTPStatus | None = None  # Set a default value for status
         pending_retry_decision: RetryDecision | None = None
 
@@ -296,9 +297,6 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
         i = 0
         for i in range(current_settings.fetch.total_retries):
             prefix = "attempt #%d %s" % (i + 1, uri)
-            _record_attempt(
-                endpoint, RetryAttemptKind.RETRY if i > 0 else RetryAttemptKind.INITIAL
-            )
 
             # TODO: Add jitter to backoff and/or retry after?
             backoff = (2**i - 1) * current_settings.fetch.backoff_factor
@@ -364,8 +362,16 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
                         break
 
                     retry_limiter.record_retry()
+                    completed_retries += 1
 
                 pending_retry_decision = None
+
+            _record_attempt(
+                endpoint,
+                RetryAttemptKind.RETRY
+                if completed_retries > 0
+                else RetryAttemptKind.INITIAL,
+            )
 
             result, status, retry = _fetch(
                 span,
@@ -378,7 +384,6 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
                 "endpoint": endpoint,
                 "status": stats.status(status) if status else "unknown",
             }
-            stats.ClientRetryHistogram.labels(**labels).observe(i)
 
             if status is not None and "error" in result:
                 error_code = result["error"]
@@ -442,6 +447,11 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
         if status:
             attributes["http.response.status_code"] = status
 
+        stats.ClientRetryHistogram.labels(
+            endpoint=endpoint,
+            status=stats.status(status) if status else "unknown",
+        ).observe(completed_retries)
+
         error_type = result.get("error")
         if error_type:
             attributes["error.type"] = error_type
@@ -450,13 +460,13 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
         if "error" in result and retry:
             result["retry_after"] = retry
 
-        span.set_attribute("total_retries", i)
+        span.set_attribute("total_retries", completed_retries)
         for key, value in attributes.items():
             span.set_attribute(key, value)
 
         duration = time.monotonic() - start_time
         _oauth_client_duration_histogram.record(duration, attributes)
-        _oauth_client_retries_histogram.record(i, attributes)
+        _oauth_client_retries_histogram.record(completed_retries, attributes)
         _oauth_client_total_counter.add(1, attributes)
 
         # TODO: consider returning retry after time so it can be used in response
