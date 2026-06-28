@@ -13,6 +13,7 @@ from requests_mock import Mocker
 
 from oauthclientbridge import db, oauth, telemetry
 from oauthclientbridge.errors import OAuthError
+from oauthclientbridge.oauth import core as oauth_core
 from oauthclientbridge.settings import (
     TelemetryComponent,
     TelemetrySettings,
@@ -578,7 +579,7 @@ def test_oauth_client_retry_metrics_record_attempts_and_reasons(
 
     with (
         unittest.mock.patch.object(
-            oauth, "_get_retry_limiter", return_value=FakeRetryLimiter()
+            oauth_core, "_get_retry_limiter", return_value=FakeRetryLimiter()
         ),
         unittest.mock.patch("random.uniform", return_value=1.0),
         unittest.mock.patch("time.sleep"),
@@ -624,7 +625,7 @@ def test_oauth_client_retry_metrics_bucket_429_as_resource_exhausted(
 
     with (
         unittest.mock.patch.object(
-            oauth, "_get_retry_limiter", return_value=FakeRetryLimiter()
+            oauth_core, "_get_retry_limiter", return_value=FakeRetryLimiter()
         ),
         unittest.mock.patch("random.uniform", return_value=1.0),
         unittest.mock.patch("time.sleep"),
@@ -663,7 +664,7 @@ def test_oauth_client_retry_metrics_record_budget_skip(
             pass
 
     with unittest.mock.patch.object(
-        oauth, "_get_retry_limiter", return_value=FakeRetryLimiter()
+        oauth_core, "_get_retry_limiter", return_value=FakeRetryLimiter()
     ):
         oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
 
@@ -727,7 +728,7 @@ def test_oauth_client_retry_metrics_do_not_count_skipped_retry_attempts(
             pass
 
     with unittest.mock.patch.object(
-        oauth, "_get_retry_limiter", return_value=FakeRetryLimiter()
+        oauth_core, "_get_retry_limiter", return_value=FakeRetryLimiter()
     ):
         oauth.fetch(current_settings.oauth.token_uri, endpoint)
 
@@ -788,13 +789,15 @@ def test_oauth_client_retry_metrics_record_deadline_skip(
 
     with (
         unittest.mock.patch.object(
-            oauth, "_get_retry_limiter", return_value=FakeRetryLimiter()
+            oauth_core, "_get_retry_limiter", return_value=FakeRetryLimiter()
         ),
-        unittest.mock.patch("oauthclientbridge.oauth.time.time", side_effect=now),
-        unittest.mock.patch("oauthclientbridge.oauth.time.sleep", side_effect=sleep),
+        unittest.mock.patch("oauthclientbridge.oauth.core.time.time", side_effect=now),
+        unittest.mock.patch(
+            "oauthclientbridge.oauth.core.time.sleep", side_effect=sleep
+        ),
         unittest.mock.patch("random.uniform", return_value=1.25),
         unittest.mock.patch(
-            "oauthclientbridge.oauth._fetch", side_effect=fetch_side_effect
+            "oauthclientbridge.oauth.core._fetch", side_effect=fetch_side_effect
         ),
     ):
         oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
