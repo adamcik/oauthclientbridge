@@ -134,3 +134,30 @@ environment variables:
     metrics are exported (defaults to `5`).
 
 Metrics are pushed over OTLP HTTP as this is the only exporter we support.
+
+## Retry And Refresh Token Semantics
+
+The bridge applies a provider-facing retry policy to upstream token endpoint
+responses and a narrower local invalidation policy to stored refresh tokens.
+
+-   Retryable upstream failures are determined by HTTP status and transport
+    outcome, not by contradictory OAuth error payloads.
+-   `429`, `502`, `503`, `504`, connection failures, timeouts, and similar
+    transient upstream failures are retried according to the configured fetch
+    budget and deadline.
+-   If those retries are exhausted, the bridge surfaces
+    `temporarily_unavailable` to its caller and keeps any stored refresh token.
+-   Stored refresh tokens are only invalidated on an authoritative,
+    non-retryable token refresh failure. For Spotify, this means `400` with
+    OAuth error `invalid_grant`.
+-   A retryable response such as `503` with a contradictory body like
+    `{"error":"invalid_grant"}` is treated as transient provider failure, not
+    proof that the stored refresh token is dead.
+-   If the provider returns a new `refresh_token` on success, the bridge stores
+    it. If success omits `refresh_token`, the bridge keeps the existing stored
+    refresh token.
+
+This behavior matches Spotify's documented refresh-token expiration semantics:
+expired refresh tokens return `400 Bad Request` with `invalid_grant` and must
+be discarded, while transient token-endpoint failures should not cause local
+token invalidation.
