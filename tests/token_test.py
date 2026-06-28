@@ -577,5 +577,57 @@ def test_token_retryable_invalid_client_returns_temporarily_unavailable(
     assert db.lookup(refresh_token.client_id) is not None
 
 
+def test_token_retryable_refresh_error_returns_retry_after_header(
+    post: PostClient,
+    refresh_token: TokenTuple,
+    requests_mock: Mocker,
+    settings: Settings,
+):
+    requests_mock.post(
+        settings.oauth.token_uri,
+        status_code=503,
+        headers={"Retry-After": "10"},
+        json={"error": OAuthError.TEMPORARILY_UNAVAILABLE},
+    )
+
+    data = {
+        "client_id": refresh_token.client_id,
+        "client_secret": refresh_token.client_secret,
+        "grant_type": "client_credentials",
+    }
+
+    resp = post("/token", data)
+
+    assert resp.status == 503
+    assert resp.data["error"] == OAuthError.TEMPORARILY_UNAVAILABLE
+    assert resp.headers["Retry-After"] == "10"
+
+
+def test_token_terminal_refresh_error_ignores_retry_after_header(
+    post: PostClient,
+    refresh_token: TokenTuple,
+    requests_mock: Mocker,
+    settings: Settings,
+):
+    requests_mock.post(
+        settings.oauth.token_uri,
+        status_code=400,
+        headers={"Retry-After": "10"},
+        json={"error": OAuthError.INVALID_GRANT},
+    )
+
+    data = {
+        "client_id": refresh_token.client_id,
+        "client_secret": refresh_token.client_secret,
+        "grant_type": "client_credentials",
+    }
+
+    resp = post("/token", data)
+
+    assert resp.status == 400
+    assert resp.data["error"] == OAuthError.INVALID_GRANT
+    assert "Retry-After" not in resp.headers
+
+
 # TODO: Test other than basic auth...
 # TODO: Test oauth helpers directly?

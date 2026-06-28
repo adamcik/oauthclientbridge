@@ -23,6 +23,17 @@ def test_error_handler_returns_503_for_temporarily_unavailable_retry_after(
     assert response.json["error"] == "temporarily_unavailable"
 
 
+def test_error_handler_keeps_invalid_grant_as_400_with_retry_after(
+    app: flask.Flask,
+) -> None:
+    with app.test_request_context("/token"):
+        response = error_handler(Error(OAuthError.INVALID_GRANT, retry_after=10))
+
+    assert response.status_code == 400
+    assert "Retry-After" not in response.headers
+    assert response.json["error"] == "invalid_grant"
+
+
 @pytest.mark.parametrize(
     ("status", "result", "expected"),
     [

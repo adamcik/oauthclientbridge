@@ -194,7 +194,7 @@ sudo tee "$IMAGE_OVERRIDE_FILE" >/dev/null <<EOF
 # To roll back, set Image=<previous-ref> and restart $UNIT_NAME.
 # Previous runtime image: ${before_repo_digest:-${before_name:-<unknown>}}
 [Container]
-Image=$TARGET_OVERRIDE_REF # requested: $IMAGE_REF
+Image=$TARGET_OVERRIDE_REF
 EOF
 
 log "Reload + restart service"
