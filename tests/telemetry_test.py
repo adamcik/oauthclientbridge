@@ -12,6 +12,7 @@ from opentelemetry.sdk.metrics.export import HistogramDataPoint, NumberDataPoint
 from requests_mock import Mocker
 
 from oauthclientbridge import db, oauth, telemetry
+from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import (
     TelemetryComponent,
     TelemetrySettings,
@@ -223,6 +224,35 @@ def test_endpoint_creates_requests_spans(
     assert len(outgoing_request_spans) == 1
     outgoing_request_span = outgoing_request_spans[0]
     otel.assert_trace_id(outgoing_request_span, TRACE_ID)
+
+
+def test_outgoing_request_span_records_retry_after_header(
+    requests_mock: Mocker,
+    otel_mock: otel.OTelMocker,
+    app_context: flask.ctx.AppContext,
+    instrumented,
+) -> None:
+    current_settings.fetch.total_retries = 1
+    requests_mock.post(
+        current_settings.oauth.token_uri,
+        status_code=429,
+        headers={"Content-Type": "application/json", "Retry-After": "10"},
+        json={"error": "temporarily_unavailable"},
+    )
+
+    oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+
+    spans = otel_mock.get_finished_spans()
+    outgoing_request_spans = otel.find_spans(spans, "POST")
+    assert len(outgoing_request_spans) == 2
+    for outgoing_request_span in outgoing_request_spans:
+        assert outgoing_request_span.attributes is not None
+        assert outgoing_request_span.attributes[
+            "http.response.header.content_type"
+        ] == ("application/json")
+        assert (
+            outgoing_request_span.attributes["http.response.header.retry_after"] == "10"
+        )
 
 
 def test_endpoint_creates_sqlite3_spans(
@@ -642,6 +672,31 @@ def test_oauth_client_retry_metrics_record_budget_skip(
     assert b"oauth_client_retry_decisions_total" in metrics_resp.data
     assert b'decision="skip"' in metrics_resp.data
     assert b'reason="resource_exhausted"' in metrics_resp.data
+
+
+def test_oauth_client_error_metric_uses_normalized_retryable_invalid_grant(
+    requests_mock: Mocker,
+    client: FlaskClient,
+):
+    endpoint = "retryable-invalid-grant-metric-test"
+    requests_mock.post(
+        current_settings.oauth.token_uri,
+        status_code=503,
+        json={"error": OAuthError.INVALID_GRANT},
+    )
+
+    oauth.fetch(current_settings.oauth.token_uri, endpoint)
+
+    metrics_resp = client.get("/metrics")
+
+    assert (
+        f'oauth_client_error_total{{endpoint="{endpoint}",error="temporarily_unavailable",status="http_service_unavailable"}}'.encode()
+        in metrics_resp.data
+    )
+    assert (
+        f'oauth_client_error_total{{endpoint="{endpoint}",error="invalid_grant",status="http_service_unavailable"}}'.encode()
+        not in metrics_resp.data
+    )
 
 
 def test_oauth_client_retry_metrics_do_not_count_skipped_retry_attempts(
