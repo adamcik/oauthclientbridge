@@ -284,7 +284,7 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
         )
         retry_limiter.record_initial()
 
-        timeout = time.time() + current_settings.fetch.total_timeout
+        deadline = time.monotonic() + current_settings.fetch.total_timeout
         retry = 0
         completed_retries = 0
         status: HTTPStatus | None = None  # Set a default value for status
@@ -295,12 +295,12 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
         )
 
         i = 0
-        for i in range(current_settings.fetch.total_retries):
+        for i in range(current_settings.fetch.total_retries + 1):
             prefix = "attempt #%d %s" % (i + 1, uri)
 
             # TODO: Add jitter to backoff and/or retry after?
             backoff = (2**i - 1) * current_settings.fetch.backoff_factor
-            remaining_timeout = timeout - time.time()
+            remaining_timeout = deadline - time.monotonic()
 
             if pending_retry_decision is not None:
                 if (retry or backoff) > remaining_timeout:
@@ -348,7 +348,7 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
                     span.add_event("Sleeping", {"duration": sleep_for})
                     logger.debug("Retry %s [sleep %.3f]", prefix, sleep_for)
                     time.sleep(sleep_for)
-                    remaining_timeout = timeout - time.time()
+                    remaining_timeout = deadline - time.monotonic()
                     if remaining_timeout <= 0:
                         _record_retry_decision(
                             endpoint,
@@ -392,21 +392,6 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
                 endpoint,
             )
 
-            labels = {
-                "endpoint": endpoint,
-                "status": stats.status(status) if status else "unknown",
-            }
-
-            if status is not None and "error" in result:
-                error_code = result["error"]
-                if error_code in current_settings.fetch.error_types:
-                    error_label = current_settings.fetch.error_types[error_code].value
-                elif error_code in OAuthError:
-                    error_label = OAuthError(error_code).value
-                else:
-                    error_label = "invalid_error"
-                stats.ClientErrorCounter.labels(error=error_label, **labels).inc()
-
             if status is None:
                 span.add_event("Missing response")
                 pending_retry_decision = RetryDecision(
@@ -422,20 +407,34 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
                 span.add_event("Aborted", {"status": status})
                 pending_retry_decision = None
                 break
-            elif "error" not in result:
-                span.add_event("Non-OK without error!?")
-                pending_retry_decision = None
-                break  # No error reported so might as well return it.
             else:
-                try:
-                    if OAuthError(result["error"]) in TOKEN_ERRORS:
-                        result["error"] = OAuthError.TEMPORARILY_UNAVAILABLE.value
-                except ValueError:
-                    result["error"] = OAuthError.TEMPORARILY_UNAVAILABLE.value
+                # Retryable token-endpoint statuses dominate contradictory OAuth
+                # payloads. A 429/5xx body that says invalid_grant or
+                # invalid_client is treated as transient provider failure, not
+                # authoritative proof that the stored refresh token is dead.
+                description = result.get("error_description")
+                result = OAuthError.TEMPORARILY_UNAVAILABLE.json(
+                    description=description
+                )
                 pending_retry_decision = RetryDecision(
                     RetryDecisionAction.RETRY,
                     _retry_reason_for_status(status),
                 )
+
+            labels = {
+                "endpoint": endpoint,
+                "status": stats.status(status) if status else "unknown",
+            }
+
+            if status is not None and "error" in result:
+                error_code = result["error"]
+                if error_code in current_settings.fetch.error_types:
+                    error_label = current_settings.fetch.error_types[error_code].value
+                elif error_code in OAuthError:
+                    error_label = OAuthError(error_code).value
+                else:
+                    error_label = "invalid_error"
+                stats.ClientErrorCounter.labels(error=error_label, **labels).inc()
 
             # TODO: Call out other inconsistent mixes/states?
             # TODO: Cleanup this logging to use structlog or tracing
