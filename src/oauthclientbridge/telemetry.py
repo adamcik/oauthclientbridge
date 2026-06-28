@@ -122,7 +122,7 @@ def _requests_response_hook(
         )
     if "Retry-After" in response.headers:
         span.set_attribute(
-            "http.response.header.content_type",
+            "http.response.header.retry_after",
             response.headers["Retry-After"],
         )
 
