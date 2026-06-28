@@ -98,9 +98,6 @@ def error_handler(e: Error) -> flask.Response:
         response.status_code = HTTPStatus.SERVICE_UNAVAILABLE
         if e.retry_after is not None:
             response.headers["Retry-After"] = int(e.retry_after)
-    elif e.retry_after:
-        response.headers["Retry-After"] = int(e.retry_after)
-        response.status_code = HTTPStatus.TOO_MANY_REQUESTS
     else:
         response.status_code = HTTPStatus.BAD_REQUEST
 
