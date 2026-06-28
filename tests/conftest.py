@@ -11,7 +11,8 @@ from flask.testing import FlaskClient
 from pydantic import SecretStr
 from werkzeug.datastructures import Headers
 
-from oauthclientbridge import create_app, crypto, db, oauth
+from oauthclientbridge import create_app, crypto, db
+from oauthclientbridge.oauth import retry as oauth_retry
 from oauthclientbridge.settings import (
     DatabaseSettings,
     OAuthSettings,
@@ -33,7 +34,7 @@ def reset_logging_handlers():
 
 @pytest.fixture(autouse=True)
 def reset_retry_limiter():
-    oauth._get_retry_limiter.cache_clear()
+    oauth_retry.get_retry_limiter.cache_clear()
 
 
 class ResponseTuple(NamedTuple):
