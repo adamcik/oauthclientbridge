@@ -184,6 +184,62 @@ def test_oauth_fetch_retries_when_retry_budget_is_available(
     assert getattr(fake_limiter, "retry_calls", 0) == 1
 
 
+def test_oauth_fetch_normalizes_retryable_invalid_client_to_temporarily_unavailable(
+    app_context: flask.ctx.AppContext,
+    requests_mock: RequestsMocker,
+) -> None:
+    current_settings.fetch.total_retries = 0
+    requests_mock.post(
+        current_settings.oauth.token_uri,
+        status_code=503,
+        json={"error": OAuthError.INVALID_CLIENT},
+    )
+
+    result = oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+
+    assert result["error"] == OAuthError.TEMPORARILY_UNAVAILABLE
+
+
+def test_oauth_fetch_still_runs_initial_attempt_when_total_retries_is_zero(
+    app_context: flask.ctx.AppContext,
+    requests_mock: RequestsMocker,
+) -> None:
+    current_settings.fetch.total_retries = 0
+    requests_mock.post(
+        current_settings.oauth.token_uri,
+        json={"access_token": "mock_token", "token_type": "Bearer"},
+        status_code=200,
+    )
+
+    result = oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+
+    assert result["access_token"] == "mock_token"
+    assert len(requests_mock.request_history) == 1
+
+
+def test_oauth_fetch_total_retries_allows_one_retry(
+    app_context: flask.ctx.AppContext,
+    requests_mock: RequestsMocker,
+) -> None:
+    current_settings.fetch.total_retries = 1
+    requests_mock.post(
+        current_settings.oauth.token_uri,
+        [
+            {"status_code": 503, "json": {"error": "temporarily_unavailable"}},
+            {
+                "json": {"access_token": "mock_token", "token_type": "Bearer"},
+                "status_code": 200,
+            },
+        ],
+    )
+
+    with unittest.mock.patch("time.sleep"):
+        result = oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+
+    assert result["access_token"] == "mock_token"
+    assert len(requests_mock.request_history) == 2
+
+
 def test_oauth_fetch_does_not_start_retry_after_sleep_exhausts_deadline(
     app_context: flask.ctx.AppContext,
 ) -> None:
@@ -228,6 +284,62 @@ def test_oauth_fetch_does_not_start_retry_after_sleep_exhausts_deadline(
 
     assert result["error"] == "temporarily_unavailable"
     assert fake_time[0] == pytest.approx(0.2)
+
+
+def test_oauth_fetch_total_deadline_uses_monotonic_clock(
+    app_context: flask.ctx.AppContext,
+) -> None:
+    current_settings.fetch.total_timeout = 1.0
+    current_settings.fetch.total_retries = 1
+    current_settings.fetch.backoff_factor = 0.3
+
+    monotonic_time = [0.0]
+    wall_time = [100.0]
+    observed_timeouts: list[float] = []
+
+    def monotonic_now() -> float:
+        return monotonic_time[0]
+
+    def wall_now() -> float:
+        return wall_time[0]
+
+    def sleep(duration: float) -> None:
+        monotonic_time[0] += duration
+        wall_time[0] += 50.0
+
+    def fetch_side_effect(*args, **kwargs):
+        timeout = args[2]
+        observed_timeouts.append(timeout)
+        if len(observed_timeouts) == 1:
+            monotonic_time[0] += 0.2
+            wall_time[0] += 500.0
+            return (
+                {"error": "temporarily_unavailable"},
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                0,
+            )
+
+        return (
+            {"access_token": "mock_token", "token_type": "Bearer"},
+            HTTPStatus.OK,
+            0,
+        )
+
+    with (
+        unittest.mock.patch("random.uniform", return_value=0.75),
+        unittest.mock.patch("oauthclientbridge.oauth.time.time", side_effect=wall_now),
+        unittest.mock.patch(
+            "oauthclientbridge.oauth.time.monotonic", side_effect=monotonic_now
+        ),
+        unittest.mock.patch("oauthclientbridge.oauth.time.sleep", side_effect=sleep),
+        unittest.mock.patch(
+            "oauthclientbridge.oauth._fetch", side_effect=fetch_side_effect
+        ),
+    ):
+        result = oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+
+    assert result["access_token"] == "mock_token"
+    assert observed_timeouts == pytest.approx([1.0, 0.575])
 
 
 def test_oauth_fetch_uses_remaining_budget_for_retry_timeout(
@@ -447,8 +559,8 @@ def test_oauth_fetch_fails_after_all_retries_exhausted(
     requests_mock: RequestsMocker,
 ) -> None:
     """Verify that oauth.fetch fails after all retries are exhausted."""
-    # Simulate 3 failures (504 status code) and total_retries is 2
-    # This should result in 2 retries and then a final failure
+    current_settings.fetch.total_retries = 2
+    # Simulate 3 failures (504 status code): 1 initial attempt + 2 retries.
     requests_mock.post(
         current_settings.oauth.token_uri,
         [
