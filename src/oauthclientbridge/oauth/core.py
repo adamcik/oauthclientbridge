@@ -3,10 +3,7 @@ import functools
 import importlib.metadata
 import random
 import re
-import threading
 import time
-from dataclasses import dataclass
-from enum import StrEnum
 from http import HTTPStatus
 from typing import Any, override
 
@@ -20,9 +17,18 @@ from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import current_settings
 from oauthclientbridge.utils import APIResult, http_status_to_result, rewrite_uri
 
+from .outcome import OAuthResponse, token_endpoint_outcome
+from .retry import (
+    RetryAttemptKind,
+    RetryDecision,
+    RetryDecisionAction,
+    RetryReason,
+    get_retry_limiter,
+)
+
 logger: structlog.BoundLogger = structlog.get_logger()
-tracer = trace.get_tracer(__name__)
-meter = metrics.get_meter(__name__)
+tracer = trace.get_tracer(__package__)
+meter = metrics.get_meter(__package__)
 
 _oauth_client_total_counter = meter.create_counter(
     name="oauth.client.total",
@@ -41,117 +47,7 @@ _oauth_client_retries_histogram = meter.create_histogram(
     unit="1",
 )
 
-# TODO: This should be a stricter type or a pydantic model
-OAuthResponse = dict[str, Any]
 URIParam = dict[str, str]
-
-
-class RetryAttemptKind(StrEnum):
-    INITIAL = "initial"
-    RETRY = "retry"
-
-
-class RetryDecisionAction(StrEnum):
-    RETRY = "retry"
-    SKIP = "skip"
-
-
-class RetryReason(StrEnum):
-    UNAVAILABLE = "unavailable"
-    RESOURCE_EXHAUSTED = "resource_exhausted"
-    DEADLINE_EXCEEDED = "deadline_exceeded"
-    UNKNOWN = "unknown"
-
-
-@dataclass(frozen=True)
-class RetryDecision:
-    action: RetryDecisionAction
-    reason: RetryReason
-
-
-class RetryLimiter:
-    """Process-local retry budget.
-
-    We model this as a bounded bucket of retry tokens. First attempts replenish
-    the bucket by a configured fraction, while each admitted retry consumes one
-    whole token. This keeps the implementation local and simple, but it means
-    the budget is per-process and only approximates fleet-wide retry volume.
-    """
-
-    def __init__(self, capacity: int, refill_per_initial: float):
-        self.capacity = capacity
-        self.refill_per_initial = refill_per_initial
-        self._tokens = capacity
-        self._lock = threading.Lock()
-
-    def record_initial(self) -> None:
-        with self._lock:
-            self._tokens = min(self.capacity, self._tokens + self.refill_per_initial)
-
-    def allow_retry(self) -> bool:
-        with self._lock:
-            if self._tokens < 1:
-                return False
-
-            self._tokens -= 1
-            return True
-
-    def record_retry(self) -> None:
-        pass
-
-
-@functools.lru_cache()
-def _get_retry_limiter(capacity: int, refill_per_initial: float) -> RetryLimiter:
-    return RetryLimiter(capacity, refill_per_initial)
-
-
-def _record_attempt(endpoint: str, attempt_kind: RetryAttemptKind) -> None:
-    stats.ClientAttemptCounter.labels(endpoint=endpoint, kind=attempt_kind).inc()
-
-
-def _record_retry_decision(endpoint: str, decision: RetryDecision) -> None:
-    stats.ClientRetryDecisionCounter.labels(
-        endpoint=endpoint,
-        decision=decision.action,
-        reason=decision.reason,
-    ).inc()
-
-
-def _retry_reason_for_status(status: HTTPStatus) -> RetryReason:
-    if status == HTTPStatus.TOO_MANY_REQUESTS:
-        return RetryReason.RESOURCE_EXHAUSTED
-    if status in {
-        HTTPStatus.BAD_GATEWAY,
-        HTTPStatus.SERVICE_UNAVAILABLE,
-        HTTPStatus.GATEWAY_TIMEOUT,
-    }:
-        return RetryReason.UNAVAILABLE
-    return RetryReason.UNKNOWN
-
-
-# https://tools.ietf.org/html/rfc6749#section-4.1.2.1
-AUTHORIZATION_ERRORS = {
-    OAuthError.INVALID_REQUEST,
-    OAuthError.UNAUTHORIZED_CLIENT,
-    OAuthError.ACCESS_DENIED,
-    OAuthError.UNSUPPORTED_RESPONSE_TYPE,
-    OAuthError.INVALID_SCOPE,
-    OAuthError.SERVER_ERROR,
-    OAuthError.TEMPORARILY_UNAVAILABLE,
-}
-
-# https://tools.ietf.org/html/rfc6749#section-5.2
-TOKEN_ERRORS = {
-    OAuthError.INVALID_REQUEST,
-    OAuthError.INVALID_CLIENT,
-    OAuthError.INVALID_GRANT,
-    OAuthError.UNAUTHORIZED_CLIENT,
-    OAuthError.UNSUPPORTED_GRANT_TYPE,
-    OAuthError.INVALID_SCOPE,
-    # These are not really supported by RFC:
-    OAuthError.SERVER_ERROR,
-    OAuthError.TEMPORARILY_UNAVAILABLE,
-}
 
 
 @functools.lru_cache()
@@ -195,7 +91,6 @@ def error_handler(e: Error) -> flask.Response:
     response = flask.jsonify(result)
     if e.error == OAuthError.INVALID_CLIENT:
         response.status_code = HTTPStatus.UNAUTHORIZED
-        # TODO: This triggers a login prompt when testing, we probably don't want that.
         response.headers["WWW-Authenticate"] = (
             f'Basic realm="{current_settings.auth_realm}"'
         )
@@ -246,32 +141,23 @@ def nocache(response: flask.Response) -> flask.Response:
     return response
 
 
-def normalize_error(
-    error_code: str, allowed_types: set[OAuthError], fallback_type: OAuthError
-) -> OAuthError:
-    """Translate any "bad" error types to something more usable."""
-    if error_code in current_settings.fetch.error_types:
-        error = current_settings.fetch.error_types[error_code]
-    elif error_code in OAuthError:
-        error = OAuthError(error_code)
-    else:
-        error = fallback_type
-
-    if error not in allowed_types:
-        return fallback_type
-    return error
-
-
-def validate_token(token: OAuthResponse) -> bool:
-    return bool(token.get("access_token") and token.get("token_type"))
-
-
 def scrub_refresh_token(token: OAuthResponse) -> OAuthResponse:
     remove = ("access_token", "expires_in", "token_type")
     return {k: v for k, v in token.items() if k not in remove}
 
 
-# TODO: Turn endpoint into a StrEnum
+def _record_attempt(endpoint: str, attempt_kind: RetryAttemptKind) -> None:
+    stats.ClientAttemptCounter.labels(endpoint=endpoint, kind=attempt_kind).inc()
+
+
+def _record_retry_decision(endpoint: str, decision: RetryDecision) -> None:
+    stats.ClientRetryDecisionCounter.labels(
+        endpoint=endpoint,
+        decision=decision.action,
+        reason=decision.reason,
+    ).inc()
+
+
 def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResponse:
     """Perform post given URI with auth and provided data."""
     start_time = time.monotonic()
@@ -287,18 +173,15 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
         deadline = time.monotonic() + current_settings.fetch.total_timeout
         retry = 0
         completed_retries = 0
-        status: HTTPStatus | None = None  # Set a default value for status
+        status: HTTPStatus | None = None
         pending_retry_decision: RetryDecision | None = None
 
         result = OAuthError.SERVER_ERROR.json(
             description="An unknown error occurred talking to provider."
         )
 
-        i = 0
         for i in range(current_settings.fetch.total_retries + 1):
             prefix = "attempt #%d %s" % (i + 1, uri)
-
-            # TODO: Add jitter to backoff and/or retry after?
             backoff = (2**i - 1) * current_settings.fetch.backoff_factor
             remaining_timeout = deadline - time.monotonic()
 
@@ -313,7 +196,6 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
                     )
                     span.add_event("No timeout remaining")
                     logger.debug("Abort %s no timeout remaining.", prefix)
-                    # TODO: This should probably be a timeout outcome.
                     break
                 elif (retry or backoff) > 0:
                     if not retry_limiter.allow_retry():
@@ -392,34 +274,35 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
                 endpoint,
             )
 
-            if status is None:
-                span.add_event("Missing response")
+            outcome = token_endpoint_outcome(
+                status,
+                result,
+                retry_status_codes=current_settings.fetch.retry_status_codes,
+                error_types=current_settings.fetch.error_types,
+                logger=logger,
+                endpoint=endpoint,
+            )
+
+            if outcome.retryable:
+                if status is None:
+                    span.add_event("Missing response")
+                else:
+                    span.add_event("Retryable response", {"status": status})
+
+                description = result.get("error_description")
+                result = outcome.normalized_error.json(description=description)
                 pending_retry_decision = RetryDecision(
                     RetryDecisionAction.RETRY,
-                    RetryReason.UNAVAILABLE,
+                    outcome.retry_reason or RetryReason.UNKNOWN,
                 )
-                pass  # We didn't even get a response, so try again.
             elif status.is_success:
                 span.add_event("Success")
                 pending_retry_decision = None
                 break
-            elif status not in current_settings.fetch.retry_status_codes:
+            else:
                 span.add_event("Aborted", {"status": status})
                 pending_retry_decision = None
                 break
-            else:
-                # Retryable token-endpoint statuses dominate contradictory OAuth
-                # payloads. A 429/5xx body that says invalid_grant or
-                # invalid_client is treated as transient provider failure, not
-                # authoritative proof that the stored refresh token is dead.
-                description = result.get("error_description")
-                result = OAuthError.TEMPORARILY_UNAVAILABLE.json(
-                    description=description
-                )
-                pending_retry_decision = RetryDecision(
-                    RetryDecisionAction.RETRY,
-                    _retry_reason_for_status(status),
-                )
 
             labels = {
                 "endpoint": endpoint,
@@ -436,8 +319,6 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
                     error_label = "invalid_error"
                 stats.ClientErrorCounter.labels(error=error_label, **labels).inc()
 
-            # TODO: Call out other inconsistent mixes/states?
-            # TODO: Cleanup this logging to use structlog or tracing
             logger.debug(
                 "Result %s [status %s] [retry after %s]", prefix, status, retry
             )
@@ -451,10 +332,9 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
                     ),
                 )
 
-        if status is None:
-            final_result = APIResult.TIMEOUT
-        else:
-            final_result = http_status_to_result(status)
+        final_result = (
+            APIResult.TIMEOUT if status is None else http_status_to_result(status)
+        )
 
         attributes: dict[str, Any] = {
             "operation": endpoint,
@@ -484,13 +364,9 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
         _oauth_client_duration_histogram.record(duration, attributes)
         _oauth_client_retries_histogram.record(completed_retries, attributes)
         _oauth_client_total_counter.add(1, attributes)
-
-        # TODO: consider returning retry after time so it can be used in response
         return result
 
 
-# TODO: Test timeouts
-# TODO: Add global retry budget / circuit breaker?
 def _fetch(
     span: trace.Span,
     prepared: requests.PreparedRequest,
@@ -504,21 +380,15 @@ def _fetch(
     status = None
 
     try:
-        # TODO: switch to a context for tracking time.
         resp = session.send(prepared, timeout=timeout)
     except requests.exceptions.RequestException as e:
         request_latency = time.time() - start_time
-
         span.record_exception(e)
-
         span.add_event("Closing session to get new server")
         session.close()
 
-        # Fallback values in case we can't say anything better.
         status_label = "unknown_exception"
         description = "An unknown error occurred while talking to provider."
-
-        # Don't give API users error messages we don't control the contents of.
         if isinstance(e, requests.exceptions.Timeout):
             description = "Request timed out while connecting to provider."
             if isinstance(e, requests.exceptions.ConnectTimeout):
@@ -538,17 +408,11 @@ def _fetch(
             status = HTTPStatus(e.response.status_code)
 
         logger.warning("Fetching %r failed: %s", prepared.url, e)
-
-        # TODO: Should this be temporarily_unavailable?
-
-        # Server error isn't allowed everywhere, but fixing this has been
-        # brought up in https://www.rfc-editor.org/errata_search.php?eid=4745
         result = OAuthError.SERVER_ERROR.json(description=description)
 
         if isinstance(e, requests.exceptions.HTTPError):
             length = len(e.response.content)
             retry_after = parse_retry(e.response.headers.get("retry-after"))
-            # TODO: Can we decode the response here? Store it in the span?
         else:
             length = None
             retry_after = 0
@@ -574,10 +438,6 @@ def _fetch(
 
 
 def _decode(span: trace.Span, resp: requests.Response) -> OAuthResponse:
-    # Per OAuth spec all responses should be JSON, but this isn't always
-    # the case. For instance 502 errors and a gateway that does not correctly
-    # create a fake JSON error response.
-
     try:
         return resp.json()
     except ValueError as e:
@@ -623,8 +483,11 @@ def jitter_delay(delay: float) -> float:
 
 
 def redirect(uri: str, **params: str) -> flask.Response:
-    # TODO: Add the location we redirect to in span?
     return flask.Response(
         status=HTTPStatus.FOUND,
         headers={"Location": rewrite_uri(uri, params)},
     )
+
+
+# Preserve existing import/test seam while moving implementation to retry.py.
+_get_retry_limiter = get_retry_limiter
