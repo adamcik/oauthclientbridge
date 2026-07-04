@@ -208,7 +208,7 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
                         break
 
                     base_delay = retry if retry else backoff
-                    sleep_for = jitter_delay(base_delay)
+                    sleep_for = jitter_delay(base_delay, preserve_floor=retry > 0)
                     if retry:
                         sleep_for = max(retry, sleep_for)
                     if sleep_for > remaining_timeout:
@@ -472,9 +472,18 @@ def parse_retry(value: str | None) -> int:
     return max(0, seconds)
 
 
-def jitter_delay(delay: float) -> float:
+def jitter_delay(delay: float, preserve_floor: bool = False) -> float:
+    """Apply jitter around a base delay.
+
+    When preserving a provider-supplied floor like `Retry-After`, clamp the
+    lower jitter bound to 1.0 so the full sampled range remains usable.
+    """
+    lower_bound = current_settings.fetch.backoff_jitter_min
+    if preserve_floor:
+        lower_bound = max(1.0, lower_bound)
+
     return delay * random.uniform(
-        current_settings.fetch.backoff_jitter_min,
+        lower_bound,
         current_settings.fetch.backoff_jitter_max,
     )
 
