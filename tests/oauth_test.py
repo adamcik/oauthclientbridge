@@ -6,6 +6,7 @@ from freezegun import freeze_time
 from requests_mock import Mocker as RequestsMocker
 
 from oauthclientbridge import oauth
+from oauthclientbridge.oauth.core import parse_retry
 from oauthclientbridge.oauth import core as oauth_core
 from oauthclientbridge.settings import current_settings
 
@@ -341,36 +342,36 @@ def test_oauth_fetch_closes_session_before_retrying_retryable_status(
 
 
 def test_parse_retry_with_seconds() -> None:
-    assert oauth_core.parse_retry("10") == 10
+    assert parse_retry("10") == 10
 
 
 @freeze_time("2025-01-01 00:00:00 UTC")
 def test_parse_retry_with_http_date() -> None:
     # Now
-    assert oauth_core.parse_retry("Wed, 01 Jan 2025 00:00:00 GMT") == 0
+    assert parse_retry("Wed, 01 Jan 2025 00:00:00 GMT") == 0
     # Future date
-    assert oauth_core.parse_retry("Fri, 01 Jan 2025 00:00:10 GMT") == 10
-    assert oauth_core.parse_retry("Fri, 01 Jan 2025 00:00:30 CET") == 30
-    assert oauth_core.parse_retry("Fri, 01 Jan 2025 00:00:00 PST") == 28800
+    assert parse_retry("Fri, 01 Jan 2025 00:00:10 GMT") == 10
+    assert parse_retry("Fri, 01 Jan 2025 00:00:30 CET") == 30
+    assert parse_retry("Fri, 01 Jan 2025 00:00:00 PST") == 28800
     # Past date
-    assert oauth_core.parse_retry("Fri, 01 Jan 2024 00:00:00 GMT") == 0
-    assert oauth_core.parse_retry("Fri, 01 Jan 2024 00:00:00 CET") == 0
-    assert oauth_core.parse_retry("Fri, 01 Jan 2024 00:00:00 PST") == 0
+    assert parse_retry("Fri, 01 Jan 2024 00:00:00 GMT") == 0
+    assert parse_retry("Fri, 01 Jan 2024 00:00:00 CET") == 0
+    assert parse_retry("Fri, 01 Jan 2024 00:00:00 PST") == 0
 
 
 def test_parse_retry_with_none() -> None:
-    assert oauth_core.parse_retry(None) == 0
+    assert parse_retry(None) == 0
 
 
 def test_parse_retry_with_invalid_string() -> None:
-    assert oauth_core.parse_retry("invalid") == 0
-    assert oauth_core.parse_retry("numb3r") == 0
-    assert oauth_core.parse_retry("0x15") == 0
+    assert parse_retry("invalid") == 0
+    assert parse_retry("numb3r") == 0
+    assert parse_retry("0x15") == 0
 
 
 def test_parse_retry_with_multiple_headers() -> None:
-    assert oauth_core.parse_retry("10, 20") == 0
-    assert oauth_core.parse_retry("10, Wed, 01 Jan 2025 00:00:10 GMT") == 0
+    assert parse_retry("10, 20") == 0
+    assert parse_retry("10, Wed, 01 Jan 2025 00:00:10 GMT") == 0
 
 
 def test_oauth_session_sets_user_agent(
