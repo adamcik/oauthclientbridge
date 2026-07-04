@@ -20,6 +20,14 @@ class CallbackErrorCase:
     expected_status: int
 
 
+@dataclass(frozen=True)
+class AuthorizationCodeErrorCase:
+    name: str
+    data: dict[str, str]
+    expected_error: str
+    expected_status: int
+
+
 def test_authorize_redirects(client: FlaskClient):
     resp = client.get("/")
     location = urllib.parse.urlsplit(resp.location)
@@ -207,50 +215,109 @@ def test_callback_preserves_retry_after_for_temporarily_unavailable(
 # TODO: Revisit all of the status codes returned, since this is not an API
 # endpoint but a callback we can be well behaved with respect to HTTP.
 @pytest.mark.parametrize(
-    "data,expected_error,expected_status",
+    "case",
     [
-        ({}, OAuthError.INVALID_RESPONSE, 400),
-        ({"token_type": "foobar"}, OAuthError.INVALID_RESPONSE, 400),
-        ({"access_token": "foobar"}, OAuthError.INVALID_RESPONSE, 400),
-        ({"access_token": "", "token_type": ""}, OAuthError.INVALID_RESPONSE, 400),
-        (
-            {"access_token": "foobar", "token_type": ""},
-            OAuthError.INVALID_RESPONSE,
-            400,
+        AuthorizationCodeErrorCase(
+            name="empty payload",
+            data={},
+            expected_error=OAuthError.INVALID_RESPONSE,
+            expected_status=400,
         ),
-        (
-            {"access_token": "", "token_type": "foobar"},
-            OAuthError.INVALID_RESPONSE,
-            400,
+        AuthorizationCodeErrorCase(
+            name="missing access token",
+            data={"token_type": "foobar"},
+            expected_error=OAuthError.INVALID_RESPONSE,
+            expected_status=400,
         ),
-        ({"error": OAuthError.INVALID_REQUEST}, OAuthError.INVALID_REQUEST, 400),
-        ({"error": OAuthError.INVALID_CLIENT}, OAuthError.INVALID_CLIENT, 401),
-        ({"error": OAuthError.INVALID_GRANT}, OAuthError.INVALID_GRANT, 400),
-        (
-            {"error": OAuthError.UNAUTHORIZED_CLIENT},
-            OAuthError.UNAUTHORIZED_CLIENT,
-            400,
+        AuthorizationCodeErrorCase(
+            name="missing token type",
+            data={"access_token": "foobar"},
+            expected_error=OAuthError.INVALID_RESPONSE,
+            expected_status=400,
         ),
-        (
-            {"error": OAuthError.UNSUPPORTED_GRANT_TYPE},
-            OAuthError.UNSUPPORTED_GRANT_TYPE,
-            400,
+        AuthorizationCodeErrorCase(
+            name="empty token values",
+            data={"access_token": "", "token_type": ""},
+            expected_error=OAuthError.INVALID_RESPONSE,
+            expected_status=400,
         ),
-        ({"error": OAuthError.INVALID_SCOPE}, OAuthError.INVALID_SCOPE, 400),
-        ({"error": OAuthError.SERVER_ERROR}, OAuthError.SERVER_ERROR, 400),
-        (
-            {"error": OAuthError.TEMPORARILY_UNAVAILABLE},
-            OAuthError.TEMPORARILY_UNAVAILABLE,
-            503,
+        AuthorizationCodeErrorCase(
+            name="empty token type",
+            data={"access_token": "foobar", "token_type": ""},
+            expected_error=OAuthError.INVALID_RESPONSE,
+            expected_status=400,
         ),
-        ({"error": "errorTransient"}, OAuthError.TEMPORARILY_UNAVAILABLE, 503),
-        ({"error": "badErrorCode"}, OAuthError.SERVER_ERROR, 400),
+        AuthorizationCodeErrorCase(
+            name="empty access token",
+            data={"access_token": "", "token_type": "foobar"},
+            expected_error=OAuthError.INVALID_RESPONSE,
+            expected_status=400,
+        ),
+        AuthorizationCodeErrorCase(
+            name="oauth invalid request",
+            data={"error": OAuthError.INVALID_REQUEST},
+            expected_error=OAuthError.INVALID_REQUEST,
+            expected_status=400,
+        ),
+        AuthorizationCodeErrorCase(
+            name="oauth invalid client",
+            data={"error": OAuthError.INVALID_CLIENT},
+            expected_error=OAuthError.INVALID_CLIENT,
+            expected_status=401,
+        ),
+        AuthorizationCodeErrorCase(
+            name="oauth invalid grant",
+            data={"error": OAuthError.INVALID_GRANT},
+            expected_error=OAuthError.INVALID_GRANT,
+            expected_status=400,
+        ),
+        AuthorizationCodeErrorCase(
+            name="oauth unauthorized client",
+            data={"error": OAuthError.UNAUTHORIZED_CLIENT},
+            expected_error=OAuthError.UNAUTHORIZED_CLIENT,
+            expected_status=400,
+        ),
+        AuthorizationCodeErrorCase(
+            name="oauth unsupported grant type",
+            data={"error": OAuthError.UNSUPPORTED_GRANT_TYPE},
+            expected_error=OAuthError.UNSUPPORTED_GRANT_TYPE,
+            expected_status=400,
+        ),
+        AuthorizationCodeErrorCase(
+            name="oauth invalid scope",
+            data={"error": OAuthError.INVALID_SCOPE},
+            expected_error=OAuthError.INVALID_SCOPE,
+            expected_status=400,
+        ),
+        AuthorizationCodeErrorCase(
+            name="oauth server error",
+            data={"error": OAuthError.SERVER_ERROR},
+            expected_error=OAuthError.SERVER_ERROR,
+            expected_status=400,
+        ),
+        AuthorizationCodeErrorCase(
+            name="oauth temporarily unavailable",
+            data={"error": OAuthError.TEMPORARILY_UNAVAILABLE},
+            expected_error=OAuthError.TEMPORARILY_UNAVAILABLE,
+            expected_status=503,
+        ),
+        AuthorizationCodeErrorCase(
+            name="transient provider error",
+            data={"error": "errorTransient"},
+            expected_error=OAuthError.TEMPORARILY_UNAVAILABLE,
+            expected_status=503,
+        ),
+        AuthorizationCodeErrorCase(
+            name="unknown provider error",
+            data={"error": "badErrorCode"},
+            expected_error=OAuthError.SERVER_ERROR,
+            expected_status=400,
+        ),
     ],
+    ids=lambda case: case.name,
 )
 def test_callback_authorization_code_error_handling(
-    data: dict[str, str],
-    expected_error: str,
-    expected_status: int,
+    case: AuthorizationCodeErrorCase,
     get: GetClient,
     state: str,
     requests_mock: Mocker,
@@ -258,12 +325,12 @@ def test_callback_authorization_code_error_handling(
 ):
     _ = requests_mock.post(
         settings.oauth.token_uri,
-        json=data,
+        json=case.data,
     )
 
     resp = get("/callback?code=1234&state=" + state)
-    assert resp.status == expected_status
-    assert resp.data["error"] == expected_error
+    assert resp.status == case.expected_status
+    assert resp.data["error"] == case.expected_error
 
 
 # TODO: Test with more status codes from callback...
