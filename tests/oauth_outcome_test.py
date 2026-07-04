@@ -11,17 +11,6 @@ from oauthclientbridge.oauth.retry import RetryReason
 from oauthclientbridge.settings import current_settings
 
 
-@dataclass(frozen=True)
-class TokenEndpointOutcomeCase:
-    name: str
-    status: HTTPStatus | None
-    result: oauth_outcome.OAuthResponse
-    expected_retryable: bool
-    expected_normalized_error: OAuthError | None
-    expected_invalidate_refresh_token: bool
-    expected_retry_reason: RetryReason | None
-
-
 def test_error_handler_returns_503_for_temporarily_unavailable_retry_after(
     app: flask.Flask,
 ) -> None:
@@ -46,6 +35,17 @@ def test_error_handler_keeps_invalid_grant_as_400_with_retry_after(
     assert response.status_code == 400
     assert "Retry-After" not in response.headers
     assert response.json["error"] == "invalid_grant"
+
+
+@dataclass(frozen=True)
+class TokenEndpointOutcomeCase:
+    name: str
+    status: HTTPStatus | None
+    result: oauth_outcome.OAuthResponse
+    expected_retryable: bool
+    expected_normalized_error: OAuthError | None
+    expected_invalidate_refresh_token: bool
+    expected_retry_reason: RetryReason | None
 
 
 @pytest.mark.parametrize(

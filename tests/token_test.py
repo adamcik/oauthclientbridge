@@ -20,33 +20,6 @@ class TokenInputValidationCase:
     expected_status: int
 
 
-@dataclass(frozen=True)
-class BadBasicAuthCase:
-    name: str
-    header: bytes
-
-
-@dataclass(frozen=True)
-class ExtraTokenValuesCase:
-    name: str
-    response: dict[str, str]
-    updated: dict[str, str]
-
-
-@dataclass(frozen=True)
-class TokenProviderErrorCase:
-    name: str
-    error: str
-    expected_error: str
-    expected_status: int
-
-
-@dataclass(frozen=True)
-class InvalidProviderResponseCase:
-    name: str
-    token: dict[str, str]
-
-
 @pytest.mark.parametrize(
     "case",
     [
@@ -208,6 +181,12 @@ def test_token_basic_auth(post: PostClient, access_token: TokenTuple):
     assert resp.data == access_token.value
 
 
+@dataclass(frozen=True)
+class BadBasicAuthCase:
+    name: str
+    header: bytes
+
+
 @pytest.mark.parametrize(
     "case",
     [
@@ -313,6 +292,13 @@ def test_token_refresh_post_data(
     }
 
     _ = post("/token", data)
+
+
+@dataclass(frozen=True)
+class ExtraTokenValuesCase:
+    name: str
+    response: dict[str, str]
+    updated: dict[str, str]
 
 
 @pytest.mark.parametrize(
@@ -503,6 +489,14 @@ def test_token_only_returns_scope_from_db(
 
 
 # TODO: fix expected_error and expected_status
+@dataclass(frozen=True)
+class TokenProviderErrorCase:
+    name: str
+    error: str
+    expected_error: str
+    expected_status: int
+
+
 @pytest.mark.parametrize(
     "case",
     [
@@ -581,6 +575,12 @@ def test_token_provider_errors(
     assert resp.status == case.expected_status
     assert resp.data["error"] == case.expected_error
     assert resp.data["error_description"]
+
+
+@dataclass(frozen=True)
+class InvalidProviderResponseCase:
+    name: str
+    token: dict[str, str]
 
 
 @pytest.mark.parametrize(
