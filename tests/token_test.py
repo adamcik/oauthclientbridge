@@ -33,6 +33,14 @@ class ExtraTokenValuesCase:
     updated: dict[str, str]
 
 
+@dataclass(frozen=True)
+class TokenProviderErrorCase:
+    name: str
+    error: str
+    expected_error: str
+    expected_status: int
+
+
 @pytest.mark.parametrize(
     "case",
     [
@@ -490,31 +498,70 @@ def test_token_only_returns_scope_from_db(
 
 # TODO: fix expected_error and expected_status
 @pytest.mark.parametrize(
-    "error,expected_error,expected_status",
+    "case",
     [
-        (OAuthError.INVALID_REQUEST, OAuthError.INVALID_REQUEST, 400),
-        (OAuthError.INVALID_CLIENT, OAuthError.INVALID_CLIENT, 401),
-        (OAuthError.INVALID_GRANT, OAuthError.INVALID_GRANT, 400),
-        (OAuthError.UNAUTHORIZED_CLIENT, OAuthError.UNAUTHORIZED_CLIENT, 400),
-        (OAuthError.UNSUPPORTED_GRANT_TYPE, OAuthError.UNSUPPORTED_GRANT_TYPE, 400),
-        (OAuthError.INVALID_SCOPE, OAuthError.INVALID_SCOPE, 400),
-        ("errorTransient", OAuthError.TEMPORARILY_UNAVAILABLE, 503),
-        ("badError", OAuthError.SERVER_ERROR, 400),
+        TokenProviderErrorCase(
+            name="oauth invalid request",
+            error=OAuthError.INVALID_REQUEST,
+            expected_error=OAuthError.INVALID_REQUEST,
+            expected_status=400,
+        ),
+        TokenProviderErrorCase(
+            name="oauth invalid client",
+            error=OAuthError.INVALID_CLIENT,
+            expected_error=OAuthError.INVALID_CLIENT,
+            expected_status=401,
+        ),
+        TokenProviderErrorCase(
+            name="oauth invalid grant",
+            error=OAuthError.INVALID_GRANT,
+            expected_error=OAuthError.INVALID_GRANT,
+            expected_status=400,
+        ),
+        TokenProviderErrorCase(
+            name="oauth unauthorized client",
+            error=OAuthError.UNAUTHORIZED_CLIENT,
+            expected_error=OAuthError.UNAUTHORIZED_CLIENT,
+            expected_status=400,
+        ),
+        TokenProviderErrorCase(
+            name="oauth unsupported grant type",
+            error=OAuthError.UNSUPPORTED_GRANT_TYPE,
+            expected_error=OAuthError.UNSUPPORTED_GRANT_TYPE,
+            expected_status=400,
+        ),
+        TokenProviderErrorCase(
+            name="oauth invalid scope",
+            error=OAuthError.INVALID_SCOPE,
+            expected_error=OAuthError.INVALID_SCOPE,
+            expected_status=400,
+        ),
+        TokenProviderErrorCase(
+            name="transient provider error",
+            error="errorTransient",
+            expected_error=OAuthError.TEMPORARILY_UNAVAILABLE,
+            expected_status=503,
+        ),
+        TokenProviderErrorCase(
+            name="unknown provider error",
+            error="badError",
+            expected_error=OAuthError.SERVER_ERROR,
+            expected_status=400,
+        ),
     ],
+    ids=lambda case: case.name,
 )
 def test_token_provider_errors(
     post: PostClient,
     refresh_token: TokenTuple,
     requests_mock: Mocker,
     settings: Settings,
-    error: str,
-    expected_error: str,
-    expected_status: int,
+    case: TokenProviderErrorCase,
 ):
     _ = requests_mock.post(
         settings.oauth.token_uri,
         status_code=400,
-        json={"error": error},
+        json={"error": case.error},
     )
 
     data = {
@@ -522,11 +569,11 @@ def test_token_provider_errors(
         "client_secret": refresh_token.client_secret,
         "grant_type": "client_credentials",
     }
-
+    
     resp = post("/token", data)
 
-    assert resp.status == expected_status
-    assert resp.data["error"] == expected_error
+    assert resp.status == case.expected_status
+    assert resp.data["error"] == case.expected_error
     assert resp.data["error_description"]
 
 
