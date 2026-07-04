@@ -26,6 +26,13 @@ class BadBasicAuthCase:
     header: bytes
 
 
+@dataclass(frozen=True)
+class ExtraTokenValuesCase:
+    name: str
+    response: dict[str, str]
+    updated: dict[str, str]
+
+
 @pytest.mark.parametrize(
     "case",
     [
@@ -295,24 +302,36 @@ def test_token_refresh_post_data(
 
 
 @pytest.mark.parametrize(
-    "response,updated",
+    "case",
     [
-        ({}, {}),
-        ({"scope": "foo"}, {}),
-        ({"refresh_token": "def"}, {"refresh_token": "def"}),
-        ({"private": "123"}, {}),
+        ExtraTokenValuesCase(name="no extra values", response={}, updated={}),
+        ExtraTokenValuesCase(
+            name="scope stays provider only",
+            response={"scope": "foo"},
+            updated={},
+        ),
+        ExtraTokenValuesCase(
+            name="refresh token replaced",
+            response={"refresh_token": "def"},
+            updated={"refresh_token": "def"},
+        ),
+        ExtraTokenValuesCase(
+            name="private value ignored",
+            response={"private": "123"},
+            updated={},
+        ),
     ],
+    ids=lambda case: case.name,
 )
 def test_token_with_extra_values(
     post: PostClient,
     refresh_token: TokenTuple,
     requests_mock: Mocker,
-    response: dict[str, str],
-    updated: dict[str, str],
+    case: ExtraTokenValuesCase,
     settings: Settings,
 ):
     token = {"access_token": "abc", "token_type": "test", "expires_in": 3600}
-    token.update(response)
+    token.update(case.response)
 
     _ = requests_mock.post(
         settings.oauth.token_uri,
@@ -328,7 +347,7 @@ def test_token_with_extra_values(
     _ = post("/token", data)
 
     expected = refresh_token.value.copy()
-    expected.update(updated)
+    expected.update(case.updated)
 
     # Check that the token we fetched got stored directly in db.
     encrypted = db.lookup(refresh_token.client_id)
