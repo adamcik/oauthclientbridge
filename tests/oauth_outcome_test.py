@@ -5,6 +5,8 @@ import pytest
 
 from oauthclientbridge import oauth
 from oauthclientbridge.errors import OAuthError
+from oauthclientbridge.oauth import outcome as oauth_outcome
+from oauthclientbridge.oauth.retry import RetryReason
 from oauthclientbridge.settings import current_settings
 
 
@@ -104,7 +106,7 @@ def test_error_handler_keeps_invalid_grant_as_400_with_retry_after(
                 "retryable": True,
                 "normalized_error": OAuthError.TEMPORARILY_UNAVAILABLE,
                 "invalidate_refresh_token": False,
-                "retry_reason": oauth.RetryReason.RESOURCE_EXHAUSTED,
+                "retry_reason": RetryReason.RESOURCE_EXHAUSTED,
             },
         ),
         (
@@ -114,7 +116,7 @@ def test_error_handler_keeps_invalid_grant_as_400_with_retry_after(
                 "retryable": True,
                 "normalized_error": OAuthError.TEMPORARILY_UNAVAILABLE,
                 "invalidate_refresh_token": False,
-                "retry_reason": oauth.RetryReason.UNAVAILABLE,
+                "retry_reason": RetryReason.UNAVAILABLE,
             },
         ),
         (
@@ -124,7 +126,7 @@ def test_error_handler_keeps_invalid_grant_as_400_with_retry_after(
                 "retryable": True,
                 "normalized_error": OAuthError.TEMPORARILY_UNAVAILABLE,
                 "invalidate_refresh_token": False,
-                "retry_reason": oauth.RetryReason.UNAVAILABLE,
+                "retry_reason": RetryReason.UNAVAILABLE,
             },
         ),
         (
@@ -134,7 +136,7 @@ def test_error_handler_keeps_invalid_grant_as_400_with_retry_after(
                 "retryable": True,
                 "normalized_error": OAuthError.TEMPORARILY_UNAVAILABLE,
                 "invalidate_refresh_token": False,
-                "retry_reason": oauth.RetryReason.UNAVAILABLE,
+                "retry_reason": RetryReason.UNAVAILABLE,
             },
         ),
         (
@@ -144,7 +146,7 @@ def test_error_handler_keeps_invalid_grant_as_400_with_retry_after(
                 "retryable": True,
                 "normalized_error": OAuthError.TEMPORARILY_UNAVAILABLE,
                 "invalidate_refresh_token": False,
-                "retry_reason": oauth.RetryReason.UNAVAILABLE,
+                "retry_reason": RetryReason.UNAVAILABLE,
             },
         ),
         (
@@ -154,7 +156,7 @@ def test_error_handler_keeps_invalid_grant_as_400_with_retry_after(
                 "retryable": True,
                 "normalized_error": OAuthError.TEMPORARILY_UNAVAILABLE,
                 "invalidate_refresh_token": False,
-                "retry_reason": oauth.RetryReason.UNAVAILABLE,
+                "retry_reason": RetryReason.UNAVAILABLE,
             },
         ),
         (
@@ -176,7 +178,7 @@ def test_error_handler_keeps_invalid_grant_as_400_with_retry_after(
 def test_token_endpoint_outcome(
     app_context: flask.ctx.AppContext,
     status: HTTPStatus | None,
-    result: oauth.OAuthResponse,
+    result: oauth_outcome.OAuthResponse,
     expected: dict[str, object],
 ) -> None:
     actual = oauth.token_endpoint_outcome(
