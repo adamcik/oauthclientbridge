@@ -6,13 +6,7 @@ import structlog
 from flask import Flask
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-from oauthclientbridge import db, logs, stats, telemetry, views
-from oauthclientbridge.oauth import (
-    Error,
-    error_handler,
-    fallback_error_handler,
-    nocache,
-)
+from oauthclientbridge import db, logs, oauth, stats, telemetry, views
 from oauthclientbridge.settings import Settings
 
 __version__ = version("oauthclientbridge")
@@ -42,9 +36,9 @@ def create_app(settings: Settings) -> Flask:
 
     _ = app.teardown_appcontext(db.close)
 
-    _ = app.after_request(nocache)
-    _ = app.register_error_handler(Error, error_handler)
-    _ = app.register_error_handler(500, fallback_error_handler)
+    _ = app.after_request(oauth.nocache)
+    _ = app.register_error_handler(oauth.Error, oauth.error_handler)
+    _ = app.register_error_handler(500, oauth.fallback_error_handler)
 
     _ = app.before_request(stats.record_metrics)
     _ = app.after_request(stats.finalize_metrics)
