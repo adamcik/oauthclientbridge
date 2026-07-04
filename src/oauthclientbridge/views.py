@@ -12,13 +12,6 @@ from opentelemetry.semconv.attributes.exception_attributes import (
 
 from oauthclientbridge import crypto, db, oauth, sentry, stats
 from oauthclientbridge.errors import OAuthError
-from oauthclientbridge.oauth.outcome import (
-    AUTHORIZATION_ERRORS,
-    TOKEN_ERRORS,
-    normalize_error,
-    token_endpoint_outcome,
-    validate_token,
-)
 from oauthclientbridge.settings import LogLevel, current_settings
 
 logger: structlog.BoundLogger = structlog.get_logger()
@@ -69,9 +62,9 @@ def callback() -> flask.Response:
         error = OAuthError.INVALID_STATE
         desc = "State does not match callback state."
     elif "error" in flask.request.args:
-        error = normalize_error(
+        error = oauth.normalize_error(
             flask.request.args["error"],
-            allowed_types=AUTHORIZATION_ERRORS,
+            allowed_types=oauth.AUTHORIZATION_ERRORS,
             fallback_type=OAuthError.SERVER_ERROR,
         )
         desc = error.description
@@ -104,13 +97,13 @@ def callback() -> flask.Response:
     )
 
     if "error" in result:
-        error = normalize_error(
+        error = oauth.normalize_error(
             result["error"],
-            allowed_types=TOKEN_ERRORS,
+            allowed_types=oauth.TOKEN_ERRORS,
             fallback_type=OAuthError.SERVER_ERROR,
         )
         desc = error.description
-    elif not validate_token(result):
+    elif not oauth.validate_token(result):
         error = "invalid_response"
         desc = "Invalid response from provider."
 
@@ -216,7 +209,7 @@ def token() -> flask.Response:
         refresh_token=result["refresh_token"],
         endpoint="refresh",
     )
-    refresh_outcome = token_endpoint_outcome(
+    refresh_outcome = oauth.token_endpoint_outcome(
         HTTPStatus.BAD_REQUEST if "error" in refresh_result else HTTPStatus.OK,
         refresh_result,
         retry_status_codes=current_settings.fetch.retry_status_codes,
@@ -252,7 +245,7 @@ def token() -> flask.Response:
             refresh_result.get("retry_after"),
         )
 
-    if not validate_token(refresh_result):
+    if not oauth.validate_token(refresh_result):
         raise oauth.Error(OAuthError.INVALID_REQUEST, "Invalid response from provider.")
 
     # Copy over original scope if not set in refresh.

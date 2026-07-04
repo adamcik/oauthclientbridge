@@ -3,10 +3,8 @@ from http import HTTPStatus
 import flask.ctx
 import pytest
 
+from oauthclientbridge import oauth
 from oauthclientbridge.errors import OAuthError
-from oauthclientbridge.oauth import outcome as oauth_outcome
-from oauthclientbridge.oauth.core import Error, error_handler
-from oauthclientbridge.oauth.retry import RetryReason
 from oauthclientbridge.settings import current_settings
 
 
@@ -14,8 +12,8 @@ def test_error_handler_returns_503_for_temporarily_unavailable_retry_after(
     app: flask.Flask,
 ) -> None:
     with app.test_request_context("/callback"):
-        response = error_handler(
-            Error(OAuthError.TEMPORARILY_UNAVAILABLE, retry_after=10)
+        response = oauth.error_handler(
+            oauth.Error(OAuthError.TEMPORARILY_UNAVAILABLE, retry_after=10)
         )
 
     assert response.status_code == 503
@@ -27,7 +25,9 @@ def test_error_handler_keeps_invalid_grant_as_400_with_retry_after(
     app: flask.Flask,
 ) -> None:
     with app.test_request_context("/token"):
-        response = error_handler(Error(OAuthError.INVALID_GRANT, retry_after=10))
+        response = oauth.error_handler(
+            oauth.Error(OAuthError.INVALID_GRANT, retry_after=10)
+        )
 
     assert response.status_code == 400
     assert "Retry-After" not in response.headers
@@ -104,7 +104,7 @@ def test_error_handler_keeps_invalid_grant_as_400_with_retry_after(
                 "retryable": True,
                 "normalized_error": OAuthError.TEMPORARILY_UNAVAILABLE,
                 "invalidate_refresh_token": False,
-                "retry_reason": RetryReason.RESOURCE_EXHAUSTED,
+                "retry_reason": oauth.RetryReason.RESOURCE_EXHAUSTED,
             },
         ),
         (
@@ -114,7 +114,7 @@ def test_error_handler_keeps_invalid_grant_as_400_with_retry_after(
                 "retryable": True,
                 "normalized_error": OAuthError.TEMPORARILY_UNAVAILABLE,
                 "invalidate_refresh_token": False,
-                "retry_reason": RetryReason.UNAVAILABLE,
+                "retry_reason": oauth.RetryReason.UNAVAILABLE,
             },
         ),
         (
@@ -124,7 +124,7 @@ def test_error_handler_keeps_invalid_grant_as_400_with_retry_after(
                 "retryable": True,
                 "normalized_error": OAuthError.TEMPORARILY_UNAVAILABLE,
                 "invalidate_refresh_token": False,
-                "retry_reason": RetryReason.UNAVAILABLE,
+                "retry_reason": oauth.RetryReason.UNAVAILABLE,
             },
         ),
         (
@@ -134,7 +134,7 @@ def test_error_handler_keeps_invalid_grant_as_400_with_retry_after(
                 "retryable": True,
                 "normalized_error": OAuthError.TEMPORARILY_UNAVAILABLE,
                 "invalidate_refresh_token": False,
-                "retry_reason": RetryReason.UNAVAILABLE,
+                "retry_reason": oauth.RetryReason.UNAVAILABLE,
             },
         ),
         (
@@ -144,7 +144,7 @@ def test_error_handler_keeps_invalid_grant_as_400_with_retry_after(
                 "retryable": True,
                 "normalized_error": OAuthError.TEMPORARILY_UNAVAILABLE,
                 "invalidate_refresh_token": False,
-                "retry_reason": RetryReason.UNAVAILABLE,
+                "retry_reason": oauth.RetryReason.UNAVAILABLE,
             },
         ),
         (
@@ -154,7 +154,7 @@ def test_error_handler_keeps_invalid_grant_as_400_with_retry_after(
                 "retryable": True,
                 "normalized_error": OAuthError.TEMPORARILY_UNAVAILABLE,
                 "invalidate_refresh_token": False,
-                "retry_reason": RetryReason.UNAVAILABLE,
+                "retry_reason": oauth.RetryReason.UNAVAILABLE,
             },
         ),
         (
@@ -176,10 +176,10 @@ def test_error_handler_keeps_invalid_grant_as_400_with_retry_after(
 def test_token_endpoint_outcome(
     app_context: flask.ctx.AppContext,
     status: HTTPStatus | None,
-    result: oauth_outcome.OAuthResponse,
+    result: oauth.OAuthResponse,
     expected: dict[str, object],
 ) -> None:
-    actual = oauth_outcome.token_endpoint_outcome(
+    actual = oauth.token_endpoint_outcome(
         status,
         result,
         retry_status_codes=current_settings.fetch.retry_status_codes,
