@@ -12,22 +12,6 @@ from oauthclientbridge.settings import Settings
 from tests.conftest import GetClient
 
 
-@dataclass(frozen=True)
-class CallbackErrorCase:
-    name: str
-    query: str
-    expected_error: str
-    expected_status: int
-
-
-@dataclass(frozen=True)
-class AuthorizationCodeErrorCase:
-    name: str
-    data: dict[str, str]
-    expected_error: str
-    expected_status: int
-
-
 def test_authorize_redirects(client: FlaskClient):
     resp = client.get("/")
     location = urllib.parse.urlsplit(resp.location)
@@ -84,6 +68,14 @@ def test_callback_authorization_client_state(
     with client.session_transaction() as session:
         assert resp.data["state"] == client_state
         assert "client_state" not in session
+
+
+@dataclass(frozen=True)
+class CallbackErrorCase:
+    name: str
+    query: str
+    expected_error: str
+    expected_status: int
 
 
 @pytest.mark.parametrize(
@@ -214,6 +206,14 @@ def test_callback_preserves_retry_after_for_temporarily_unavailable(
 
 # TODO: Revisit all of the status codes returned, since this is not an API
 # endpoint but a callback we can be well behaved with respect to HTTP.
+@dataclass(frozen=True)
+class AuthorizationCodeErrorCase:
+    name: str
+    data: dict[str, str]
+    expected_error: str
+    expected_status: int
+
+
 @pytest.mark.parametrize(
     "case",
     [
