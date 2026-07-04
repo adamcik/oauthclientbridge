@@ -568,14 +568,11 @@ def test_oauth_client_retry_metrics_record_attempts_and_reasons(
     )
 
     class FakeRetryLimiter:
-        def record_initial(self) -> None:
-            self.initial_calls = getattr(self, "initial_calls", 0) + 1
+        def add(self, tokens: float) -> None:
+            self.add_calls = getattr(self, "add_calls", []) + [tokens]
 
-        def allow_retry(self) -> bool:
+        def consume(self, tokens: float = 1) -> bool:
             return True
-
-        def record_retry(self) -> None:
-            self.retry_calls = getattr(self, "retry_calls", 0) + 1
 
     with (
         unittest.mock.patch.object(
@@ -614,14 +611,11 @@ def test_oauth_client_retry_metrics_bucket_429_as_resource_exhausted(
     )
 
     class FakeRetryLimiter:
-        def record_initial(self) -> None:
+        def add(self, tokens: float) -> None:
             pass
 
-        def allow_retry(self) -> bool:
+        def consume(self, tokens: float = 1) -> bool:
             return True
-
-        def record_retry(self) -> None:
-            pass
 
     with (
         unittest.mock.patch.object(
@@ -654,14 +648,11 @@ def test_oauth_client_retry_metrics_record_budget_skip(
     )
 
     class FakeRetryLimiter:
-        def record_initial(self) -> None:
+        def add(self, tokens: float) -> None:
             pass
 
-        def allow_retry(self) -> bool:
+        def consume(self, tokens: float = 1) -> bool:
             return False
-
-        def record_retry(self) -> None:
-            pass
 
     with unittest.mock.patch.object(
         oauth_core, "_get_retry_limiter", return_value=FakeRetryLimiter()
@@ -718,14 +709,11 @@ def test_oauth_client_retry_metrics_do_not_count_skipped_retry_attempts(
     )
 
     class FakeRetryLimiter:
-        def record_initial(self) -> None:
+        def add(self, tokens: float) -> None:
             pass
 
-        def allow_retry(self) -> bool:
+        def consume(self, tokens: float = 1) -> bool:
             return False
-
-        def record_retry(self) -> None:
-            pass
 
     with unittest.mock.patch.object(
         oauth_core, "_get_retry_limiter", return_value=FakeRetryLimiter()
@@ -756,14 +744,11 @@ def test_oauth_client_retry_metrics_record_deadline_skip(
     current_settings.fetch.backoff_factor = 0.8
 
     class FakeRetryLimiter:
-        def record_initial(self) -> None:
+        def add(self, tokens: float) -> None:
             pass
 
-        def allow_retry(self) -> bool:
+        def consume(self, tokens: float = 1) -> bool:
             return True
-
-        def record_retry(self) -> None:
-            pass
 
     fake_time = [0.0]
 

@@ -161,11 +161,11 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
     with tracer.start_as_current_span(f"OAUTH {endpoint}") as span:
         req = requests.Request("POST", uri, data=data, auth=auth)
         prepared = req.prepare()
-        retry_limiter = _get_retry_limiter(
+        retry_budget = _get_retry_limiter(
             current_settings.fetch.retry_budget_capacity,
             current_settings.fetch.retry_budget_refill_per_initial,
         )
-        retry_limiter.record_initial()
+        retry_budget.add(current_settings.fetch.retry_budget_refill_per_initial)
 
         deadline = time.monotonic() + current_settings.fetch.total_timeout
         retry = 0
@@ -195,7 +195,7 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
                     logger.debug("Abort %s no timeout remaining.", prefix)
                     break
                 elif (retry or backoff) > 0:
-                    if not retry_limiter.allow_retry():
+                    if not retry_budget.consume():
                         _record_retry_decision(
                             endpoint,
                             RetryDecision(
@@ -240,7 +240,6 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
                         logger.debug("Abort %s no timeout remaining.", prefix)
                         break
 
-                    retry_limiter.record_retry()
                     completed_retries += 1
 
                 pending_retry_decision = None

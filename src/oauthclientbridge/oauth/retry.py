@@ -1,8 +1,9 @@
 import functools
-import threading
 from dataclasses import dataclass
 from enum import StrEnum
 from http import HTTPStatus
+
+from oauthclientbridge.bucket import Bucket
 
 
 class RetryAttemptKind(StrEnum):
@@ -28,7 +29,8 @@ class RetryDecision:
     reason: RetryReason
 
 
-class RetryLimiter:
+@functools.lru_cache()
+def get_retry_limiter(capacity: int, refill_per_initial: float) -> Bucket:
     """Process-local retry budget.
 
     We model this as a bounded bucket of retry tokens. First attempts replenish
@@ -36,32 +38,7 @@ class RetryLimiter:
     whole token. This keeps the implementation local and simple, but it means
     the budget is per-process and only approximates fleet-wide retry volume.
     """
-
-    def __init__(self, capacity: int, refill_per_initial: float):
-        self.capacity = capacity
-        self.refill_per_initial = refill_per_initial
-        self._tokens = capacity
-        self._lock = threading.Lock()
-
-    def record_initial(self) -> None:
-        with self._lock:
-            self._tokens = min(self.capacity, self._tokens + self.refill_per_initial)
-
-    def allow_retry(self) -> bool:
-        with self._lock:
-            if self._tokens < 1:
-                return False
-
-            self._tokens -= 1
-            return True
-
-    def record_retry(self) -> None:
-        pass
-
-
-@functools.lru_cache()
-def get_retry_limiter(capacity: int, refill_per_initial: float) -> RetryLimiter:
-    return RetryLimiter(capacity, refill_per_initial)
+    return Bucket(capacity, refill_per_initial)
 
 
 def retry_reason_for_status(status: HTTPStatus) -> RetryReason:
