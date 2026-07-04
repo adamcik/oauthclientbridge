@@ -1,17 +1,32 @@
+from dataclasses import dataclass
+
 import pytest
 
 from oauthclientbridge import db
 
 
+@dataclass(frozen=True)
+class LookupCase:
+    name: str
+    query: str
+
+
 @pytest.mark.parametrize(
-    "query",
+    "case",
     [
-        "INSERT INTO tokens (client_id, token) VALUES ('client', 'token')",
-        "INSERT INTO tokens (client_id, token) VALUES ('client', X'746F6B656E')",
+        LookupCase(
+            name="text token",
+            query="INSERT INTO tokens (client_id, token) VALUES ('client', 'token')",
+        ),
+        LookupCase(
+            name="blob token",
+            query="INSERT INTO tokens (client_id, token) VALUES ('client', X'746F6B656E')",
+        ),
     ],
+    ids=lambda case: case.name,
 )
-def test_lookup(query, cursor):
-    cursor.execute(query)
+def test_lookup(case: LookupCase, cursor):
+    cursor.execute(case.query)
     assert b"token" == db.lookup("client")
 
 
