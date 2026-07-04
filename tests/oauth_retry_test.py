@@ -12,26 +12,6 @@ from oauthclientbridge.oauth import retry as oauth_retry
 from oauthclientbridge.settings import current_settings
 
 
-def test_retry_limiter_consumes_token_on_admission() -> None:
-    limiter = oauth_retry.RetryLimiter(capacity=1, refill_per_initial=0.25)
-
-    assert limiter.allow_retry() is True
-    assert limiter.allow_retry() is False
-
-
-def test_retry_limiter_refills_from_initial_usage() -> None:
-    limiter = oauth_retry.RetryLimiter(capacity=1, refill_per_initial=0.25)
-
-    assert limiter.allow_retry() is True
-    limiter.record_initial()
-    limiter.record_initial()
-    limiter.record_initial()
-    assert limiter.allow_retry() is False
-
-    limiter.record_initial()
-    assert limiter.allow_retry() is True
-
-
 def test_retry_limiter_factory_is_cached(app_context: flask.ctx.AppContext) -> None:
     oauth_retry.get_retry_limiter.cache_clear()
     current_settings.fetch.retry_budget_capacity = 8
@@ -42,7 +22,7 @@ def test_retry_limiter_factory_is_cached(app_context: flask.ctx.AppContext) -> N
 
     assert limiter1 is limiter2
     assert limiter1.capacity == 8
-    assert limiter1.refill_per_initial == 0.5
+    assert limiter1.refill_amount == 0.5
 
 
 def test_retry_limiter_factory_refreshes_when_settings_change() -> None:
@@ -52,7 +32,7 @@ def test_retry_limiter_factory_refreshes_when_settings_change() -> None:
 
     assert limiter2 is not limiter1
     assert limiter2.capacity == 3
-    assert limiter2.refill_per_initial == 1.0
+    assert limiter2.refill_amount == 1.0
 
 
 def test_oauth_fetch_skips_retry_when_retry_budget_exhausted(
@@ -71,15 +51,12 @@ def test_oauth_fetch_skips_retry_when_retry_budget_exhausted(
     )
 
     class FakeRetryLimiter:
-        def record_initial(self) -> None:
-            self.initial_calls = getattr(self, "initial_calls", 0) + 1
+        def add(self, tokens: float) -> None:
+            self.add_calls = getattr(self, "add_calls", []) + [tokens]
 
-        def allow_retry(self) -> bool:
-            self.allow_calls = getattr(self, "allow_calls", 0) + 1
+        def consume(self, tokens: float = 1) -> bool:
+            self.consume_calls = getattr(self, "consume_calls", []) + [tokens]
             return False
-
-        def record_retry(self) -> None:
-            self.retry_calls = getattr(self, "retry_calls", 0) + 1
 
     fake_limiter = FakeRetryLimiter()
 
@@ -93,9 +70,8 @@ def test_oauth_fetch_skips_retry_when_retry_budget_exhausted(
 
     mock_sleep.assert_not_called()
     assert result["error"] == "temporarily_unavailable"
-    assert getattr(fake_limiter, "initial_calls", 0) == 1
-    assert getattr(fake_limiter, "allow_calls", 0) == 1
-    assert getattr(fake_limiter, "retry_calls", 0) == 0
+    assert getattr(fake_limiter, "add_calls", []) == [0.25]
+    assert getattr(fake_limiter, "consume_calls", []) == [1]
 
 
 def test_oauth_fetch_still_runs_first_attempt_when_retry_budget_exhausted(
@@ -109,15 +85,12 @@ def test_oauth_fetch_still_runs_first_attempt_when_retry_budget_exhausted(
     )
 
     class FakeRetryLimiter:
-        def record_initial(self) -> None:
-            self.initial_calls = getattr(self, "initial_calls", 0) + 1
+        def add(self, tokens: float) -> None:
+            self.add_calls = getattr(self, "add_calls", []) + [tokens]
 
-        def allow_retry(self) -> bool:
-            self.allow_calls = getattr(self, "allow_calls", 0) + 1
+        def consume(self, tokens: float = 1) -> bool:
+            self.consume_calls = getattr(self, "consume_calls", []) + [tokens]
             return False
-
-        def record_retry(self) -> None:
-            self.retry_calls = getattr(self, "retry_calls", 0) + 1
 
     fake_limiter = FakeRetryLimiter()
 
@@ -127,9 +100,8 @@ def test_oauth_fetch_still_runs_first_attempt_when_retry_budget_exhausted(
         result = oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
 
     assert result["access_token"] == "mock_token"
-    assert getattr(fake_limiter, "initial_calls", 0) == 1
-    assert getattr(fake_limiter, "allow_calls", 0) == 0
-    assert getattr(fake_limiter, "retry_calls", 0) == 0
+    assert getattr(fake_limiter, "add_calls", []) == [0.25]
+    assert getattr(fake_limiter, "consume_calls", []) == []
 
 
 def test_oauth_fetch_retries_when_retry_budget_is_available(
@@ -148,15 +120,12 @@ def test_oauth_fetch_retries_when_retry_budget_is_available(
     )
 
     class FakeRetryLimiter:
-        def record_initial(self) -> None:
-            self.initial_calls = getattr(self, "initial_calls", 0) + 1
+        def add(self, tokens: float) -> None:
+            self.add_calls = getattr(self, "add_calls", []) + [tokens]
 
-        def allow_retry(self) -> bool:
-            self.allow_calls = getattr(self, "allow_calls", 0) + 1
+        def consume(self, tokens: float = 1) -> bool:
+            self.consume_calls = getattr(self, "consume_calls", []) + [tokens]
             return True
-
-        def record_retry(self) -> None:
-            self.retry_calls = getattr(self, "retry_calls", 0) + 1
 
     fake_limiter = FakeRetryLimiter()
 
@@ -166,9 +135,8 @@ def test_oauth_fetch_retries_when_retry_budget_is_available(
         result = oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
 
     assert result["access_token"] == "mock_token"
-    assert getattr(fake_limiter, "initial_calls", 0) == 1
-    assert getattr(fake_limiter, "allow_calls", 0) == 1
-    assert getattr(fake_limiter, "retry_calls", 0) == 1
+    assert getattr(fake_limiter, "add_calls", []) == [0.25]
+    assert getattr(fake_limiter, "consume_calls", []) == [1]
 
 
 def test_oauth_fetch_normalizes_retryable_invalid_client_to_temporarily_unavailable(
