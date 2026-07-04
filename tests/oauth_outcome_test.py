@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from http import HTTPStatus
 
 import flask.ctx
@@ -8,6 +9,17 @@ from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.oauth import outcome as oauth_outcome
 from oauthclientbridge.oauth.retry import RetryReason
 from oauthclientbridge.settings import current_settings
+
+
+@dataclass(frozen=True)
+class TokenEndpointOutcomeCase:
+    name: str
+    status: HTTPStatus | None
+    result: oauth_outcome.OAuthResponse
+    expected_retryable: bool
+    expected_normalized_error: OAuthError | None
+    expected_invalidate_refresh_token: bool
+    expected_retry_reason: RetryReason | None
 
 
 def test_error_handler_returns_503_for_temporarily_unavailable_retry_after(
@@ -37,158 +49,144 @@ def test_error_handler_keeps_invalid_grant_as_400_with_retry_after(
 
 
 @pytest.mark.parametrize(
-    ("status", "result", "expected"),
+    "case",
     [
-        (
-            HTTPStatus.OK,
-            {"access_token": "abc", "token_type": "Bearer"},
-            {
-                "retryable": False,
-                "normalized_error": None,
-                "invalidate_refresh_token": False,
-                "retry_reason": None,
-            },
+        TokenEndpointOutcomeCase(
+            name="success token",
+            status=HTTPStatus.OK,
+            result={"access_token": "abc", "token_type": "Bearer"},
+            expected_retryable=False,
+            expected_normalized_error=None,
+            expected_invalidate_refresh_token=False,
+            expected_retry_reason=None,
         ),
-        (
-            HTTPStatus.OK,
-            {"error": OAuthError.INVALID_GRANT},
-            {
-                "retryable": False,
-                "normalized_error": OAuthError.INVALID_GRANT,
-                "invalidate_refresh_token": False,
-                "retry_reason": None,
-            },
+        TokenEndpointOutcomeCase(
+            name="success invalid grant payload",
+            status=HTTPStatus.OK,
+            result={"error": OAuthError.INVALID_GRANT},
+            expected_retryable=False,
+            expected_normalized_error=OAuthError.INVALID_GRANT,
+            expected_invalidate_refresh_token=False,
+            expected_retry_reason=None,
         ),
-        (
-            HTTPStatus.BAD_REQUEST,
-            {"error": OAuthError.INVALID_GRANT},
-            {
-                "retryable": False,
-                "normalized_error": OAuthError.INVALID_GRANT,
-                "invalidate_refresh_token": True,
-                "retry_reason": None,
-            },
+        TokenEndpointOutcomeCase(
+            name="bad request invalid grant",
+            status=HTTPStatus.BAD_REQUEST,
+            result={"error": OAuthError.INVALID_GRANT},
+            expected_retryable=False,
+            expected_normalized_error=OAuthError.INVALID_GRANT,
+            expected_invalidate_refresh_token=True,
+            expected_retry_reason=None,
         ),
-        (
-            HTTPStatus.BAD_REQUEST,
-            {"error": OAuthError.INVALID_CLIENT},
-            {
-                "retryable": False,
-                "normalized_error": OAuthError.INVALID_CLIENT,
-                "invalidate_refresh_token": False,
-                "retry_reason": None,
-            },
+        TokenEndpointOutcomeCase(
+            name="bad request invalid client",
+            status=HTTPStatus.BAD_REQUEST,
+            result={"error": OAuthError.INVALID_CLIENT},
+            expected_retryable=False,
+            expected_normalized_error=OAuthError.INVALID_CLIENT,
+            expected_invalidate_refresh_token=False,
+            expected_retry_reason=None,
         ),
-        (
-            HTTPStatus.BAD_REQUEST,
-            {"error": OAuthError.INVALID_REQUEST},
-            {
-                "retryable": False,
-                "normalized_error": OAuthError.INVALID_REQUEST,
-                "invalidate_refresh_token": False,
-                "retry_reason": None,
-            },
+        TokenEndpointOutcomeCase(
+            name="bad request invalid request",
+            status=HTTPStatus.BAD_REQUEST,
+            result={"error": OAuthError.INVALID_REQUEST},
+            expected_retryable=False,
+            expected_normalized_error=OAuthError.INVALID_REQUEST,
+            expected_invalidate_refresh_token=False,
+            expected_retry_reason=None,
         ),
-        (
-            HTTPStatus.UNAUTHORIZED,
-            {"error": OAuthError.INVALID_CLIENT},
-            {
-                "retryable": False,
-                "normalized_error": OAuthError.INVALID_CLIENT,
-                "invalidate_refresh_token": False,
-                "retry_reason": None,
-            },
+        TokenEndpointOutcomeCase(
+            name="unauthorized invalid client",
+            status=HTTPStatus.UNAUTHORIZED,
+            result={"error": OAuthError.INVALID_CLIENT},
+            expected_retryable=False,
+            expected_normalized_error=OAuthError.INVALID_CLIENT,
+            expected_invalidate_refresh_token=False,
+            expected_retry_reason=None,
         ),
-        (
-            HTTPStatus.TOO_MANY_REQUESTS,
-            {"error": OAuthError.TEMPORARILY_UNAVAILABLE},
-            {
-                "retryable": True,
-                "normalized_error": OAuthError.TEMPORARILY_UNAVAILABLE,
-                "invalidate_refresh_token": False,
-                "retry_reason": RetryReason.RESOURCE_EXHAUSTED,
-            },
+        TokenEndpointOutcomeCase(
+            name="too many requests retryable",
+            status=HTTPStatus.TOO_MANY_REQUESTS,
+            result={"error": OAuthError.TEMPORARILY_UNAVAILABLE},
+            expected_retryable=True,
+            expected_normalized_error=OAuthError.TEMPORARILY_UNAVAILABLE,
+            expected_invalidate_refresh_token=False,
+            expected_retry_reason=RetryReason.RESOURCE_EXHAUSTED,
         ),
-        (
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            {"error": OAuthError.INVALID_GRANT},
-            {
-                "retryable": True,
-                "normalized_error": OAuthError.TEMPORARILY_UNAVAILABLE,
-                "invalidate_refresh_token": False,
-                "retry_reason": RetryReason.UNAVAILABLE,
-            },
+        TokenEndpointOutcomeCase(
+            name="service unavailable invalid grant",
+            status=HTTPStatus.SERVICE_UNAVAILABLE,
+            result={"error": OAuthError.INVALID_GRANT},
+            expected_retryable=True,
+            expected_normalized_error=OAuthError.TEMPORARILY_UNAVAILABLE,
+            expected_invalidate_refresh_token=False,
+            expected_retry_reason=RetryReason.UNAVAILABLE,
         ),
-        (
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            {"error": OAuthError.INVALID_CLIENT},
-            {
-                "retryable": True,
-                "normalized_error": OAuthError.TEMPORARILY_UNAVAILABLE,
-                "invalidate_refresh_token": False,
-                "retry_reason": RetryReason.UNAVAILABLE,
-            },
+        TokenEndpointOutcomeCase(
+            name="service unavailable invalid client",
+            status=HTTPStatus.SERVICE_UNAVAILABLE,
+            result={"error": OAuthError.INVALID_CLIENT},
+            expected_retryable=True,
+            expected_normalized_error=OAuthError.TEMPORARILY_UNAVAILABLE,
+            expected_invalidate_refresh_token=False,
+            expected_retry_reason=RetryReason.UNAVAILABLE,
         ),
-        (
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            {"error": OAuthError.TEMPORARILY_UNAVAILABLE},
-            {
-                "retryable": True,
-                "normalized_error": OAuthError.TEMPORARILY_UNAVAILABLE,
-                "invalidate_refresh_token": False,
-                "retry_reason": RetryReason.UNAVAILABLE,
-            },
+        TokenEndpointOutcomeCase(
+            name="service unavailable oauth unavailable",
+            status=HTTPStatus.SERVICE_UNAVAILABLE,
+            result={"error": OAuthError.TEMPORARILY_UNAVAILABLE},
+            expected_retryable=True,
+            expected_normalized_error=OAuthError.TEMPORARILY_UNAVAILABLE,
+            expected_invalidate_refresh_token=False,
+            expected_retry_reason=RetryReason.UNAVAILABLE,
         ),
-        (
-            None,
-            OAuthError.SERVER_ERROR.json(),
-            {
-                "retryable": True,
-                "normalized_error": OAuthError.TEMPORARILY_UNAVAILABLE,
-                "invalidate_refresh_token": False,
-                "retry_reason": RetryReason.UNAVAILABLE,
-            },
+        TokenEndpointOutcomeCase(
+            name="transport failure",
+            status=None,
+            result=OAuthError.SERVER_ERROR.json(),
+            expected_retryable=True,
+            expected_normalized_error=OAuthError.TEMPORARILY_UNAVAILABLE,
+            expected_invalidate_refresh_token=False,
+            expected_retry_reason=RetryReason.UNAVAILABLE,
         ),
-        (
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            {"access_token": "abc", "token_type": "Bearer"},
-            {
-                "retryable": True,
-                "normalized_error": OAuthError.TEMPORARILY_UNAVAILABLE,
-                "invalidate_refresh_token": False,
-                "retry_reason": RetryReason.UNAVAILABLE,
-            },
+        TokenEndpointOutcomeCase(
+            name="service unavailable success payload",
+            status=HTTPStatus.SERVICE_UNAVAILABLE,
+            result={"access_token": "abc", "token_type": "Bearer"},
+            expected_retryable=True,
+            expected_normalized_error=OAuthError.TEMPORARILY_UNAVAILABLE,
+            expected_invalidate_refresh_token=False,
+            expected_retry_reason=RetryReason.UNAVAILABLE,
         ),
-        (
-            HTTPStatus.OK,
-            {
+        TokenEndpointOutcomeCase(
+            name="success token with refresh token",
+            status=HTTPStatus.OK,
+            result={
                 "access_token": "abc",
                 "token_type": "Bearer",
                 "refresh_token": "new-refresh",
             },
-            {
-                "retryable": False,
-                "normalized_error": None,
-                "invalidate_refresh_token": False,
-                "retry_reason": None,
-            },
+            expected_retryable=False,
+            expected_normalized_error=None,
+            expected_invalidate_refresh_token=False,
+            expected_retry_reason=None,
         ),
     ],
+    ids=lambda case: case.name,
 )
 def test_token_endpoint_outcome(
     app_context: flask.ctx.AppContext,
-    status: HTTPStatus | None,
-    result: oauth_outcome.OAuthResponse,
-    expected: dict[str, object],
+    case: TokenEndpointOutcomeCase,
 ) -> None:
     actual = oauth.token_endpoint_outcome(
-        status,
-        result,
+        case.status,
+        case.result,
         retry_status_codes=current_settings.fetch.retry_status_codes,
         error_types=current_settings.fetch.error_types,
     )
 
-    assert actual.retryable == expected["retryable"]
-    assert actual.normalized_error == expected["normalized_error"]
-    assert actual.invalidate_refresh_token == expected["invalidate_refresh_token"]
-    assert actual.retry_reason == expected["retry_reason"]
+    assert actual.retryable == case.expected_retryable
+    assert actual.normalized_error == case.expected_normalized_error
+    assert actual.invalidate_refresh_token == case.expected_invalidate_refresh_token
+    assert actual.retry_reason == case.expected_retry_reason
