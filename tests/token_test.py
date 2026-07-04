@@ -41,6 +41,12 @@ class TokenProviderErrorCase:
     expected_status: int
 
 
+@dataclass(frozen=True)
+class InvalidProviderResponseCase:
+    name: str
+    token: dict[str, str]
+
+
 @pytest.mark.parametrize(
     "case",
     [
@@ -578,23 +584,30 @@ def test_token_provider_errors(
 
 
 @pytest.mark.parametrize(
-    "token",
+    "case",
     [
-        {},
-        {"access_token": "abc"},
-        {"token_type": "test"},
+        InvalidProviderResponseCase(name="empty payload", token={}),
+        InvalidProviderResponseCase(
+            name="missing token type",
+            token={"access_token": "abc"},
+        ),
+        InvalidProviderResponseCase(
+            name="missing access token",
+            token={"token_type": "test"},
+        ),
     ],
+    ids=lambda case: case.name,
 )
 def test_token_provider_invalid_response(
     post: PostClient,
     refresh_token: TokenTuple,
     requests_mock: Mocker,
     settings: Settings,
-    token: dict[str, str],
+    case: InvalidProviderResponseCase,
 ):
     _ = requests_mock.post(
         settings.oauth.token_uri,
-        json=token,
+        json=case.token,
     )
 
     data = {
