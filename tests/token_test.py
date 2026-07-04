@@ -20,6 +20,12 @@ class TokenInputValidationCase:
     expected_status: int
 
 
+@dataclass(frozen=True)
+class BadBasicAuthCase:
+    name: str
+    header: bytes
+
+
 @pytest.mark.parametrize(
     "case",
     [
@@ -182,25 +188,26 @@ def test_token_basic_auth(post: PostClient, access_token: TokenTuple):
 
 
 @pytest.mark.parametrize(
-    "base64_basic_auth",
+    "case",
     [
-        b"Basic Zm9vOmJhcg==",  # 'foo:bar'
-        b"Basic Zm9vOg==",  # 'foo:'
-        b"Basic OmJhcg==",  # ':bar'
-        b"Basic Og==",  # ':'
-        b"Basic ",  # ''
-        b"Basic 4zpiYXI=",  # '\xe3o:bar'
-        b"Basic 6TpiYXI=",  # \xE9:bar'
-        b"Basic ==",  # invalid
-        b"Basic xyz",  # invalid
+        BadBasicAuthCase(name="foo and bar", header=b"Basic Zm9vOmJhcg=="),
+        BadBasicAuthCase(name="foo and empty password", header=b"Basic Zm9vOg=="),
+        BadBasicAuthCase(name="empty username and bar", header=b"Basic OmJhcg=="),
+        BadBasicAuthCase(name="empty username and password", header=b"Basic Og=="),
+        BadBasicAuthCase(name="empty credentials", header=b"Basic "),
+        BadBasicAuthCase(name="invalid utf8 username 1", header=b"Basic 4zpiYXI="),
+        BadBasicAuthCase(name="invalid utf8 username 2", header=b"Basic 6TpiYXI="),
+        BadBasicAuthCase(name="invalid base64 padding", header=b"Basic =="),
+        BadBasicAuthCase(name="invalid base64 text", header=b"Basic xyz"),
     ],
+    ids=lambda case: case.name,
 )
 def test_token_bad_basic_auth(
     post: PostClient,
-    base64_basic_auth: str,
+    case: BadBasicAuthCase,
     settings: Settings,
 ):
-    headers = {"Authorization": base64_basic_auth}
+    headers = {"Authorization": case.header}
     data = {"grant_type": "client_credentials"}
 
     resp = post("/token", data, headers=headers)
