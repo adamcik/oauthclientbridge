@@ -1,4 +1,5 @@
 import urllib.parse
+from dataclasses import dataclass
 
 import pytest
 from flask.testing import FlaskClient
@@ -11,32 +12,95 @@ from oauthclientbridge.settings import Settings
 from .conftest import PostClient, ResponseTuple, TokenTuple
 
 
+@dataclass(frozen=True)
+class TokenInputValidationCase:
+    name: str
+    data: dict[str, str | None]
+    expected_error: str
+    expected_status: int
+
+
 @pytest.mark.parametrize(
-    "data,expected_error,expected_status",
+    "case",
     [
-        ({}, OAuthError.INVALID_CLIENT, 401),
-        ({"grant_type": None}, OAuthError.UNSUPPORTED_GRANT_TYPE, 400),
-        ({"grant_type": ""}, OAuthError.UNSUPPORTED_GRANT_TYPE, 400),
-        (
-            {"grant_type": "authorization_code"},
-            OAuthError.UNSUPPORTED_GRANT_TYPE,
-            400,
+        TokenInputValidationCase(
+            name="missing credentials",
+            data={},
+            expected_error=OAuthError.INVALID_CLIENT,
+            expected_status=401,
         ),
-        ({"client_id": None}, OAuthError.INVALID_CLIENT, 401),
-        ({"client_id": ""}, OAuthError.INVALID_CLIENT, 401),
-        ({"client_id": ""}, OAuthError.INVALID_CLIENT, 401),
-        ({"client_secret": None}, OAuthError.INVALID_CLIENT, 401),
-        ({"client_secret": ""}, OAuthError.INVALID_CLIENT, 401),
-        ({"client_secret": "does-not-exist"}, OAuthError.INVALID_CLIENT, 401),
-        ({"scope": "foo"}, OAuthError.INVALID_SCOPE, 400),
-        ({"scope": ""}, OAuthError.INVALID_SCOPE, 400),
+        TokenInputValidationCase(
+            name="missing grant type",
+            data={"grant_type": None},
+            expected_error=OAuthError.UNSUPPORTED_GRANT_TYPE,
+            expected_status=400,
+        ),
+        TokenInputValidationCase(
+            name="empty grant type",
+            data={"grant_type": ""},
+            expected_error=OAuthError.UNSUPPORTED_GRANT_TYPE,
+            expected_status=400,
+        ),
+        TokenInputValidationCase(
+            name="wrong grant type",
+            data={"grant_type": "authorization_code"},
+            expected_error=OAuthError.UNSUPPORTED_GRANT_TYPE,
+            expected_status=400,
+        ),
+        TokenInputValidationCase(
+            name="missing client id",
+            data={"client_id": None},
+            expected_error=OAuthError.INVALID_CLIENT,
+            expected_status=401,
+        ),
+        TokenInputValidationCase(
+            name="empty client id",
+            data={"client_id": ""},
+            expected_error=OAuthError.INVALID_CLIENT,
+            expected_status=401,
+        ),
+        TokenInputValidationCase(
+            name="empty client id duplicate",
+            data={"client_id": ""},
+            expected_error=OAuthError.INVALID_CLIENT,
+            expected_status=401,
+        ),
+        TokenInputValidationCase(
+            name="missing client secret",
+            data={"client_secret": None},
+            expected_error=OAuthError.INVALID_CLIENT,
+            expected_status=401,
+        ),
+        TokenInputValidationCase(
+            name="empty client secret",
+            data={"client_secret": ""},
+            expected_error=OAuthError.INVALID_CLIENT,
+            expected_status=401,
+        ),
+        TokenInputValidationCase(
+            name="wrong client secret",
+            data={"client_secret": "does-not-exist"},
+            expected_error=OAuthError.INVALID_CLIENT,
+            expected_status=401,
+        ),
+        TokenInputValidationCase(
+            name="scope not supported",
+            data={"scope": "foo"},
+            expected_error=OAuthError.INVALID_SCOPE,
+            expected_status=400,
+        ),
+        TokenInputValidationCase(
+            name="empty scope not supported",
+            data={"scope": ""},
+            expected_error=OAuthError.INVALID_SCOPE,
+            expected_status=400,
+        ),
     ],
+    ids=lambda case: case.name,
 )
 def test_token_input_validation(
     post: PostClient,
-    data: dict[str, str | None],
-    expected_error: str,
-    expected_status: int,
+    case: TokenInputValidationCase,
 ):
     initial = {
         "client_id": "does-not-exist",
@@ -44,7 +108,7 @@ def test_token_input_validation(
         "grant_type": "client_credentials",
     }
 
-    for key, value in data.items():
+    for key, value in case.data.items():
         if value is None:
             del initial[key]
         else:
@@ -52,8 +116,8 @@ def test_token_input_validation(
 
     resp: ResponseTuple = post("/token", initial)
 
-    assert resp.status == expected_status
-    assert resp.data["error"] == expected_error
+    assert resp.status == case.expected_status
+    assert resp.data["error"] == case.expected_error
     assert resp.data["error_description"]
 
 
