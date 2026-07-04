@@ -42,11 +42,12 @@ def test_oauth_fetch_jitters_retry_after_sleep(
     )
 
     with (
-        unittest.mock.patch("random.uniform", return_value=0.75),
+        unittest.mock.patch("random.uniform", return_value=0.75) as mock_uniform,
         unittest.mock.patch("time.sleep") as mock_sleep,
     ):
         oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
 
+    mock_uniform.assert_called_once_with(1.0, 1.25)
     mock_sleep.assert_called_once_with(10)
 
 
@@ -66,11 +67,12 @@ def test_oauth_fetch_jitters_retry_backoff_within_bounds(
     )
 
     with (
-        unittest.mock.patch("random.uniform", return_value=1.25),
+        unittest.mock.patch("random.uniform", return_value=1.25) as mock_uniform,
         unittest.mock.patch("time.sleep") as mock_sleep,
     ):
         oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
 
+    mock_uniform.assert_called_once_with(0.75, 1.25)
     mock_sleep.assert_called_once_with(0.125)
 
 
@@ -118,11 +120,13 @@ def test_oauth_fetch_jitters_retry_after_sleeps_independently(
     )
 
     with (
-        unittest.mock.patch("random.uniform", side_effect=[0.75, 1.25]),
+        unittest.mock.patch("random.uniform", side_effect=[0.75, 1.25]) as mock_uniform,
         unittest.mock.patch("time.sleep") as mock_sleep,
     ):
         oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
 
+    assert mock_uniform.call_args_list[0].args == (1.0, 1.25)
+    assert mock_uniform.call_args_list[1].args == (1.0, 1.25)
     assert mock_sleep.call_args_list[0].args[0] == 10
     assert mock_sleep.call_args_list[1].args[0] == 12.5
     assert mock_sleep.call_args_list[0].args[0] != mock_sleep.call_args_list[1].args[0]

@@ -100,10 +100,16 @@ class FetchSettings(BaseSettings):
     """Backoff factor to use for not hammering the oauth server too much."""
 
     backoff_jitter_min: float = 0.75
-    """Lower multiplier bound for retry backoff jitter."""
+    """Lower multiplier bound for retry backoff jitter.
+
+    Values below 1.0 allow some retries to happen sooner than the nominal
+    backoff delay so jitter spreads clients around that base delay instead of
+    only delaying them longer. `Retry-After` still acts as a floor when the
+    provider supplies one.
+    """
 
     backoff_jitter_max: float = 1.25
-    """Upper multiplier bound for retry backoff jitter."""
+    """Upper multiplier bound for retry backoff jitter around the base delay."""
 
 
 class DatabaseSettings(BaseSettings):
