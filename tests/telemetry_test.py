@@ -793,6 +793,9 @@ def test_oauth_client_retry_metrics_record_deadline_skip(
         ),
         unittest.mock.patch("oauthclientbridge.oauth.core.time.time", side_effect=now),
         unittest.mock.patch(
+            "oauthclientbridge.oauth.core.time.monotonic", side_effect=now
+        ),
+        unittest.mock.patch(
             "oauthclientbridge.oauth.core.time.sleep", side_effect=sleep
         ),
         unittest.mock.patch("random.uniform", return_value=1.25),
