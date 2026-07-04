@@ -1,5 +1,6 @@
 import unittest.mock
 import urllib.parse
+from dataclasses import dataclass
 
 import pytest
 from flask.testing import FlaskClient
@@ -9,6 +10,14 @@ from oauthclientbridge import crypto, db
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import Settings
 from tests.conftest import GetClient
+
+
+@dataclass(frozen=True)
+class CallbackErrorCase:
+    name: str
+    query: str
+    expected_error: str
+    expected_status: int
 
 
 def test_authorize_redirects(client: FlaskClient):
@@ -70,49 +79,111 @@ def test_callback_authorization_client_state(
 
 
 @pytest.mark.parametrize(
-    "query,expected_error,expected_status",
+    "case",
     [
-        ("", OAuthError.INVALID_REQUEST, 400),
-        ("?code", OAuthError.INVALID_STATE, 400),
-        ("?state", OAuthError.INVALID_STATE, 400),
-        ("?state=&code=", OAuthError.INVALID_STATE, 400),
-        ("?code=1234", OAuthError.INVALID_STATE, 400),
-        ("?state={state}", OAuthError.INVALID_REQUEST, 400),
-        ("?state={state}&code=", OAuthError.INVALID_REQUEST, 400),
-        ("?state={state}&error=invalid_request", OAuthError.INVALID_REQUEST, 400),
-        (
-            "?state={state}&error=unauthorized_client",
-            OAuthError.UNAUTHORIZED_CLIENT,
-            400,
+        CallbackErrorCase(
+            name="missing query",
+            query="",
+            expected_error=OAuthError.INVALID_REQUEST,
+            expected_status=400,
         ),
-        ("?state={state}&error=access_denied", OAuthError.ACCESS_DENIED, 400),
-        (
-            "?state={state}&error=unsupported_response_type",
-            OAuthError.UNSUPPORTED_RESPONSE_TYPE,
-            400,
+        CallbackErrorCase(
+            name="missing stored state with bare code",
+            query="?code",
+            expected_error=OAuthError.INVALID_STATE,
+            expected_status=400,
         ),
-        ("?state={state}&error=invalid_scope", OAuthError.INVALID_SCOPE, 400),
-        ("?state={state}&error=server_error", OAuthError.SERVER_ERROR, 400),
-        (
-            "?state={state}&error=temporarily_unavailable",
-            OAuthError.TEMPORARILY_UNAVAILABLE,
-            503,
+        CallbackErrorCase(
+            name="missing stored state with bare state",
+            query="?state",
+            expected_error=OAuthError.INVALID_STATE,
+            expected_status=400,
         ),
-        ("?state={state}&error=badErrorCode", OAuthError.SERVER_ERROR, 400),
+        CallbackErrorCase(
+            name="empty state and code",
+            query="?state=&code=",
+            expected_error=OAuthError.INVALID_STATE,
+            expected_status=400,
+        ),
+        CallbackErrorCase(
+            name="missing stored state with code",
+            query="?code=1234",
+            expected_error=OAuthError.INVALID_STATE,
+            expected_status=400,
+        ),
+        CallbackErrorCase(
+            name="missing code",
+            query="?state={state}",
+            expected_error=OAuthError.INVALID_REQUEST,
+            expected_status=400,
+        ),
+        CallbackErrorCase(
+            name="empty code",
+            query="?state={state}&code=",
+            expected_error=OAuthError.INVALID_REQUEST,
+            expected_status=400,
+        ),
+        CallbackErrorCase(
+            name="oauth invalid request",
+            query="?state={state}&error=invalid_request",
+            expected_error=OAuthError.INVALID_REQUEST,
+            expected_status=400,
+        ),
+        CallbackErrorCase(
+            name="oauth unauthorized client",
+            query="?state={state}&error=unauthorized_client",
+            expected_error=OAuthError.UNAUTHORIZED_CLIENT,
+            expected_status=400,
+        ),
+        CallbackErrorCase(
+            name="oauth access denied",
+            query="?state={state}&error=access_denied",
+            expected_error=OAuthError.ACCESS_DENIED,
+            expected_status=400,
+        ),
+        CallbackErrorCase(
+            name="oauth unsupported response type",
+            query="?state={state}&error=unsupported_response_type",
+            expected_error=OAuthError.UNSUPPORTED_RESPONSE_TYPE,
+            expected_status=400,
+        ),
+        CallbackErrorCase(
+            name="oauth invalid scope",
+            query="?state={state}&error=invalid_scope",
+            expected_error=OAuthError.INVALID_SCOPE,
+            expected_status=400,
+        ),
+        CallbackErrorCase(
+            name="oauth server error",
+            query="?state={state}&error=server_error",
+            expected_error=OAuthError.SERVER_ERROR,
+            expected_status=400,
+        ),
+        CallbackErrorCase(
+            name="oauth temporarily unavailable",
+            query="?state={state}&error=temporarily_unavailable",
+            expected_error=OAuthError.TEMPORARILY_UNAVAILABLE,
+            expected_status=503,
+        ),
+        CallbackErrorCase(
+            name="unknown oauth error",
+            query="?state={state}&error=badErrorCode",
+            expected_error=OAuthError.SERVER_ERROR,
+            expected_status=400,
+        ),
     ],
+    ids=lambda case: case.name,
 )
 def test_callback_error_handling(
-    query: str,
-    expected_error: str,
-    expected_status: int,
+    case: CallbackErrorCase,
     client_state: str,
     get: GetClient,
     state: str,
 ):
-    resp = get("/callback" + query.format(state=state))
+    resp = get("/callback" + case.query.format(state=state))
 
-    assert resp.status == expected_status
-    assert resp.data["error"] == expected_error
+    assert resp.status == case.expected_status
+    assert resp.data["error"] == case.expected_error
     assert resp.data["state"] == client_state
 
 
