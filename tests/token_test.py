@@ -569,7 +569,7 @@ def test_token_provider_errors(
         "client_secret": refresh_token.client_secret,
         "grant_type": "client_credentials",
     }
-    
+
     resp = post("/token", data)
 
     assert resp.status == case.expected_status

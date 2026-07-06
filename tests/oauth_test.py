@@ -6,8 +6,8 @@ from freezegun import freeze_time
 from requests_mock import Mocker as RequestsMocker
 
 from oauthclientbridge import oauth
-from oauthclientbridge.oauth.core import parse_retry
 from oauthclientbridge.oauth import core as oauth_core
+from oauthclientbridge.oauth.core import parse_retry
 from oauthclientbridge.settings import current_settings
 
 

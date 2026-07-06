@@ -27,8 +27,9 @@ from .retry import (
 )
 
 logger: structlog.BoundLogger = structlog.get_logger()
-tracer = trace.get_tracer(__package__)
-meter = metrics.get_meter(__package__)
+_otel_scope = __package__ or __name__
+tracer = trace.get_tracer(_otel_scope)
+meter = metrics.get_meter(_otel_scope)
 
 _oauth_client_total_counter = meter.create_counter(
     name="oauth.client.total",
@@ -173,7 +174,7 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
         status: HTTPStatus | None = None
         pending_retry_decision: RetryDecision | None = None
 
-        result = OAuthError.SERVER_ERROR.json(
+        result: OAuthResponse = OAuthError.SERVER_ERROR.json(
             description="An unknown error occurred talking to provider."
         )
 
@@ -286,17 +287,20 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
                     span.add_event("Retryable response", {"status": status})
 
                 description = result.get("error_description")
-                result = outcome.normalized_error.json(description=description)
+                normalized_error = outcome.normalized_error or OAuthError.SERVER_ERROR
+                result = normalized_error.json(description=description)
                 pending_retry_decision = RetryDecision(
                     RetryDecisionAction.RETRY,
                     outcome.retry_reason or RetryReason.UNKNOWN,
                 )
-            elif status.is_success:
+            elif status is not None and status.is_success:
                 span.add_event("Success")
                 pending_retry_decision = None
                 break
             else:
-                span.add_event("Aborted", {"status": status})
+                span.add_event(
+                    "Aborted", {"status": int(status) if status is not None else -1}
+                )
                 pending_retry_decision = None
                 break
 
@@ -337,7 +341,7 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
             "final.result": final_result,
         }
         if status:
-            attributes["http.response.status_code"] = status
+            attributes["http.response.status_code"] = int(status)
 
         stats.ClientRetryHistogram.labels(
             endpoint=endpoint,

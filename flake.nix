@@ -302,7 +302,11 @@
                   "BRIDGE_CALLBACK_TEMPLATE_FILE=/config/callback.html"
                   "PROMETHEUS_MULTIPROC_DIR=/run/prom"
                   "PYTHONDONTWRITEBYTECODE=1"
-                  "TELEMETRY_VCS_REVISION=${if buildRevision != null then buildRevision else "unknown"}"
+                  "TELEMETRY_VCS_REVISION=${
+                    if buildRevision != null
+                    then buildRevision
+                    else "unknown"
+                  }"
                 ];
 
                 labels = let

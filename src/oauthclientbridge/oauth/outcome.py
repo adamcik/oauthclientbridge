@@ -52,11 +52,12 @@ def normalize_error(
     error_types: Mapping[str, OAuthError] | None = None,
 ) -> OAuthError:
     """Translate any "bad" error types to something more usable."""
-    if error_types is None:
-        error_types = current_settings.fetch.error_types
+    resolved_error_types = (
+        current_settings.fetch.error_types if error_types is None else error_types
+    )
 
-    if error_code in error_types:
-        error = error_types[error_code]
+    if error_code in resolved_error_types:
+        error = resolved_error_types[error_code]
     elif error_code in OAuthError:
         error = OAuthError(error_code)
     else:
