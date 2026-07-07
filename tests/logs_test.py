@@ -194,6 +194,58 @@ def test_get_request_info():
     assert info[logs.HTTP_SERVER_DURATION] == 1.0
 
 
+def test_get_request_info_redacts_oauth_callback_referer_params():
+    req = cast(
+        Request,
+        Request.from_values(
+            method="GET",
+            path="/test",
+            headers=Headers(
+                [
+                    (
+                        "Referer",
+                        "https://client.example/callback?code=secret-code&state=secret-state&next=%2Fhome",
+                    )
+                ]
+            ),
+            environ_overrides={
+                "REMOTE_ADDR": "127.0.0.1",
+                "SERVER_PROTOCOL": "HTTP/1.1",
+            },
+            data=b"",
+        ),
+    )
+
+    info = logs.get_request_info(req, 1)
+
+    assert info[f"{HTTP_REQUEST_HEADER_TEMPLATE}.referer"] == (
+        "https://client.example/callback?code=<REDACTED>&state=<REDACTED>&next=%2Fhome"
+    )
+
+
+def test_get_request_info_redacts_oauth_callback_url_fields():
+    req = cast(
+        Request,
+        Request.from_values(
+            method="GET",
+            path="/callback",
+            query_string="code=secret-code&state=secret-state&next=%2Fhome",
+            environ_overrides={
+                "REMOTE_ADDR": "127.0.0.1",
+                "SERVER_PROTOCOL": "HTTP/1.1",
+            },
+            data=b"",
+        ),
+    )
+
+    info = logs.get_request_info(req, 1)
+
+    assert info[URL_FULL] == (
+        "http://localhost/callback?code=<REDACTED>&state=<REDACTED>&next=%2Fhome"
+    )
+    assert info[URL_QUERY] == "code=<REDACTED>&state=<REDACTED>&next=%2Fhome"
+
+
 def test_get_response_info():
     from flask import Response
 

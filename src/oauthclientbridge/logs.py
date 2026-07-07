@@ -2,6 +2,7 @@ import logging
 import string
 import time
 from typing import Any, cast
+from urllib.parse import parse_qsl, quote, urlsplit, urlunsplit
 
 import structlog
 from flask import Flask, Request, Response, g, request
@@ -35,6 +36,8 @@ access_logger: structlog.BoundLogger = structlog.get_logger("oauthclientbridge.h
 logger: structlog.BoundLogger = structlog.get_logger()
 
 HTTP_SERVER_DURATION = "http.server.duration"
+REDACTED_REFERER_QUERY_PARAMS = frozenset({"code", "state"})
+REDACTED_URL_VALUE = "<REDACTED>"
 
 
 class AccessLogFormatter(string.Formatter):
@@ -151,6 +154,9 @@ def add_otel_context_processor(_: Any, __: str, event_dict: EventDict) -> EventD
 
 
 def get_request_info(req: Request, duration_ns: int) -> dict[str, Any]:
+    sanitized_url = sanitize_url(str(req.url))
+    sanitized_url_parts = urlsplit(sanitized_url) if sanitized_url is not None else None
+
     return {
         # "user.name": req.remote_user,  # No direct OTel constant for remote_user
         CLIENT_ADDRESS: req.remote_addr,
@@ -161,16 +167,31 @@ def get_request_info(req: Request, duration_ns: int) -> dict[str, Any]:
         NETWORK_PROTOCOL_VERSION: req.environ.get("SERVER_PROTOCOL"),
         SERVER_ADDRESS: req.host,
         # TODO: Consider redacting url?
-        URL_FULL: str(req.url),
+        URL_FULL: sanitized_url,
         URL_PATH: req.path,
-        # TODO: Consider redacting query?
-        URL_QUERY: req.query_string.decode("utf-8"),
+        URL_QUERY: sanitized_url_parts.query if sanitized_url_parts is not None else None,
         URL_SCHEME: req.scheme,
         USER_AGENT_ORIGINAL: req.headers.get("User-Agent"),
         f"{HTTP_REQUEST_HEADER_TEMPLATE}.content_type": req.content_type,
         f"{HTTP_REQUEST_HEADER_TEMPLATE}.content_length": req.content_length,
-        f"{HTTP_REQUEST_HEADER_TEMPLATE}.referer": req.headers.get("Referer"),
+        f"{HTTP_REQUEST_HEADER_TEMPLATE}.referer": sanitize_url(req.headers.get("Referer")),
     }
+
+
+def sanitize_url(url: str | None) -> str | None:
+    if url is None:
+        return None
+
+    parts = urlsplit(url)
+    if not parts.query:
+        return url
+
+    filtered_query = "&".join(
+        f"{quote(key, safe='')}={REDACTED_URL_VALUE if key in REDACTED_REFERER_QUERY_PARAMS else quote(value, safe='')}"
+        for key, value in parse_qsl(parts.query, keep_blank_values=True)
+    )
+
+    return urlunsplit(parts._replace(query=filtered_query))
 
 
 def get_response_info(resp: Response) -> dict[str, Any]:
