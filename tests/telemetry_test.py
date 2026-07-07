@@ -102,6 +102,8 @@ def test_init_metrics_sets_resource_attributes() -> None:
         service_name="test-service",
         service_version="1.2.3",
         deployment_environment="testing",
+        oauth_provider="spotify",
+        service_instance_id="delta-testing-spotify",
         vcs_revision="abc1234",
     )
 
@@ -115,6 +117,8 @@ def test_init_metrics_sets_resource_attributes() -> None:
     assert attrs["service.name"] == "test-service"
     assert attrs["service.version"] == "1.2.3"
     assert attrs["deployment.environment"] == "testing"
+    assert attrs["oauth.provider"] == "spotify"
+    assert attrs["service.instance.id"] == "delta-testing-spotify"
     assert attrs["vcs.revision"] == "abc1234"
 
 

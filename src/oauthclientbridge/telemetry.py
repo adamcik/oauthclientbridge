@@ -340,6 +340,10 @@ def _resource(settings: TelemetrySettings) -> Resource:
         "service.version": settings.service_version,
         "deployment.environment": settings.deployment_environment,
     }
+    if settings.service_instance_id:
+        attributes["service.instance.id"] = settings.service_instance_id
+    if settings.oauth_provider:
+        attributes["oauth.provider"] = settings.oauth_provider
     if settings.vcs_revision:
         attributes["vcs.revision"] = settings.vcs_revision
 
