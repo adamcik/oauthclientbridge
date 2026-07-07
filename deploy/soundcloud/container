@@ -4,25 +4,33 @@ After=network-online.target
 Wants=network-online.target
 
 [Container]
-Image=ghcr.io/adamcik/oauthclientbridge:latest
 ContainerName=oauthclientbridge-soundcloud
-Pull=always
-User=33:33
+Image=ghcr.io/adamcik/oauthclientbridge:latest
+Network=host
 
 EnvironmentFile=/etc/oauthclientbridge/soundcloud/env
 
+User=125:33
+
+ReadOnly=true
+DropCapability=all
+
+Tmpfs=/tmp:rw,nosuid,nodev,noexec,size=256m,mode=1777
+Tmpfs=/run/prom:rw,size=64m,mode=0777
 Volume=/var/lib/oauthclientbridge/soundcloud:/data:Z
 Volume=/run/oauthclientbridge/soundcloud:/run/uwsgi:Z
-Tmpfs=/run/prom:rw,size=64m,mode=0770,uid=33,gid=33
 Volume=/etc/oauthclientbridge/soundcloud/callback.html:/config/callback.html:ro,Z
 
 Exec=--socket /run/uwsgi/uwsgi.sock --chmod-socket=660 --vacuum
 
 [Service]
-ExecStartPre=/usr/bin/install -d -o www-data -g www-data -m 0750 /var/lib/oauthclientbridge/soundcloud
-ExecStartPre=/usr/bin/install -d -o root -g www-data -m 2775 /run/oauthclientbridge/soundcloud
 Restart=always
-RestartSec=2s
+RestartSec=5
+TimeoutStopSec=45
+NoNewPrivileges=yes
+
+# /run is tmpfs; recreate on each start
+ExecStartPre=/usr/bin/install -d -o root -g www-data -m 2775 /run/oauthclientbridge/soundcloud
 
 [Install]
 WantedBy=multi-user.target

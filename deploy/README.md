@@ -21,13 +21,16 @@ Note: this flow uses `podman create` + `podman generate systemd --new`.
 ## 1) Prepare host dirs and env files
 
 ```bash
+sudo adduser --system --group --home /var/lib/oauthclientbridge/spotify oauthclientbridge-spotify
+sudo adduser --system --group --home /var/lib/oauthclientbridge/soundcloud oauthclientbridge-soundcloud
+
 sudo install -d -m 0750 /etc/oauthclientbridge
 sudo install -d -m 0755 /etc/oauthclientbridge/spotify
 sudo install -d -m 0755 /etc/oauthclientbridge/soundcloud
 
-sudo install -d -o www-data -g www-data -m 0750 /var/lib/oauthclientbridge
-sudo install -d -o www-data -g www-data -m 0750 /var/lib/oauthclientbridge/spotify
-sudo install -d -o www-data -g www-data -m 0750 /var/lib/oauthclientbridge/soundcloud
+sudo install -d -o root -g root -m 0755 /var/lib/oauthclientbridge
+sudo install -d -o oauthclientbridge-spotify -g oauthclientbridge-spotify -m 0750 /var/lib/oauthclientbridge/spotify
+sudo install -d -o oauthclientbridge-soundcloud -g oauthclientbridge-soundcloud -m 0750 /var/lib/oauthclientbridge/soundcloud
 
 sudo install -d -o root -g www-data -m 2775 /run/oauthclientbridge/spotify
 sudo install -d -o root -g www-data -m 2775 /run/oauthclientbridge/soundcloud
@@ -60,11 +63,11 @@ SoundCloud note:
 ```bash
 sudo systemctl stop oauthclientbridge-spotify.service oauthclientbridge-soundcloud.service || true
 
-sudo install -D -o www-data -g www-data -m 0640 /srv/virtualenvs/oauthclientbridge/run/spotify.db /var/lib/oauthclientbridge/spotify/sqlite.db
-sudo install -D -o www-data -g www-data -m 0640 /srv/virtualenvs/oauthclientbridge/run/soundcloud.db /var/lib/oauthclientbridge/soundcloud/sqlite.db
+sudo install -D -o oauthclientbridge-spotify -g oauthclientbridge-spotify -m 0640 /srv/virtualenvs/oauthclientbridge/run/spotify.db /var/lib/oauthclientbridge/spotify/sqlite.db
+sudo install -D -o oauthclientbridge-soundcloud -g oauthclientbridge-soundcloud -m 0640 /srv/virtualenvs/oauthclientbridge/run/soundcloud.db /var/lib/oauthclientbridge/soundcloud/sqlite.db
 
-sudo chown -R www-data:www-data /var/lib/oauthclientbridge/spotify
-sudo chown -R www-data:www-data /var/lib/oauthclientbridge/soundcloud
+sudo chown -R oauthclientbridge-spotify:oauthclientbridge-spotify /var/lib/oauthclientbridge/spotify
+sudo chown -R oauthclientbridge-soundcloud:oauthclientbridge-soundcloud /var/lib/oauthclientbridge/soundcloud
 ```
 
 Keep `/srv/virtualenvs/oauthclientbridge/run` temporarily for rollback, but do not dual-write both locations.
@@ -81,7 +84,7 @@ sudo podman pull ghcr.io/adamcik/oauthclientbridge:latest
 sudo podman create \
   --name oauthclientbridge-spotify \
   --network host \
-  --user 33:33 \
+  --user 124:33 \
   --cap-drop=ALL \
   --security-opt no-new-privileges \
   --read-only \
@@ -97,7 +100,7 @@ sudo podman create \
 sudo podman create \
   --name oauthclientbridge-soundcloud \
   --network host \
-  --user 33:33 \
+  --user 125:33 \
   --cap-drop=ALL \
   --security-opt no-new-privileges \
   --read-only \
@@ -127,14 +130,12 @@ sudo install -D -m 0644 container-oauthclientbridge-soundcloud.service /etc/syst
 sudo mkdir -p /etc/systemd/system/oauthclientbridge-spotify.service.d
 sudo tee /etc/systemd/system/oauthclientbridge-spotify.service.d/paths.conf >/dev/null <<'EOF'
 [Service]
-ExecStartPre=/usr/bin/install -d -o www-data -g www-data -m 0750 /var/lib/oauthclientbridge/spotify
 ExecStartPre=/usr/bin/install -d -o root -g www-data -m 2775 /run/oauthclientbridge/spotify
 EOF
 
 sudo mkdir -p /etc/systemd/system/oauthclientbridge-soundcloud.service.d
 sudo tee /etc/systemd/system/oauthclientbridge-soundcloud.service.d/paths.conf >/dev/null <<'EOF'
 [Service]
-ExecStartPre=/usr/bin/install -d -o www-data -g www-data -m 0750 /var/lib/oauthclientbridge/soundcloud
 ExecStartPre=/usr/bin/install -d -o root -g www-data -m 2775 /run/oauthclientbridge/soundcloud
 EOF
 ```
