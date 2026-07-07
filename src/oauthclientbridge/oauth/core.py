@@ -30,6 +30,10 @@ logger: structlog.BoundLogger = structlog.get_logger()
 _otel_scope = __package__ or __name__
 tracer = trace.get_tracer(_otel_scope)
 meter = metrics.get_meter(_otel_scope)
+REDACTED_LOG_VALUE = "<REDACTED>"
+ALLOWED_LOG_FIELDS = frozenset(
+    {"client_id", "error", "error_description", "error_uri", "retry_after"}
+)
 
 _oauth_client_total_counter = meter.create_counter(
     name="oauth.client.total",
@@ -142,6 +146,13 @@ def nocache(response: flask.Response) -> flask.Response:
 def scrub_refresh_token(token: OAuthResponse) -> OAuthResponse:
     remove = ("access_token", "expires_in", "token_type")
     return {k: v for k, v in token.items() if k not in remove}
+
+
+def sanitize_for_logging(payload: OAuthResponse) -> OAuthResponse:
+    return {
+        key: value if key in ALLOWED_LOG_FIELDS else REDACTED_LOG_VALUE
+        for key, value in payload.items()
+    }
 
 
 def _record_attempt(endpoint: str, attempt_kind: RetryAttemptKind) -> None:

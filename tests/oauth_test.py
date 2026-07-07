@@ -394,4 +394,37 @@ def test_oauth_session_sets_user_agent(
     assert history[0].headers["User-Agent"].startswith("oauthclientbridge")
 
 
+def test_sanitize_for_logging_redacts_fields_outside_allowlist() -> None:
+    payload = {
+        "access_token": "secret-access-token",
+        "refresh_token": "secret-refresh-token",
+        "id_token": "secret-id-token",
+        "client_secret": "secret-client-secret",
+        "error": "invalid_grant",
+        "error_description": "provider detail",
+        "retry_after": 10,
+        "client_id": "debug-client-id",
+    }
+
+    assert oauth.sanitize_for_logging(payload) == {
+        "access_token": "<REDACTED>",
+        "refresh_token": "<REDACTED>",
+        "id_token": "<REDACTED>",
+        "client_secret": "<REDACTED>",
+        "error": "invalid_grant",
+        "error_description": "provider detail",
+        "retry_after": 10,
+        "client_id": "debug-client-id",
+    }
+
+
+def test_sanitize_for_logging_redacts_unknown_fields() -> None:
+    payload = {"detail": "provider detail", "retry_after": 10}
+
+    assert oauth.sanitize_for_logging(payload) == {
+        "detail": "<REDACTED>",
+        "retry_after": 10,
+    }
+
+
 # TODO: test that fetch also uses this session.

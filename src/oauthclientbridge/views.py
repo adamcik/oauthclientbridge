@@ -108,10 +108,11 @@ def callback() -> flask.Response:
         desc = "Invalid response from provider."
 
     if error is not None:
-        logger.warning("Retrieving token failed", result=result)
+        sanitized_result = oauth.sanitize_for_logging(result)
+        logger.warning("Retrieving token failed", result=sanitized_result)
 
         current_span = trace.get_current_span()
-        current_span.add_event("token_error", result)
+        current_span.add_event("token_error", sanitized_result)
 
         return _error(error, desc, client_state, result.get("retry_after"))
 
@@ -122,6 +123,8 @@ def callback() -> flask.Response:
     token = crypto.dumps(client_secret, result)
 
     client_id = db.generate_id()
+    # Keep client_id visible in logs/telemetry by design; it is an internal
+    # handle used for debugging and support, not an OAuth secret.
     # TODO: Make this into telemetry.set_user and populate span attr?
     sentry.set_user({"client_id": client_id})
 
@@ -179,6 +182,8 @@ def token() -> flask.Response:
         )
 
     # TODO: Combine this in telemetry.set_user() that also does span...
+    # Keep client_id visible in logs/telemetry by design; it is an internal
+    # handle used for debugging and support, not an OAuth secret.
     structlog.contextvars.bind_contextvars(client_id=client_id)
     sentry.set_user({"client_id": client_id})
 
@@ -226,12 +231,21 @@ def token() -> flask.Response:
             db.update(client_id, None)
             logger.warning("Invalid grant; revoking stored token")
         elif error == OAuthError.TEMPORARILY_UNAVAILABLE:
-            logger.warning("Token refresh failed", refresh_result=refresh_result)
+            logger.warning(
+                "Token refresh failed",
+                refresh_result=oauth.sanitize_for_logging(refresh_result),
+            )
         else:
-            logger.error("Token refresh failed", refresh_result=refresh_result)
+            logger.error(
+                "Token refresh failed",
+                refresh_result=oauth.sanitize_for_logging(refresh_result),
+            )
 
         current_span = trace.get_current_span()
-        current_span.add_event("refresh_error", refresh_result)
+        current_span.add_event(
+            "refresh_error",
+            oauth.sanitize_for_logging(refresh_result),
+        )
 
         # Client Credentials access token responses use the same errors
         # as Authorization Code Grant access token responses. As such, just

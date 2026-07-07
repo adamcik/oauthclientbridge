@@ -5,6 +5,7 @@ from .core import (
     fetch,
     nocache,
     redirect,
+    sanitize_for_logging,
     scrub_refresh_token,
 )
 from .outcome import (
@@ -25,6 +26,7 @@ __all__ = [
     "normalize_error",
     "nocache",
     "redirect",
+    "sanitize_for_logging",
     "scrub_refresh_token",
     "token_endpoint_outcome",
     "validate_token",
