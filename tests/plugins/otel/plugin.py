@@ -20,7 +20,14 @@ def fixture_otel_mock() -> Generator[OTelMocker, None, None]:
         components={
             TelemetryComponent.TRACING,
             TelemetryComponent.METRICS,
-        }
+        },
+        service_name="tests",
+        service_namespace="oauthclientbridge",
+        service_version="1.2.3",
+        deployment_environment="testing",
+        oauth_provider="spotify",
+        service_instance_id="tests-spotify-testing",
+        vcs_revision="abc1234",
     )
 
     log_exporter = InMemoryLogRecordExporter()

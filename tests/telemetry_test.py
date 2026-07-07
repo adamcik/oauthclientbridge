@@ -100,6 +100,7 @@ def test_init_metrics_sets_resource_attributes() -> None:
     settings = TelemetrySettings(
         components={TelemetryComponent.METRICS},
         service_name="test-service",
+        service_namespace="oauthclientbridge",
         service_version="1.2.3",
         deployment_environment="testing",
         oauth_provider="spotify",
@@ -115,6 +116,7 @@ def test_init_metrics_sets_resource_attributes() -> None:
     provider = mock_set_meter_provider.call_args.args[0]
     attrs = provider._sdk_config.resource.attributes
     assert attrs["service.name"] == "test-service"
+    assert attrs["service.namespace"] == "oauthclientbridge"
     assert attrs["service.version"] == "1.2.3"
     assert attrs["deployment.environment"] == "testing"
     assert attrs["oauth.provider"] == "spotify"

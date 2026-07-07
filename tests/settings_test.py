@@ -15,6 +15,7 @@ def test_telemetry_settings_defaults() -> None:
     assert settings.exporters == set()
     assert settings.endpoint == "http://localhost:4318"
     assert settings.service_name == "oauthclientbridge"
+    assert settings.service_namespace == "oauthclientbridge"
     assert settings.oauth_provider is None
     assert settings.service_instance_id is not None
 

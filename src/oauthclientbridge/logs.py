@@ -5,6 +5,7 @@ from typing import Any, cast
 
 import structlog
 from flask import Flask, Request, Response, g, request
+from opentelemetry import trace
 from opentelemetry.semconv.attributes.client_attributes import CLIENT_ADDRESS
 from opentelemetry.semconv.attributes.http_attributes import (
     HTTP_REQUEST_HEADER_TEMPLATE,
@@ -27,6 +28,7 @@ from opentelemetry.semconv.attributes.user_agent_attributes import USER_AGENT_OR
 from structlog.types import EventDict
 
 from oauthclientbridge.compat import HTTP_REQUEST_BODY_SIZE, HTTP_RESPONSE_BODY_SIZE
+from oauthclientbridge.resource_labels import log_attributes
 from oauthclientbridge.settings import LogSettings
 
 access_logger: structlog.BoundLogger = structlog.get_logger("oauthclientbridge.http")
@@ -119,25 +121,31 @@ def init_logging(settings: LogSettings) -> None:
 
 
 def add_otel_context_processor(_: Any, __: str, event_dict: EventDict) -> EventDict:
-    if "_record" not in event_dict:
+    if "_record" in event_dict:
+        record = cast(logging.LogRecord, event_dict["_record"])
+        if hasattr(record, "trace_id"):
+            event_dict["trace_id"] = getattr(record, "trace_id")
+            event_dict["span_id"] = getattr(record, "span_id")
+            event_dict["trace_sampled"] = getattr(record, "trace_sampled")
+            if hasattr(record, "resource_attributes"):
+                event_dict.update(getattr(record, "resource_attributes"))
+            return event_dict
+
+    span = trace.get_current_span()
+    if not span.is_recording():
         return event_dict
 
-    record = cast(logging.LogRecord, event_dict["_record"])
-    if hasattr(record, "otelTraceID"):
-        event_dict["otelTraceID"] = getattr(record, "otelTraceID")
-        event_dict["otelSpanID"] = getattr(record, "otelSpanID")
-        event_dict["otelTraceSampled"] = getattr(record, "otelTraceSampled")
-        if hasattr(record, "otelServiceName"):
-            event_dict["otelServiceName"] = getattr(record, "otelServiceName")
-        if hasattr(record, "otelServiceVersion"):
-            event_dict["otelServiceVersion"] = getattr(record, "otelServiceVersion")
-        if hasattr(record, "otelDeploymentEnvironment"):
-            event_dict["otelDeploymentEnvironment"] = getattr(
-                record,
-                "otelDeploymentEnvironment",
-            )
-        if hasattr(record, "otelVcsRevision"):
-            event_dict["otelVcsRevision"] = getattr(record, "otelVcsRevision")
+    context = span.get_span_context()
+    if not context.is_valid:
+        return event_dict
+
+    event_dict["trace_id"] = format(context.trace_id, "032x")
+    event_dict["span_id"] = format(context.span_id, "016x")
+    event_dict["trace_sampled"] = context.trace_flags.sampled
+
+    resource = getattr(trace.get_tracer_provider(), "resource", None)
+    if resource is not None:
+        event_dict.update(log_attributes(resource.attributes))
 
     return event_dict
 

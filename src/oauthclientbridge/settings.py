@@ -180,6 +180,9 @@ class TelemetrySettings(BaseSettings):
     service_name: str = "oauthclientbridge"
     """Service name for OpenTelemetry traces and metrics."""
 
+    service_namespace: str = "oauthclientbridge"
+    """Service namespace for OpenTelemetry resource attributes."""
+
     service_version: str = Field(
         default_factory=lambda: _current_package_version(),
     )

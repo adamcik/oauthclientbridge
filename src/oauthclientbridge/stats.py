@@ -6,6 +6,7 @@ import flask
 import prometheus_client
 import prometheus_client.multiprocess
 
+from oauthclientbridge.resource_labels import build_info_labels
 from oauthclientbridge.settings import current_settings
 
 registry = prometheus_client.CollectorRegistry()
@@ -155,11 +156,19 @@ ClientResponseSizeHistogram = prometheus_client.Histogram(
 BuildInfoGauge = prometheus_client.Gauge(
     "oauth_build_info",
     "Build and deployment metadata.",
-    ["service", "version", "revision", "environment"],
+    [
+        "service_name",
+        "service_namespace",
+        "service_instance_id",
+        "deployment_environment",
+        "oauth_provider",
+        "service_version",
+        "vcs_revision",
+    ],
     registry=registry,
 )
 
-_build_info_values: tuple[str, str, str, str] | None = None
+_build_info_values: tuple[str, str, str, str, str, str, str] | None = None
 
 
 def status(code: HTTPStatus) -> str:
@@ -208,22 +217,21 @@ def export_metrics() -> flask.Response:
     return flask.Response(text, mimetype=prometheus_client.CONTENT_TYPE_LATEST)
 
 
-def set_build_info(
-    service_name: str,
-    service_version: str,
-    deployment_environment: str,
-    vcs_revision: str | None,
-) -> None:
+def set_build_info(settings) -> None:
     global _build_info_values
 
+    labels_dict = build_info_labels(settings)
     labels = (
-        service_name,
-        service_version,
-        vcs_revision or "unknown",
-        deployment_environment,
+        labels_dict["service_name"],
+        labels_dict["service_namespace"],
+        labels_dict["service_instance_id"],
+        labels_dict["deployment_environment"],
+        labels_dict["oauth_provider"],
+        labels_dict["service_version"],
+        labels_dict["vcs_revision"],
     )
     if _build_info_values == labels:
         return
 
-    BuildInfoGauge.labels(*labels).set(1)
+    BuildInfoGauge.labels(**labels_dict).set(1)
     _build_info_values = labels

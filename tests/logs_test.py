@@ -254,16 +254,19 @@ def parse_logs(capsys):
 
 
 def assert_has_otel_records(record, span: trace.Span):
-    assert "otelTraceID" in record
-    assert "otelSpanID" in record
-    assert "otelTraceSampled" in record
-    assert "otelServiceName" in record
-    assert "otelServiceVersion" in record
-    assert "otelDeploymentEnvironment" in record
-    assert "otelVcsRevision" in record
+    assert "trace_id" in record
+    assert "span_id" in record
+    assert "trace_sampled" in record
+    assert record["service.name"] == "tests"
+    assert record["service.namespace"] == "oauthclientbridge"
+    assert record["service.version"] == "1.2.3"
+    assert record["deployment.environment"] == "testing"
+    assert record["oauth.provider"] == "spotify"
+    assert record["service.instance.id"] == "tests-spotify-testing"
+    assert record["vcs.revision"] == "abc1234"
 
-    assert int(record["otelTraceID"], 16) == span.get_span_context().trace_id
-    assert int(record["otelSpanID"], 16) == span.get_span_context().span_id
+    assert int(record["trace_id"], 16) == span.get_span_context().trace_id
+    assert int(record["span_id"], 16) == span.get_span_context().span_id
 
 
 def test_access_log_formatter():

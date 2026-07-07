@@ -12,8 +12,11 @@ def test_metrics(client):
 def test_metrics_exposes_build_info(settings: Settings):
     settings.otel = TelemetrySettings(
         service_name="oauthclientbridge",
+        service_namespace="oauthclientbridge",
         service_version="1.2.3",
         deployment_environment="testing",
+        oauth_provider="spotify",
+        service_instance_id="oauthclientbridge-spotify-testing",
         vcs_revision="abc1234",
     )
 
@@ -27,6 +30,8 @@ def test_metrics_exposes_build_info(settings: Settings):
 
         assert 200 == resp.status_code
         assert (
-            b'oauth_build_info{environment="testing",revision="abc1234",'
-            + b'service="oauthclientbridge",version="1.2.3"} 1.0'
+            b'oauth_build_info{deployment_environment="testing",oauth_provider="spotify",'
+            + b'service_instance_id="oauthclientbridge-spotify-testing",'
+            + b'service_name="oauthclientbridge",service_namespace="oauthclientbridge",'
+            + b'service_version="1.2.3",vcs_revision="abc1234"} 1.0'
         ) in resp.data

@@ -32,7 +32,7 @@ from opentelemetry.sdk.metrics.view import (
     ExplicitBucketHistogramAggregation,
     View,
 )
-from opentelemetry.sdk.resources import SERVICE_NAME, Resource
+from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import SpanProcessor, TracerProvider
 from opentelemetry.sdk.trace.export import (
     BatchSpanProcessor,
@@ -42,6 +42,7 @@ from opentelemetry.sdk.trace.export import (
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 from requests.structures import CaseInsensitiveDict
 
+from oauthclientbridge.resource_labels import log_attributes, resource_attributes
 from oauthclientbridge.settings import (
     TelemetryComponent,
     TelemetryExporter,
@@ -162,24 +163,15 @@ def _logging_log_hook(span: trace.Span, record: object):
     if not context.is_valid:
         return
 
-    setattr(record, "otelTraceID", format(context.trace_id, "032x"))
-    setattr(record, "otelSpanID", format(context.span_id, "016x"))
-    setattr(record, "otelTraceSampled", context.trace_flags.sampled)
+    setattr(record, "trace_id", format(context.trace_id, "032x"))
+    setattr(record, "span_id", format(context.span_id, "016x"))
+    setattr(record, "trace_sampled", context.trace_flags.sampled)
 
-    service_name = ""
-    service_version = ""
-    deployment_environment = ""
-    vcs_revision = ""
+    resource_attributes_for_logs: dict[str, str] = {}
     resource = getattr(trace.get_tracer_provider(), "resource", None)
     if resource is not None:
-        service_name = resource.attributes.get(SERVICE_NAME, "")
-        service_version = resource.attributes.get("service.version", "")
-        deployment_environment = resource.attributes.get("deployment.environment", "")
-        vcs_revision = resource.attributes.get("vcs.revision", "")
-    setattr(record, "otelServiceName", service_name)
-    setattr(record, "otelServiceVersion", service_version)
-    setattr(record, "otelDeploymentEnvironment", deployment_environment)
-    setattr(record, "otelVcsRevision", vcs_revision)
+        resource_attributes_for_logs = log_attributes(resource.attributes)
+    setattr(record, "resource_attributes", resource_attributes_for_logs)
 
 
 instrumentors = [
@@ -216,7 +208,7 @@ def init_tracing(
     if TelemetryComponent.TRACING not in settings.components:
         return
 
-    provider = TracerProvider(resource=_resource(settings))
+    provider = TracerProvider(resource=Resource.create(resource_attributes(settings)))
 
     if span_processor:
         provider.add_span_processor(span_processor)
@@ -263,7 +255,7 @@ def init_metrics(
     if TelemetryComponent.METRICS not in settings.components:
         return
 
-    resource = _resource(settings)
+    resource = Resource.create(resource_attributes(settings))
 
     readers: list[MetricReader] = []
     if metric_reader:
@@ -332,19 +324,3 @@ def init_metrics(
             ],
         )
     )
-
-
-def _resource(settings: TelemetrySettings) -> Resource:
-    attributes: dict[str, str] = {
-        SERVICE_NAME: settings.service_name,
-        "service.version": settings.service_version,
-        "deployment.environment": settings.deployment_environment,
-    }
-    if settings.service_instance_id:
-        attributes["service.instance.id"] = settings.service_instance_id
-    if settings.oauth_provider:
-        attributes["oauth.provider"] = settings.oauth_provider
-    if settings.vcs_revision:
-        attributes["vcs.revision"] = settings.vcs_revision
-
-    return Resource.create(attributes)
