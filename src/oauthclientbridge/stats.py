@@ -165,6 +165,7 @@ BuildInfoGauge = prometheus_client.Gauge(
         "service_version",
         "vcs_revision",
     ],
+    multiprocess_mode="max",
     registry=registry,
 )
 
@@ -179,12 +180,11 @@ TokenStateGauge = prometheus_client.Gauge(
     "oauth_token_records",
     "Stored token records by database state.",
     ["state"],
+    multiprocess_mode="mostrecent",
     registry=registry,
 )
 
 _build_info_values: tuple[str, str, str, str, str, str, str] | None = None
-
-
 def status(code: HTTPStatus) -> str:
     if code not in HTTP_STATUS_LABELS:
         phrase = re.sub(r"[ -]", "_", code.name.lower())
