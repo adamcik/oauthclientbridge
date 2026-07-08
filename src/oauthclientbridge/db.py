@@ -158,6 +158,25 @@ def update(client_id: str, token: bytes | None) -> int:
         return int(c.rowcount)
 
 
+def token_state_counts() -> dict[str, int]:
+    """Count stored token records by coarse database state."""
+
+    with cursor(name="count_token_states") as c:
+        c.execute(
+            """
+            SELECT
+                SUM(CASE WHEN token IS NOT NULL THEN 1 ELSE 0 END) AS present,
+                SUM(CASE WHEN token IS NULL THEN 1 ELSE 0 END) AS revoked
+            FROM tokens
+            """
+        )
+        row = c.fetchone()
+
+    present = int(row[0] or 0) if row is not None else 0
+    revoked = int(row[1] or 0) if row is not None else 0
+    return {"present": present, "revoked": revoked}
+
+
 def close(exception: BaseException | None) -> None:
     """Ensure that connection gets closed when app teardown happens."""
     if getattr(g, "_oauth_database", None) is None:

@@ -35,3 +35,15 @@ def test_metrics_exposes_build_info(settings: Settings):
             + b'service_name="oauthclientbridge",service_namespace="oauthclientbridge",'
             + b'service_version="1.2.3",vcs_revision="abc1234"} 1.0'
         ) in resp.data
+
+
+def test_metrics_exposes_token_state_counts(client):
+    _ = db.insert("present-client", b"placeholder")
+    _ = db.insert("revoked-client", b"placeholder")
+    _ = db.update("revoked-client", None)
+
+    resp = client.get("/metrics")
+
+    assert resp.status_code == 200
+    assert b'oauth_token_records{state="present"} 1.0' in resp.data
+    assert b'oauth_token_records{state="revoked"} 1.0' in resp.data

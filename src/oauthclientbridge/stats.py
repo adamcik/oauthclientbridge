@@ -168,6 +168,13 @@ BuildInfoGauge = prometheus_client.Gauge(
     registry=registry,
 )
 
+TokenStateGauge = prometheus_client.Gauge(
+    "oauth_token_records",
+    "Stored token records by database state.",
+    ["state"],
+    registry=registry,
+)
+
 _build_info_values: tuple[str, str, str, str, str, str, str] | None = None
 
 
@@ -235,3 +242,8 @@ def set_build_info(settings) -> None:
 
     BuildInfoGauge.labels(**labels_dict).set(1)
     _build_info_values = labels
+
+
+def set_token_state_counts(counts: dict[str, int]) -> None:
+    for state, count in counts.items():
+        TokenStateGauge.labels(state=state).set(count)
