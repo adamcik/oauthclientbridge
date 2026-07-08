@@ -9,7 +9,8 @@ from opentelemetry.sdk.metrics.export import (
     NumberDataPoint,
 )
 from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import ReadableSpan
+from opentelemetry.sdk.trace import Event, ReadableSpan
+from opentelemetry.sdk.trace import Status as SpanStatus
 from opentelemetry.sdk.util.instrumentation import InstrumentationScope
 
 DataPointType = TypeVar(
@@ -56,6 +57,14 @@ class CollectedSpan:
     @property
     def scope(self):
         return self._readable_span.instrumentation_scope
+
+    @property
+    def status(self) -> SpanStatus:
+        return self._readable_span.status
+
+    @property
+    def events(self) -> tuple[Event, ...]:
+        return self._readable_span.events
 
     @property
     def span_id(self):

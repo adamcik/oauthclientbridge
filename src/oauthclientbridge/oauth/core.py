@@ -107,6 +107,7 @@ def error_handler(e: Error) -> flask.Response:
         response.status_code = HTTPStatus.BAD_REQUEST
 
     current_span = trace.get_current_span()
+    current_span.set_attribute("error.unhandled", False)
     current_span.record_exception(e)
     current_span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
 
@@ -127,6 +128,7 @@ def fallback_error_handler(e: Exception) -> flask.Response:
     ).inc()
 
     current_span = trace.get_current_span()
+    current_span.set_attribute("error.unhandled", True)
     current_span.record_exception(e)
     current_span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
 

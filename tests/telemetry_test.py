@@ -192,6 +192,57 @@ def test_endpoint_propagates_traceparent(
     otel.assert_trace_id(request_span, TRACE_ID)
 
 
+def test_local_invalid_grant_records_handled_trace_error(
+    otel_mock: otel.OTelMocker,
+    post: PostClient,
+    access_token: TokenTuple,
+) -> None:
+    _ = db.update(access_token.client_id, None)
+
+    response = post(
+        "/token",
+        {
+            "client_id": access_token.client_id,
+            "client_secret": access_token.client_secret,
+            "grant_type": "client_credentials",
+        },
+    )
+
+    assert response.status == 400
+    assert response.data["error"] == OAuthError.INVALID_GRANT
+
+    spans = otel_mock.get_finished_spans()
+    request_span = otel.get_span(spans, "POST /token")
+    assert request_span is not None
+    assert request_span.attributes is not None
+    assert request_span.attributes["error.unhandled"] is False
+    assert request_span.status.status_code == trace.StatusCode.ERROR
+    assert any(event.name == "exception" for event in request_span.events)
+
+
+def test_unhandled_server_error_marks_span_unhandled(
+    otel_mock: otel.OTelMocker,
+    client: FlaskClient,
+) -> None:
+    app = client.application
+
+    @app.route("/boom")
+    def boom() -> str:
+        raise RuntimeError("boom")
+
+    response = client.get("/boom")
+
+    assert response.status_code == 500
+
+    spans = otel_mock.get_finished_spans()
+    request_span = otel.get_span(spans, "GET /boom")
+    assert request_span is not None
+    assert request_span.attributes is not None
+    assert request_span.attributes["error.unhandled"] is True
+    assert request_span.status.status_code == trace.StatusCode.ERROR
+    assert any(event.name == "exception" for event in request_span.events)
+
+
 def test_endpoint_sets_traceresponse_from_parent(
     otel_mock: otel.OTelMocker,
     client: FlaskClient,
