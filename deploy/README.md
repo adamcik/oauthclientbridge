@@ -1,13 +1,13 @@
-# Podman + systemd Deployment (Current Migration State)
+# Podman Quadlet Deployment
 
-This is the current main deployment procedure for this host setup:
+This is the current deployment procedure for this host setup:
 
-- Debian 11 (bullseye)
-- Podman 3.x (no Quadlet support)
+- Debian
+- Podman with Quadlet support
 - Caddy speaking uWSGI over unix sockets
 - container runtime user `www-data` (`33:33`)
 
-Note: this flow uses `podman create` + `podman generate systemd --new`.
+This flow installs per-instance quadlets into `/etc/containers/systemd/`.
 
 ## Files in this directory
 
@@ -29,8 +29,8 @@ sudo install -d -m 0755 /etc/oauthclientbridge/spotify
 sudo install -d -m 0755 /etc/oauthclientbridge/soundcloud
 
 sudo install -d -o root -g root -m 0755 /var/lib/oauthclientbridge
-sudo install -d -o oauthclientbridge-spotify -g oauthclientbridge-spotify -m 0750 /var/lib/oauthclientbridge/spotify
-sudo install -d -o oauthclientbridge-soundcloud -g oauthclientbridge-soundcloud -m 0750 /var/lib/oauthclientbridge/soundcloud
+sudo install -d -o oauthclientbridge-spotify -g oauthclientbridge-spotify -m 0700 /var/lib/oauthclientbridge/spotify
+sudo install -d -o oauthclientbridge-soundcloud -g oauthclientbridge-soundcloud -m 0700 /var/lib/oauthclientbridge/soundcloud
 
 sudo install -d -o root -g www-data -m 2775 /run/oauthclientbridge/spotify
 sudo install -d -o root -g www-data -m 2775 /run/oauthclientbridge/soundcloud
@@ -63,8 +63,8 @@ SoundCloud note:
 ```bash
 sudo systemctl stop oauthclientbridge-spotify.service oauthclientbridge-soundcloud.service || true
 
-sudo install -D -o oauthclientbridge-spotify -g oauthclientbridge-spotify -m 0640 /srv/virtualenvs/oauthclientbridge/run/spotify.db /var/lib/oauthclientbridge/spotify/sqlite.db
-sudo install -D -o oauthclientbridge-soundcloud -g oauthclientbridge-soundcloud -m 0640 /srv/virtualenvs/oauthclientbridge/run/soundcloud.db /var/lib/oauthclientbridge/soundcloud/sqlite.db
+sudo install -D -o oauthclientbridge-spotify -g oauthclientbridge-spotify -m 0600 /srv/virtualenvs/oauthclientbridge/run/spotify.db /var/lib/oauthclientbridge/spotify/sqlite.db
+sudo install -D -o oauthclientbridge-soundcloud -g oauthclientbridge-soundcloud -m 0600 /srv/virtualenvs/oauthclientbridge/run/soundcloud.db /var/lib/oauthclientbridge/soundcloud/sqlite.db
 
 sudo chown -R oauthclientbridge-spotify:oauthclientbridge-spotify /var/lib/oauthclientbridge/spotify
 sudo chown -R oauthclientbridge-soundcloud:oauthclientbridge-soundcloud /var/lib/oauthclientbridge/soundcloud
@@ -72,82 +72,38 @@ sudo chown -R oauthclientbridge-soundcloud:oauthclientbridge-soundcloud /var/lib
 
 Keep `/srv/virtualenvs/oauthclientbridge/run` temporarily for rollback, but do not dual-write both locations.
 
-## 3) Create containers (host network)
+The data directories are intentionally private to the container user. `www-data` only needs access to `/run/oauthclientbridge/<instance>` for socket sharing with Caddy, not to `/var/lib/oauthclientbridge/<instance>`.
+
+## 3) Install quadlets (host network)
 
 Why host network here: Podman 3 + bullseye bridge networking can fail outbound provider access.
 Host networking avoids that and is acceptable here because app traffic is via unix sockets.
 
 ```bash
-sudo podman rm -f oauthclientbridge-spotify oauthclientbridge-soundcloud || true
-sudo podman pull ghcr.io/adamcik/oauthclientbridge:latest
-
-sudo podman create \
-  --name oauthclientbridge-spotify \
-  --network host \
-  --user 124:33 \
-  --cap-drop=ALL \
-  --security-opt no-new-privileges \
-  --read-only \
-  --env-file /etc/oauthclientbridge/spotify/env \
-  -v /var/lib/oauthclientbridge/spotify:/data:rw,nosuid,nodev,noexec \
-  -v /run/oauthclientbridge/spotify:/run/uwsgi:rw,nosuid,nodev,noexec \
-  -v /etc/oauthclientbridge/spotify/callback.html:/config/callback.html:ro \
-  --tmpfs /tmp:rw,nosuid,nodev,noexec,size=256m,mode=1777 \
-  --tmpfs /run/prom:rw,nosuid,nodev,noexec,size=64m,mode=1777 \
-  ghcr.io/adamcik/oauthclientbridge:latest \
-  --socket /run/uwsgi/uwsgi.sock --chmod-socket=660 --vacuum
-
-sudo podman create \
-  --name oauthclientbridge-soundcloud \
-  --network host \
-  --user 125:33 \
-  --cap-drop=ALL \
-  --security-opt no-new-privileges \
-  --read-only \
-  --env-file /etc/oauthclientbridge/soundcloud/env \
-  -v /var/lib/oauthclientbridge/soundcloud:/data:rw,nosuid,nodev,noexec \
-  -v /run/oauthclientbridge/soundcloud:/run/uwsgi:rw,nosuid,nodev,noexec \
-  -v /etc/oauthclientbridge/soundcloud/callback.html:/config/callback.html:ro \
-  --tmpfs /tmp:rw,nosuid,nodev,noexec,size=256m,mode=1777 \
-  --tmpfs /run/prom:rw,nosuid,nodev,noexec,size=64m,mode=1777 \
-  ghcr.io/adamcik/oauthclientbridge:latest \
-  --socket /run/uwsgi/uwsgi.sock --chmod-socket=660 --vacuum
+sudo install -d -m 0755 /etc/containers/systemd
+sudo install -D -m 0644 deploy/spotify/container /etc/containers/systemd/oauthclientbridge-spotify.container
+sudo install -D -m 0644 deploy/soundcloud/container /etc/containers/systemd/oauthclientbridge-soundcloud.container
 ```
 
-## 4) Generate and install systemd units
+If migrating from legacy non-quadlet units, remove the old unit files before reloading systemd:
 
 ```bash
-sudo podman generate systemd --name oauthclientbridge-spotify --files --new
-sudo podman generate systemd --name oauthclientbridge-soundcloud --files --new
-
-sudo install -D -m 0644 container-oauthclientbridge-spotify.service /etc/systemd/system/oauthclientbridge-spotify.service
-sudo install -D -m 0644 container-oauthclientbridge-soundcloud.service /etc/systemd/system/oauthclientbridge-soundcloud.service
+sudo systemctl disable --now oauthclient-spotify.service || true
+sudo systemctl disable --now oauthclient-soundcloud.service || true
+sudo rm -f /etc/systemd/system/oauthclient-spotify.service
+sudo rm -f /etc/systemd/system/oauthclient-soundcloud.service
 ```
 
-## 5) Add path/permission ExecStartPre drop-ins
-
-```bash
-sudo mkdir -p /etc/systemd/system/oauthclientbridge-spotify.service.d
-sudo tee /etc/systemd/system/oauthclientbridge-spotify.service.d/paths.conf >/dev/null <<'EOF'
-[Service]
-ExecStartPre=/usr/bin/install -d -o root -g www-data -m 2775 /run/oauthclientbridge/spotify
-EOF
-
-sudo mkdir -p /etc/systemd/system/oauthclientbridge-soundcloud.service.d
-sudo tee /etc/systemd/system/oauthclientbridge-soundcloud.service.d/paths.conf >/dev/null <<'EOF'
-[Service]
-ExecStartPre=/usr/bin/install -d -o root -g www-data -m 2775 /run/oauthclientbridge/soundcloud
-EOF
-```
-
-## 6) Start and enable services
+## 4) Start and enable services
 
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now oauthclientbridge-spotify.service oauthclientbridge-soundcloud.service
 ```
 
-## 7) Verify
+Quadlet will materialize the generated service units from the `.container` files on reload.
+
+## 5) Verify
 
 ```bash
 sudo systemctl status oauthclientbridge-spotify.service --no-pager
@@ -168,7 +124,7 @@ sudo podman run --rm --network container:oauthclientbridge-soundcloud docker.io/
 
 `401`/`405` is fine here (proves outbound network path works).
 
-## 8) Caddy canary routing (parallel migration)
+## 6) Caddy canary routing (parallel migration)
 
 Socket paths:
 
