@@ -185,6 +185,7 @@ def token() -> flask.Response:
     # Keep client_id visible in logs/telemetry by design; it is an internal
     # handle used for debugging and support, not an OAuth secret.
     structlog.contextvars.bind_contextvars(client_id=client_id)
+    trace.get_current_span().set_attribute("client_id", client_id)
     sentry.set_user({"client_id": client_id})
 
     try:
