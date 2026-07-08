@@ -125,7 +125,7 @@ def test_flask_request_logging(capsys):
     # Assert the formatted access log message
     expected_access_log = (
         f'127.0.0.1 "GET / {record[NETWORK_PROTOCOL_VERSION]}" '
-        f'200 {len(b"Hello, World!")} "-" "{record[USER_AGENT_ORIGINAL]}"'
+        f'200 {len(b"Hello, World!")} "{record[USER_AGENT_ORIGINAL]}"'
     )
     assert record["event"] == expected_access_log
 
@@ -183,47 +183,18 @@ def test_get_request_info():
     assert info[HTTP_ROUTE] == "/test"
     assert info[NETWORK_PROTOCOL_VERSION] == "HTTP/1.1"
     assert info[SERVER_ADDRESS] == "localhost"
-    assert info[URL_FULL] == "http://localhost/test?param=value"
+    assert info[URL_FULL] == "http://localhost/test?param=<REDACTED>"
     assert info[URL_PATH] == "/test"
-    assert info[URL_QUERY] == "param=value"
+    assert info[URL_QUERY] == "param=<REDACTED>"
     assert info[URL_SCHEME] == "http"
     assert info[USER_AGENT_ORIGINAL] == "test-agent"
     assert info[f"{HTTP_REQUEST_HEADER_TEMPLATE}.content_type"] is None
     assert info[f"{HTTP_REQUEST_HEADER_TEMPLATE}.content_length"] is None
-    assert info[f"{HTTP_REQUEST_HEADER_TEMPLATE}.referer"] == "test-referer"
+    assert f"{HTTP_REQUEST_HEADER_TEMPLATE}.referer" not in info
     assert info[logs.HTTP_SERVER_DURATION] == 1.0
 
 
-def test_get_request_info_redacts_oauth_callback_referer_params():
-    req = cast(
-        Request,
-        Request.from_values(
-            method="GET",
-            path="/test",
-            headers=Headers(
-                [
-                    (
-                        "Referer",
-                        "https://client.example/callback?code=secret-code&state=secret-state&next=%2Fhome",
-                    )
-                ]
-            ),
-            environ_overrides={
-                "REMOTE_ADDR": "127.0.0.1",
-                "SERVER_PROTOCOL": "HTTP/1.1",
-            },
-            data=b"",
-        ),
-    )
-
-    info = logs.get_request_info(req, 1)
-
-    assert info[f"{HTTP_REQUEST_HEADER_TEMPLATE}.referer"] == (
-        "https://client.example/callback?code=<REDACTED>&state=<REDACTED>&next=%2Fhome"
-    )
-
-
-def test_get_request_info_redacts_oauth_callback_url_fields():
+def test_get_request_info_redacts_all_url_query_values():
     req = cast(
         Request,
         Request.from_values(
@@ -241,9 +212,9 @@ def test_get_request_info_redacts_oauth_callback_url_fields():
     info = logs.get_request_info(req, 1)
 
     assert info[URL_FULL] == (
-        "http://localhost/callback?code=<REDACTED>&state=<REDACTED>&next=%2Fhome"
+        "http://localhost/callback?code=<REDACTED>&state=<REDACTED>&next=<REDACTED>"
     )
-    assert info[URL_QUERY] == "code=<REDACTED>&state=<REDACTED>&next=%2Fhome"
+    assert info[URL_QUERY] == "code=<REDACTED>&state=<REDACTED>&next=<REDACTED>"
 
 
 def test_get_response_info():

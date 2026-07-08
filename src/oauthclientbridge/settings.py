@@ -257,7 +257,7 @@ class LogSettings(BaseSettings):
     colors: bool = Field(default_factory=sys.stdout.isatty)
     """Whether to use colors in console output."""
 
-    access_log_format: str = '{client.address} "{http.request.method} {url.path} {network.protocol.version}" {http.response.status_code} {http.response.body.size} "{http.request.header.referer}" "{user_agent.original}"'
+    access_log_format: str = '{client.address} "{http.request.method} {url.path} {network.protocol.version}" {http.response.status_code} {http.response.body.size} "{user_agent.original}"'
     """Format string to use for access logs."""
 
 

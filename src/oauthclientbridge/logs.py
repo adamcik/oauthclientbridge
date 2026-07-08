@@ -36,7 +36,6 @@ access_logger: structlog.BoundLogger = structlog.get_logger("oauthclientbridge.h
 logger: structlog.BoundLogger = structlog.get_logger()
 
 HTTP_SERVER_DURATION = "http.server.duration"
-REDACTED_REFERER_QUERY_PARAMS = frozenset({"code", "state"})
 REDACTED_URL_VALUE = "<REDACTED>"
 
 
@@ -166,7 +165,6 @@ def get_request_info(req: Request, duration_ns: int) -> dict[str, Any]:
         HTTP_ROUTE: req.url_rule.rule if req.url_rule else None,
         NETWORK_PROTOCOL_VERSION: req.environ.get("SERVER_PROTOCOL"),
         SERVER_ADDRESS: req.host,
-        # TODO: Consider redacting url?
         URL_FULL: sanitized_url,
         URL_PATH: req.path,
         URL_QUERY: sanitized_url_parts.query if sanitized_url_parts is not None else None,
@@ -174,7 +172,6 @@ def get_request_info(req: Request, duration_ns: int) -> dict[str, Any]:
         USER_AGENT_ORIGINAL: req.headers.get("User-Agent"),
         f"{HTTP_REQUEST_HEADER_TEMPLATE}.content_type": req.content_type,
         f"{HTTP_REQUEST_HEADER_TEMPLATE}.content_length": req.content_length,
-        f"{HTTP_REQUEST_HEADER_TEMPLATE}.referer": sanitize_url(req.headers.get("Referer")),
     }
 
 
@@ -187,7 +184,7 @@ def sanitize_url(url: str | None) -> str | None:
         return url
 
     filtered_query = "&".join(
-        f"{quote(key, safe='')}={REDACTED_URL_VALUE if key in REDACTED_REFERER_QUERY_PARAMS else quote(value, safe='')}"
+        f"{quote(key, safe='')}={REDACTED_URL_VALUE}"
         for key, value in parse_qsl(parts.query, keep_blank_values=True)
     )
 
