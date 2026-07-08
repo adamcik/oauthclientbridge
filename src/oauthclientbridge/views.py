@@ -287,7 +287,7 @@ def token() -> flask.Response:
 
 @routes.route("/metrics", methods=["GET"])
 def metrics() -> flask.Response:
-    stats.set_token_state_counts(db.token_state_counts())
+    stats.ensure_token_state_counts(db.token_state_counts)
     return stats.export_metrics()
 
 

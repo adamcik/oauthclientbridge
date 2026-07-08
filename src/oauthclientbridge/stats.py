@@ -1,6 +1,7 @@
 import re
 import time
 from http import HTTPStatus
+from typing import Callable
 
 import flask
 import prometheus_client
@@ -185,6 +186,7 @@ TokenStateGauge = prometheus_client.Gauge(
 )
 
 _build_info_values: tuple[str, str, str, str, str, str, str] | None = None
+_token_state_counts_initialized = False
 def status(code: HTTPStatus) -> str:
     if code not in HTTP_STATUS_LABELS:
         phrase = re.sub(r"[ -]", "_", code.name.lower())
@@ -252,5 +254,16 @@ def set_build_info(settings) -> None:
 
 
 def set_token_state_counts(counts: dict[str, int]) -> None:
+    global _token_state_counts_initialized
+
     for state, count in counts.items():
         TokenStateGauge.labels(state=state).set(count)
+
+    _token_state_counts_initialized = True
+
+
+def ensure_token_state_counts(counts: Callable[[], dict[str, int]]) -> None:
+    if _token_state_counts_initialized:
+        return
+
+    set_token_state_counts(counts())

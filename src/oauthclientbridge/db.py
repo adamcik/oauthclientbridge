@@ -125,6 +125,7 @@ def insert(client_id: str, token: bytes) -> None:
             (client_id, _prepare_token(token)),
         )
 
+    stats.set_token_state_counts(token_state_counts())
 
 def lookup(client_id: str) -> bytes | None:
     """Lookup a client_id and return encrypted token.
@@ -155,7 +156,12 @@ def update(client_id: str, token: bytes | None) -> int:
             (_prepare_token(token), client_id),
         )
         trace.get_current_span().add_event("Update result", {"rows": c.rowcount})
-        return int(c.rowcount)
+        rowcount = int(c.rowcount)
+
+    if rowcount:
+        stats.set_token_state_counts(token_state_counts())
+
+    return rowcount
 
 
 def token_state_counts() -> dict[str, int]:

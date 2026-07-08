@@ -55,3 +55,19 @@ def test_metrics_exposes_token_state_counts(client):
 
 def test_metrics_uses_mostrecent_aggregation_for_token_state_counts():
     assert stats.TokenStateGauge._multiprocess_mode == "mostrecent"
+
+
+def test_metrics_does_not_recount_token_states_after_initialization(
+    client,
+    monkeypatch,
+):
+    stats.set_token_state_counts({"present": 1, "revoked": 0})
+
+    def fail() -> dict[str, int]:
+        raise AssertionError("token_state_counts should not be called during scrape")
+
+    monkeypatch.setattr(db, "token_state_counts", fail)
+
+    resp = client.get("/metrics")
+
+    assert resp.status_code == 200
