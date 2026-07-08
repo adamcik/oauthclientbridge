@@ -168,6 +168,13 @@ BuildInfoGauge = prometheus_client.Gauge(
     registry=registry,
 )
 
+RefreshTokenInvalidationCounter = prometheus_client.Counter(
+    "oauth_refresh_token_invalidations_total",
+    "Stored refresh tokens invalidated locally after authoritative upstream failures.",
+    ["reason"],
+    registry=registry,
+)
+
 TokenStateGauge = prometheus_client.Gauge(
     "oauth_token_records",
     "Stored token records by database state.",

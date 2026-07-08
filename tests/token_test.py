@@ -650,6 +650,7 @@ def test_token_provider_unavailable(
 
 def test_token_invalid_grant_revokes_stored_refresh_token(
     post: PostClient,
+    client: FlaskClient,
     refresh_token: TokenTuple,
     requests_mock: Mocker,
     settings: Settings,
@@ -675,6 +676,10 @@ def test_token_invalid_grant_revokes_stored_refresh_token(
     assert second.data["error"] == OAuthError.INVALID_GRANT
     assert db.lookup(refresh_token.client_id) is None
     assert len(requests_mock.request_history) == 1
+
+    metrics = client.get("/metrics")
+    assert b"oauth_refresh_token_invalidations_total" in metrics.data
+    assert b'reason="invalid_grant"' in metrics.data
 
 
 def test_token_retryable_invalid_grant_does_not_revoke_refresh_token(

@@ -230,7 +230,8 @@ def token() -> flask.Response:
             # repeatedly sending the same dead refresh token upstream.
             # Spotify refresh token expiry: https://developer.spotify.com/blog/2026-06-18-refresh-token-expiration
             db.update(client_id, None)
-            logger.warning("Invalid grant; revoking stored token")
+            stats.RefreshTokenInvalidationCounter.labels(reason=error.value).inc()
+            logger.warning("Revoking stored token after upstream invalid_grant")
         elif error == OAuthError.TEMPORARILY_UNAVAILABLE:
             logger.warning(
                 "Token refresh failed",
