@@ -216,6 +216,7 @@ def test_local_invalid_grant_records_handled_trace_error(
     assert request_span is not None
     assert request_span.attributes is not None
     assert request_span.attributes["error.unhandled"] is False
+    assert request_span.attributes["oauth.error"] == "invalid_grant"
     assert request_span.status.status_code == trace.StatusCode.ERROR
     assert any(event.name == "exception" for event in request_span.events)
 

@@ -29,8 +29,9 @@ from opentelemetry.semconv.attributes.user_agent_attributes import USER_AGENT_OR
 from werkzeug.datastructures import Headers
 from werkzeug.routing import Rule
 
-from oauthclientbridge import logs
+from oauthclientbridge import logs, oauth
 from oauthclientbridge.compat import HTTP_REQUEST_BODY_SIZE, HTTP_RESPONSE_BODY_SIZE
+from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import LogLevel, LogSettings
 
 tracer = trace.get_tracer(__name__)
@@ -153,6 +154,32 @@ def test_access_log_not_duplicated_if_initialized_twice(capsys):
     records = parse_logs(capsys)
     access_logs = [r for r in records if r.get("logger") == "oauthclientbridge.http"]
     assert len(access_logs) == 1
+
+
+def test_access_log_includes_oauth_error(capsys):
+    log_settings = LogSettings(
+        level=LogLevel.DEBUG,
+        colors=False,
+        json_output=True,
+    )
+    logs.init_logging(log_settings)
+
+    app = Flask(__name__)
+    logs.init_access_logs(log_settings, app)
+    _ = app.register_error_handler(oauth.Error, oauth.error_handler)
+
+    @app.route("/token", methods=["POST"])
+    def token():
+        raise oauth.Error(OAuthError.INVALID_GRANT, "Grant has been revoked.")
+
+    with app.test_client() as client:
+        response = client.post("/token")
+        assert response.status_code == 400
+
+    records = parse_logs(capsys)
+    record = next(r for r in records if r["logger"] == "oauthclientbridge.http")
+    assert record[HTTP_RESPONSE_STATUS_CODE] == 400
+    assert record["oauth_error"] == "invalid_grant"
 
 
 def test_get_request_info():

@@ -108,6 +108,8 @@ def error_handler(e: Error) -> flask.Response:
 
     current_span = trace.get_current_span()
     current_span.set_attribute("error.unhandled", False)
+    current_span.set_attribute("oauth.error", e.error.value)
+    structlog.contextvars.bind_contextvars(oauth_error=e.error.value)
     current_span.record_exception(e)
     current_span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
 
