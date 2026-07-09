@@ -15,6 +15,7 @@ from oauthclientbridge import db, oauth, telemetry
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.oauth import core as oauth_core
 from oauthclientbridge.settings import (
+    Settings,
     TelemetryComponent,
     TelemetrySettings,
     current_settings,
@@ -339,6 +340,34 @@ def test_endpoint_creates_sqlite3_spans(
     spans = otel_mock.get_finished_spans()
     assert any(
         s.name.startswith("SELECT") or s.name.startswith("UPDATE") for s in spans
+    )
+
+
+def test_revoked_grant_workaround_adds_span_event(
+    otel_mock: otel.OTelMocker,
+    post: PostClient,
+    access_token: TokenTuple,
+    settings: Settings,
+) -> None:
+    settings.revoked_grant_workaround_user_agents = r"^Mopidy-Spotify/4\.1\.1\b"
+
+    _ = db.update(access_token.client_id, None)
+
+    post(
+        "/token",
+        {
+            "client_id": access_token.client_id,
+            "client_secret": access_token.client_secret,
+            "grant_type": "client_credentials",
+        },
+        headers={"User-Agent": "Mopidy-Spotify/4.1.1 Mopidy/3.4.2 CPython/3.11.2"},
+    )
+
+    spans = otel_mock.get_finished_spans()
+    request_span = next(s for s in spans if s.name == "POST /token")
+
+    assert any(
+        event.name == "Served revoked grant workaround token" for event in request_span.events
     )
 
 

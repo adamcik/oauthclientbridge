@@ -309,6 +309,33 @@ class Settings(BaseSettings):
     )
     """Log levels to use for errors in callback flow."""
 
+    revoked_grant_workaround_user_agents: str | None = None
+    """
+    User-Agent matcher controlling the revoked-grant workaround. When a request
+    to /token is for a client whose stored token is already locally revoked,
+    and the request User-Agent matches this regular expression, the bridge
+    returns a synthetic bearer token instead of 400 invalid_grant. This
+    deliberately provokes an upstream 401 from the provider API so affected
+    clients stop retrying refresh failures against the bridge. Empty or unset
+    disables the workaround.
+    """
+
+    revoked_grant_workaround_access_token: str = (
+        "OAUTHCLIENTBRIDGE_REVOKED_GRANT_WORKAROUND"
+    )
+    """
+    Synthetic access token returned by the revoked-grant workaround. This must
+    remain an obvious sentinel value and must not be a real provider token.
+    """
+
+    revoked_grant_workaround_expires_in: int = 300
+    """
+    Expiry in seconds for synthetic access tokens returned by the revoked-grant
+    workaround. It should be long enough for affected clients to make a
+    follow-up API request, observe an upstream 401, and enter their local
+    backoff path instead of hammering the bridge.
+    """
+
     oauth: OAuthSettings = Field(default_factory=lambda: OAuthSettings())  # pyright: ignore[reportCallIssue]
     fetch: FetchSettings = Field(default_factory=lambda: FetchSettings())  # pyright: ignore[reportCallIssue]
     database: DatabaseSettings = Field(default_factory=lambda: DatabaseSettings())  # pyright: ignore[reportCallIssue]

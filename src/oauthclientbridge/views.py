@@ -1,3 +1,4 @@
+import re
 from http import HTTPStatus
 from typing import Any
 
@@ -194,7 +195,13 @@ def token() -> flask.Response:
         raise oauth.Error(OAuthError.INVALID_CLIENT, "Client not known.")
 
     if token is None:
-        # TODO: How do we avoid client retries here?
+        workaround_response = _revoked_grant_workaround_response()
+        if workaround_response is not None:
+            logger.warning("Serving revoked grant workaround token")
+            stats.WorkaroundCounter.labels(workaround="revoked_grant").inc()
+            trace.get_current_span().add_event("Served revoked grant workaround token")
+            return flask.jsonify(workaround_response)
+
         raise oauth.Error(OAuthError.INVALID_GRANT, "Grant has been revoked.")
 
     try:
@@ -330,6 +337,22 @@ def _error(
     if retry_after is not None and status == HTTPStatus.SERVICE_UNAVAILABLE:
         response.headers["Retry-After"] = int(retry_after)
     return response
+
+
+def _revoked_grant_workaround_response() -> dict[str, Any] | None:
+    user_agents = current_settings.revoked_grant_workaround_user_agents
+    if not user_agents:
+        return None
+
+    user_agent = flask.request.user_agent.string
+    if not user_agent or not re.search(user_agents, user_agent):
+        return None
+
+    return {
+        "access_token": current_settings.revoked_grant_workaround_access_token,
+        "token_type": "Bearer",
+        "expires_in": current_settings.revoked_grant_workaround_expires_in,
+    }
 
 
 # TODO: Pass in the template string instead of settings.

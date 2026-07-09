@@ -161,3 +161,10 @@ This behavior matches Spotify's documented refresh-token expiration semantics:
 expired refresh tokens return `400 Bad Request` with `invalid_grant` and must
 be discarded, while transient token-endpoint failures should not cause local
 token invalidation.
+
+For selected broken clients, the bridge can also serve a synthetic bearer token
+after a refresh token has already been locally revoked. This is a temporary
+workaround for clients that do not back off on token refresh `invalid_grant`
+responses but do stop retrying after a `401` from the provider Web API. By
+provoking that upstream `401`, the bridge avoids repeated refresh attempts from
+those clients against a grant it already knows is dead.

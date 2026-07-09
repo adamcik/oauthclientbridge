@@ -71,3 +71,26 @@ def test_metrics_does_not_recount_token_states_after_initialization(
     resp = client.get("/metrics")
 
     assert resp.status_code == 200
+
+
+def test_metrics_exposes_workaround_counter(
+    client, post, access_token, settings: Settings
+):
+    settings.revoked_grant_workaround_user_agents = r"^Mopidy-Spotify/4\.1\.1\b"
+
+    _ = db.update(access_token.client_id, None)
+
+    _ = post(
+        "/token",
+        {
+            "client_id": access_token.client_id,
+            "client_secret": access_token.client_secret,
+            "grant_type": "client_credentials",
+        },
+        headers={"User-Agent": "Mopidy-Spotify/4.1.1 Mopidy/3.4.2 CPython/3.11.2"},
+    )
+
+    resp = client.get("/metrics")
+
+    assert resp.status_code == 200
+    assert b'oauth_workarounds_total{workaround="revoked_grant"}' in resp.data

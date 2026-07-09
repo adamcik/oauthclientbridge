@@ -20,6 +20,12 @@ OAUTH_REFRESH_URI=https://accounts.spotify.com/api/token
 OAUTH_SCOPES=["playlist-modify-public","playlist-modify-private","playlist-read-private","playlist-read-collaborative","user-follow-read","user-library-read","user-library-modify","user-read-recently-played","user-read-private","user-top-read","streaming"]
 OAUTH_TOKEN_URI=https://accounts.spotify.com/api/token
 
+# Temporary workaround for clients that keep retrying locally revoked grants
+# until they observe a Spotify Web API 401.
+# REVOKED_GRANT_WORKAROUND_USER_AGENTS=^Mopidy-Spotify/
+# REVOKED_GRANT_WORKAROUND_ACCESS_TOKEN=MOPIDY_SPOTIFY_REVOKED_GRANT_WORKAROUND
+# REVOKED_GRANT_WORKAROUND_EXPIRES_IN=300
+
 SENTRY_ENABLED=true
 SENTRY_SAMPLE_RATE=1.0
 SENTRY_TRACES_SAMPLE_RATE=0.0001

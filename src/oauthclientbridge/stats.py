@@ -177,6 +177,13 @@ RefreshTokenInvalidationCounter = prometheus_client.Counter(
     registry=registry,
 )
 
+WorkaroundCounter = prometheus_client.Counter(
+    "oauth_workarounds_total",
+    "Temporary workaround activations.",
+    ["workaround"],
+    registry=registry,
+)
+
 TokenStateGauge = prometheus_client.Gauge(
     "oauth_token_records",
     "Stored token records by database state.",
@@ -187,6 +194,8 @@ TokenStateGauge = prometheus_client.Gauge(
 
 _build_info_values: tuple[str, str, str, str, str, str, str] | None = None
 _token_state_counts_initialized = False
+
+
 def status(code: HTTPStatus) -> str:
     if code not in HTTP_STATUS_LABELS:
         phrase = re.sub(r"[ -]", "_", code.name.lower())

@@ -240,6 +240,64 @@ def test_token_revoked(post: PostClient, access_token: TokenTuple):
     assert resp.data["error_description"]
 
 
+def test_token_revoked_returns_workaround_token_for_matching_user_agent(
+    post: PostClient,
+    access_token: TokenTuple,
+    settings: Settings,
+):
+    settings.revoked_grant_workaround_user_agents = r"^Mopidy-Spotify/4\.1\.1\b"
+    settings.revoked_grant_workaround_access_token = (
+        "OAUTHCLIENTBRIDGE_REVOKED_GRANT_WORKAROUND"
+    )
+    settings.revoked_grant_workaround_expires_in = 300
+
+    data = {
+        "client_id": access_token.client_id,
+        "client_secret": access_token.client_secret,
+        "grant_type": "client_credentials",
+    }
+
+    _ = db.update(access_token.client_id, None)
+
+    resp = post(
+        "/token",
+        data,
+        headers={"User-Agent": "Mopidy-Spotify/4.1.1 Mopidy/3.4.2 CPython/3.11.2"},
+    )
+
+    assert resp.status == 200
+    assert resp.data == {
+        "access_token": "OAUTHCLIENTBRIDGE_REVOKED_GRANT_WORKAROUND",
+        "token_type": "Bearer",
+        "expires_in": 300,
+    }
+
+
+def test_token_revoked_workaround_does_not_apply_for_non_matching_user_agent(
+    post: PostClient,
+    access_token: TokenTuple,
+    settings: Settings,
+):
+    settings.revoked_grant_workaround_user_agents = r"^Mopidy-Spotify/4\.1\.1\b"
+
+    data = {
+        "client_id": access_token.client_id,
+        "client_secret": access_token.client_secret,
+        "grant_type": "client_credentials",
+    }
+
+    _ = db.update(access_token.client_id, None)
+
+    resp = post(
+        "/token",
+        data,
+        headers={"User-Agent": "curl/8.8.0"},
+    )
+
+    assert resp.status == 400
+    assert resp.data["error"] == OAuthError.INVALID_GRANT
+
+
 def test_token_wrong_secret_and_not_found_identical(
     post: PostClient, access_token: TokenTuple
 ):
