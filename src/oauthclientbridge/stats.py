@@ -1,5 +1,6 @@
 import re
 import time
+from datetime import UTC, datetime
 from http import HTTPStatus
 from typing import Callable
 
@@ -184,6 +185,29 @@ WorkaroundCounter = prometheus_client.Counter(
     registry=registry,
 )
 
+TokenGrantAgeHistogram = prometheus_client.Histogram(
+    "oauth_token_grant_age_seconds",
+    "Age of successfully used stored token grants.",
+    buckets=(
+        3600,  # 1 hour
+        21600,  # 6 hours
+        86400,  # 1 day
+        259200,  # 3 days
+        604800,  # 7 days
+        1209600,  # 14 days
+        2592000,  # 30 days
+        5184000,  # 60 days
+        7776000,  # 90 days
+        10368000,  # 120 days
+        12960000,  # 150 days
+        15552000,  # 180 days
+        18144000,  # 210 days
+        31536000,  # 365 days
+        float("inf"),
+    ),
+    registry=registry,
+)
+
 TokenStateGauge = prometheus_client.Gauge(
     "oauth_token_records",
     "Stored token records by database state.",
@@ -240,6 +264,13 @@ def export_metrics() -> flask.Response:
 
     text = prometheus_client.generate_latest(metrics_registry)
     return flask.Response(text, mimetype=prometheus_client.CONTENT_TYPE_LATEST)
+
+
+def observe_token_grant_age(created_at: datetime | None) -> None:
+    if created_at is None:
+        return
+
+    TokenGrantAgeHistogram.observe((datetime.now(UTC) - created_at).total_seconds())
 
 
 def set_build_info(settings) -> None:

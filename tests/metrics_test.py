@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, timedelta
+
 from oauthclientbridge import create_app, db, stats
 from oauthclientbridge.settings import Settings, TelemetrySettings
 
@@ -94,3 +96,67 @@ def test_metrics_exposes_workaround_counter(
 
     assert resp.status_code == 200
     assert b'oauth_workarounds_total{workaround="revoked_grant"}' in resp.data
+
+
+def test_metrics_exposes_token_grant_age_histogram_for_successful_token_use(
+    cursor,
+    monkeypatch,
+    post,
+    access_token,
+):
+    created_at = int((datetime.now(UTC) - timedelta(days=200)).timestamp())
+    _ = cursor.execute(
+        "UPDATE tokens SET created_at = ? WHERE client_id = ?",
+        (created_at, access_token.client_id),
+    )
+
+    observed: list[float] = []
+
+    def capture(value: float) -> None:
+        observed.append(value)
+
+    monkeypatch.setattr(stats.TokenGrantAgeHistogram, "observe", capture)
+
+    resp = post(
+        "/token",
+        {
+            "client_id": access_token.client_id,
+            "client_secret": access_token.client_secret,
+            "grant_type": "client_credentials",
+        },
+    )
+
+    assert resp.status == 200
+    assert len(observed) == 1
+    assert 200 * 24 * 60 * 60 <= observed[0] < 201 * 24 * 60 * 60
+
+
+def test_metrics_skips_token_grant_age_histogram_for_unknown_age(
+    cursor,
+    monkeypatch,
+    post,
+    access_token,
+):
+    _ = cursor.execute(
+        "UPDATE tokens SET created_at = NULL WHERE client_id = ?",
+        (access_token.client_id,),
+    )
+
+    observed: list[float] = []
+
+    def capture(value: float) -> None:
+        observed.append(value)
+
+    monkeypatch.setattr(stats.TokenGrantAgeHistogram, "observe", capture)
+
+    resp = post(
+        "/token",
+        {
+            "client_id": access_token.client_id,
+            "client_secret": access_token.client_secret,
+            "grant_type": "client_credentials",
+        },
+    )
+
+    assert resp.status == 200
+    assert observed == []

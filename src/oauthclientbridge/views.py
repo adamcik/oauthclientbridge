@@ -212,6 +212,7 @@ def token() -> flask.Response:
         raise oauth.Error(OAuthError.INVALID_CLIENT, "Client not known.")
 
     if "refresh_token" not in result:
+        stats.observe_token_grant_age(record.created_at)
         return flask.jsonify(result)
 
     refresh_result = oauth.fetch(
@@ -289,6 +290,7 @@ def token() -> flask.Response:
         db.update(client_id, crypto.dumps(client_secret, modified))
 
     # Only return what we got from the API (minus refresh_token).
+    stats.observe_token_grant_age(record.created_at)
     return flask.jsonify(refresh_result)
 
 
