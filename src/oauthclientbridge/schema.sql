@@ -1,8 +1,8 @@
 pragma journal_mode=WAL;
 
-drop table if exists tokens;
-create table tokens(
+create table if not exists tokens(
   client_id text primary key,
-  token blob
+  token blob,
+  created_at integer
 );
 -- TODO: Consider WITHOUT ROWID;?

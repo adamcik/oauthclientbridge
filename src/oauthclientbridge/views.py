@@ -190,11 +190,11 @@ def token() -> flask.Response:
     sentry.set_user({"client_id": client_id})
 
     try:
-        token = db.lookup(client_id)
+        record = db.lookup(client_id)
     except LookupError:
         raise oauth.Error(OAuthError.INVALID_CLIENT, "Client not known.")
 
-    if token is None:
+    if record.encrypted_token is None:
         workaround_response = _revoked_grant_workaround_response()
         if workaround_response is not None:
             logger.warning("Serving revoked grant workaround token")
@@ -205,7 +205,7 @@ def token() -> flask.Response:
         raise oauth.Error(OAuthError.INVALID_GRANT, "Grant has been revoked.")
 
     try:
-        result = crypto.loads(client_secret, token)
+        result = crypto.loads(client_secret, record.encrypted_token)
     except (crypto.InvalidToken, TypeError, ValueError):
         # Always return same message as for client not found to avoid leaking
         # valid clients directly, timing attacks could of course still work.

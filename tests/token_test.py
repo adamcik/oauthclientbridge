@@ -169,8 +169,6 @@ def test_token(post: PostClient, access_token: TokenTuple):
 
     assert resp.status == 200
     assert resp.data == access_token.value
-
-
 def test_token_basic_auth(post: PostClient, access_token: TokenTuple):
     auth = (access_token.client_id, access_token.client_secret)
     data = {"grant_type": "client_credentials"}
@@ -408,10 +406,10 @@ def test_token_with_extra_values(
     expected.update(case.updated)
 
     # Check that the token we fetched got stored directly in db.
-    encrypted = db.lookup(refresh_token.client_id)
-    assert encrypted is not None
+    record = db.lookup(refresh_token.client_id)
+    assert record.encrypted_token is not None
 
-    actual = crypto.loads(refresh_token.client_secret, encrypted)
+    actual = crypto.loads(refresh_token.client_secret, record.encrypted_token)
     assert expected == actual
 
 
@@ -508,10 +506,10 @@ def test_token_cleans_unneeded_data_from_db(
     expected = {"refresh_token": "abc"}
 
     # Check that the token we fetched got stored directly in db.
-    encrypted = db.lookup(refresh_token.client_id)
-    assert encrypted is not None
+    record = db.lookup(refresh_token.client_id)
+    assert record.encrypted_token is not None
 
-    actual = crypto.loads(refresh_token.client_secret, encrypted)
+    actual = crypto.loads(refresh_token.client_secret, record.encrypted_token)
     assert expected == actual
 
 
@@ -732,7 +730,8 @@ def test_token_invalid_grant_revokes_stored_refresh_token(
     assert first.data["error"] == OAuthError.INVALID_GRANT
     assert second.status == 400
     assert second.data["error"] == OAuthError.INVALID_GRANT
-    assert db.lookup(refresh_token.client_id) is None
+    record = db.lookup(refresh_token.client_id)
+    assert record.encrypted_token is None
     assert len(requests_mock.request_history) == 1
 
     metrics = client.get("/metrics")
@@ -762,7 +761,8 @@ def test_token_retryable_invalid_grant_does_not_revoke_refresh_token(
 
     assert resp.status == 503
     assert resp.data["error"] == OAuthError.TEMPORARILY_UNAVAILABLE
-    assert db.lookup(refresh_token.client_id) is not None
+    record = db.lookup(refresh_token.client_id)
+    assert record.encrypted_token is not None
 
 
 def test_token_retryable_invalid_client_returns_temporarily_unavailable(
@@ -787,7 +787,8 @@ def test_token_retryable_invalid_client_returns_temporarily_unavailable(
 
     assert resp.status == 503
     assert resp.data["error"] == OAuthError.TEMPORARILY_UNAVAILABLE
-    assert db.lookup(refresh_token.client_id) is not None
+    record = db.lookup(refresh_token.client_id)
+    assert record.encrypted_token is not None
 
 
 def test_token_retryable_refresh_error_returns_retry_after_header(

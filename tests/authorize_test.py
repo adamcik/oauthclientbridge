@@ -365,9 +365,9 @@ def test_callback_authorization_code_stores_token(
     resp = get("/callback?code=1234&state=" + state)
 
     # Peek inside internals to check that our token got stored.
-    encrypted = db.lookup(resp.data["client_id"])
-    assert encrypted is not None
-    assert data == crypto.loads(resp.data["client_secret"], encrypted)
+    record = db.lookup(resp.data["client_id"])
+    assert record.encrypted_token is not None
+    assert data == crypto.loads(resp.data["client_secret"], record.encrypted_token)
 
 
 def test_callback_authorization_code_store_refresh_token(
@@ -393,9 +393,9 @@ def test_callback_authorization_code_store_refresh_token(
     expected = {"refresh_token": "abc", "scope": "foo"}
 
     # Peek inside internals to check that our token got stored.
-    encrypted = db.lookup(resp.data["client_id"])
-    assert encrypted is not None
-    assert expected == crypto.loads(resp.data["client_secret"], encrypted)
+    record = db.lookup(resp.data["client_id"])
+    assert record.encrypted_token is not None
+    assert expected == crypto.loads(resp.data["client_secret"], record.encrypted_token)
 
 
 def test_callback_authorization_code_store_unknown(
@@ -413,9 +413,9 @@ def test_callback_authorization_code_store_unknown(
     resp = get("/callback?code=1234&state=" + state)
 
     # Peek inside internals to check that our token got stored.
-    encrypted = db.lookup(resp.data["client_id"])
-    assert encrypted is not None
-    assert data == crypto.loads(resp.data["client_secret"], encrypted)
+    record = db.lookup(resp.data["client_id"])
+    assert record.encrypted_token is not None
+    assert data == crypto.loads(resp.data["client_secret"], record.encrypted_token)
 
 
 def test_callback_wrong_method(client: FlaskClient, state: str):

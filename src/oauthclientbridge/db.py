@@ -3,6 +3,8 @@ import re
 import sqlite3
 import time
 import uuid
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Iterator
 
 from flask import current_app, g
@@ -33,11 +35,28 @@ def generate_id() -> str:
     return str(uuid.uuid4())
 
 
+@dataclass(frozen=True)
+class TokenRecord:
+    client_id: str
+    encrypted_token: bytes | None
+    created_at: datetime | None
+
+
 def initialize() -> None:
     with current_app.open_resource("schema.sql", mode="r") as f:
         schema = f.read()
     with get() as c:
         c.executescript(schema)
+        _ensure_token_columns(c)
+
+
+def _ensure_token_columns(connection: sqlite3.Connection) -> None:
+    columns = {
+        row[1].decode("ascii") if isinstance(row[1], bytes) else row[1]
+        for row in connection.execute("PRAGMA table_info(tokens)").fetchall()
+    }
+    if "created_at" not in columns:
+        connection.execute("ALTER TABLE tokens ADD COLUMN created_at INTEGER")
 
 
 # TODO: Make this internal in favour of always needing to have a cursor
@@ -116,35 +135,61 @@ def _prepare_token(token: bytes | None) -> str | None:
     return None if token is None else token.decode("ascii")
 
 
+def _utcnow() -> datetime:
+    return datetime.now(UTC)
+
+
+def _prepare_timestamp(value: datetime | None) -> int | None:
+    return None if value is None else int(value.astimezone(UTC).timestamp())
+
+
+def _parse_datetime(value: object) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, bytes):
+        value = int(value.decode("ascii"))
+    if not isinstance(value, int):
+        raise TypeError(f"Unsupported datetime value: {type(value)!r}")
+    return datetime.fromtimestamp(value, UTC)
+
+
 def insert(client_id: str, token: bytes) -> None:
     """Store encrypted token and return what client_id it was stored under."""
 
     with cursor(name="insert_token", transaction=True) as c:
         c.execute(
-            "INSERT INTO tokens (client_id, token) VALUES (?, ?)",
-            (client_id, _prepare_token(token)),
+            (
+                "INSERT INTO tokens "
+                "(client_id, token, created_at) VALUES (?, ?, ?)"
+            ),
+            (client_id, _prepare_token(token), _prepare_timestamp(_utcnow())),
         )
 
     stats.set_token_state_counts(token_state_counts())
 
-def lookup(client_id: str) -> bytes | None:
-    """Lookup a client_id and return encrypted token.
+
+def lookup(client_id: str) -> TokenRecord:
+    """Lookup a client_id and return encrypted token plus metadata.
 
     Raises a LookupError if client_id is not found.
     Returns the encrypted token or None if token is revoked.
     """
     with cursor(name="lookup_token") as c:
-        c.execute("SELECT token FROM tokens WHERE client_id = ?", (client_id,))
+        c.execute(
+            "SELECT token, created_at FROM tokens WHERE client_id = ?",
+            (client_id,),
+        )
         row = c.fetchone()
 
     if row is None:
         raise LookupError("Client not found.")
-    elif row[0]:
-        # Fernet only likes bytes, so return token as such. DB might contain
-        # tokens stored as TEXT, BLOB or NULL types.
-        return bytes(row[0])
-    else:
-        return None
+
+    token_value = row[0]
+    return TokenRecord(
+        client_id=client_id,
+        encrypted_token=bytes(token_value) if token_value else None,
+        created_at=_parse_datetime(row[1]),
+    )
 
 
 def update(client_id: str, token: bytes | None) -> int:
