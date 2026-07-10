@@ -282,6 +282,10 @@
               "''${uwsgi_args[@]}" \
               "$@"
           '';
+
+          flaskEntrypoint = pkgs.writeShellScriptBin "flask" ''
+            exec ${runtimeVenv}/bin/python -m flask --app oauthclientbridge "$@"
+          '';
         in
           lib.optionalAttrs pkgs.stdenv.isLinux {
             # Expose Docker container in packages
@@ -350,6 +354,7 @@
                 metadataLayer = nix2containerPkgs.buildLayer {
                   copyToRoot = [
                     entrypoint
+                    flaskEntrypoint
                     runtimeDirs
                   ];
                   layers = [

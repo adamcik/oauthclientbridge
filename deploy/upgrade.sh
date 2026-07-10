@@ -151,7 +151,7 @@ run_db_upgrade() {
   local podman_args=(
     run --rm
     --name "${CONTAINER_NAME}-db-upgrade"
-    --entrypoint flask
+    --entrypoint /bin/flask
     --env-file "$QUADLET_ENV_FILE"
   )
 
