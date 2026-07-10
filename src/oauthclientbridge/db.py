@@ -138,6 +138,7 @@ def _prepare_token(token: bytes | None) -> str | None:
     """
     return None if token is None else token.decode("ascii")
 
+
 def _prepare_timestamp(value: datetime | None) -> int | None:
     return None if value is None else int(value.astimezone(UTC).timestamp())
 

@@ -167,7 +167,9 @@ def get_request_info(req: Request, duration_ns: int) -> dict[str, Any]:
         SERVER_ADDRESS: req.host,
         URL_FULL: sanitized_url,
         URL_PATH: req.path,
-        URL_QUERY: sanitized_url_parts.query if sanitized_url_parts is not None else None,
+        URL_QUERY: sanitized_url_parts.query
+        if sanitized_url_parts is not None
+        else None,
         URL_SCHEME: req.scheme,
         USER_AGENT_ORIGINAL: req.headers.get("User-Agent"),
         f"{HTTP_REQUEST_HEADER_TEMPLATE}.content_type": req.content_type,

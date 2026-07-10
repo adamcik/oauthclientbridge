@@ -367,7 +367,8 @@ def test_revoked_grant_workaround_adds_span_event(
     request_span = next(s for s in spans if s.name == "POST /token")
 
     assert any(
-        event.name == "Served revoked grant workaround token" for event in request_span.events
+        event.name == "Served revoked grant workaround token"
+        for event in request_span.events
     )
 
 

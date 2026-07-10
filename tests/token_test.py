@@ -169,6 +169,8 @@ def test_token(post: PostClient, access_token: TokenTuple):
 
     assert resp.status == 200
     assert resp.data == access_token.value
+
+
 def test_token_basic_auth(post: PostClient, access_token: TokenTuple):
     auth = (access_token.client_id, access_token.client_secret)
     data = {"grant_type": "client_credentials"}

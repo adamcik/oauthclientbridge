@@ -51,7 +51,12 @@ def test_lookup_includes_timestamps(cursor):
             "INSERT INTO tokens (client_id, token, created_at, last_updated_at) "
             "VALUES (?, ?, ?, ?)"
         ),
-        ("client", "token", int(created_at.timestamp()), int(last_updated_at.timestamp())),
+        (
+            "client",
+            "token",
+            int(created_at.timestamp()),
+            int(last_updated_at.timestamp()),
+        ),
     )
 
     assert db.lookup("client") == db.TokenRecord(
