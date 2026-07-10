@@ -1,8 +1,20 @@
 import enum
 import urllib.parse
+from datetime import UTC, datetime
 from http import HTTPStatus
 
 URIParam = dict[str, str]
+
+
+def utcnow() -> datetime:
+    """Return aware UTC wall-clock time.
+
+    Use for timestamps that may be stored, serialized, or compared with
+    external datetimes. Do not use for measuring elapsed time; use
+    time.monotonic() for durations.
+    """
+
+    return datetime.now(UTC)
 
 
 class APIResult(enum.StrEnum):

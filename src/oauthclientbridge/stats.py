@@ -1,6 +1,6 @@
 import re
 import time
-from datetime import UTC, datetime
+from datetime import datetime
 from http import HTTPStatus
 from typing import Callable
 
@@ -10,6 +10,7 @@ import prometheus_client.multiprocess
 
 from oauthclientbridge.resource_labels import build_info_labels
 from oauthclientbridge.settings import current_settings
+from oauthclientbridge.utils import utcnow
 
 registry = prometheus_client.CollectorRegistry()
 
@@ -270,7 +271,7 @@ def observe_token_grant_age(created_at: datetime | None) -> None:
     if created_at is None:
         return
 
-    TokenGrantAgeHistogram.observe((datetime.now(UTC) - created_at).total_seconds())
+    TokenGrantAgeHistogram.observe((utcnow() - created_at).total_seconds())
 
 
 def set_build_info(settings) -> None:

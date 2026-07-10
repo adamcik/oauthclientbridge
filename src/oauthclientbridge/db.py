@@ -12,6 +12,7 @@ from opentelemetry import metrics, trace
 
 from oauthclientbridge import stats
 from oauthclientbridge.settings import current_settings
+from oauthclientbridge.utils import utcnow
 
 Error = sqlite3.Error
 IntegrityError = sqlite3.IntegrityError
@@ -134,11 +135,6 @@ def _prepare_token(token: bytes | None) -> str | None:
     """
     return None if token is None else token.decode("ascii")
 
-
-def _utcnow() -> datetime:
-    return datetime.now(UTC)
-
-
 def _prepare_timestamp(value: datetime | None) -> int | None:
     return None if value is None else int(value.astimezone(UTC).timestamp())
 
@@ -162,7 +158,7 @@ def insert(client_id: str, token: bytes) -> None:
                 "INSERT INTO tokens "
                 "(client_id, token, created_at) VALUES (?, ?, ?)"
             ),
-            (client_id, _prepare_token(token), _prepare_timestamp(_utcnow())),
+            (client_id, _prepare_token(token), _prepare_timestamp(utcnow())),
         )
 
     stats.set_token_state_counts(token_state_counts())
