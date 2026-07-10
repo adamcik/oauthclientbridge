@@ -48,16 +48,16 @@ def initialize() -> None:
         schema = f.read()
     with get() as c:
         c.executescript(schema)
-        _ensure_token_columns(c)
 
 
-def _ensure_token_columns(connection: sqlite3.Connection) -> None:
-    columns = {
-        row[1].decode("ascii") if isinstance(row[1], bytes) else row[1]
-        for row in connection.execute("PRAGMA table_info(tokens)").fetchall()
-    }
-    if "created_at" not in columns:
-        connection.execute("ALTER TABLE tokens ADD COLUMN created_at INTEGER")
+def upgrade() -> None:
+    with get() as c:
+        columns = {
+            row[1].decode("ascii") if isinstance(row[1], bytes) else row[1]
+            for row in c.execute("PRAGMA table_info(tokens)").fetchall()
+        }
+        if "created_at" not in columns:
+            c.execute("ALTER TABLE tokens ADD COLUMN created_at INTEGER")
 
 
 # TODO: Make this internal in favour of always needing to have a cursor

@@ -100,12 +100,12 @@ def test_update_missing(app_context):
     assert 0 == db.update("client", b"token")
 
 
-def test_initialize_adds_timestamp_columns_without_dropping_rows(app_context, cursor):
+def test_upgrade_adds_timestamp_columns_without_dropping_rows(app_context, cursor):
     cursor.execute("DROP TABLE tokens")
     cursor.execute("CREATE TABLE tokens(client_id text primary key, token blob)")
     cursor.execute("INSERT INTO tokens (client_id, token) VALUES ('client', 'token')")
 
-    db.initialize()
+    db.upgrade()
 
     assert db.lookup("client") == db.TokenRecord(
         client_id="client",
