@@ -41,6 +41,7 @@ class TokenRecord:
     client_id: str
     encrypted_token: bytes | None
     created_at: datetime | None
+    last_updated_at: datetime | None
 
 
 def initialize() -> None:
@@ -58,6 +59,8 @@ def upgrade() -> None:
         }
         if "created_at" not in columns:
             c.execute("ALTER TABLE tokens ADD COLUMN created_at INTEGER")
+        if "last_updated_at" not in columns:
+            c.execute("ALTER TABLE tokens ADD COLUMN last_updated_at INTEGER")
 
 
 # TODO: Make this internal in favour of always needing to have a cursor
@@ -152,13 +155,19 @@ def _parse_datetime(value: object) -> datetime | None:
 def insert(client_id: str, token: bytes) -> None:
     """Store encrypted token and return what client_id it was stored under."""
 
+    now = utcnow()
     with cursor(name="insert_token", transaction=True) as c:
         c.execute(
             (
                 "INSERT INTO tokens "
-                "(client_id, token, created_at) VALUES (?, ?, ?)"
+                "(client_id, token, created_at, last_updated_at) VALUES (?, ?, ?, ?)"
             ),
-            (client_id, _prepare_token(token), _prepare_timestamp(utcnow())),
+            (
+                client_id,
+                _prepare_token(token),
+                _prepare_timestamp(now),
+                _prepare_timestamp(now),
+            ),
         )
 
     stats.set_token_state_counts(token_state_counts())
@@ -172,7 +181,7 @@ def lookup(client_id: str) -> TokenRecord:
     """
     with cursor(name="lookup_token") as c:
         c.execute(
-            "SELECT token, created_at FROM tokens WHERE client_id = ?",
+            "SELECT token, created_at, last_updated_at FROM tokens WHERE client_id = ?",
             (client_id,),
         )
         row = c.fetchone()
@@ -185,16 +194,18 @@ def lookup(client_id: str) -> TokenRecord:
         client_id=client_id,
         encrypted_token=bytes(token_value) if token_value else None,
         created_at=_parse_datetime(row[1]),
+        last_updated_at=_parse_datetime(row[2]),
     )
 
 
 def update(client_id: str, token: bytes | None) -> int:
     """Update a client_id with a new encrypted token."""
 
+    now = utcnow()
     with cursor(name="update_token", transaction=True) as c:
         c.execute(
-            "UPDATE tokens SET token = ? WHERE client_id = ?",
-            (_prepare_token(token), client_id),
+            "UPDATE tokens SET token = ?, last_updated_at = ? WHERE client_id = ?",
+            (_prepare_token(token), _prepare_timestamp(now), client_id),
         )
         trace.get_current_span().add_event("Update result", {"rows": c.rowcount})
         rowcount = int(c.rowcount)

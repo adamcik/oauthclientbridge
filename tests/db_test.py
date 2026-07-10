@@ -45,15 +45,20 @@ def test_lookup_revoked(cursor):
 
 def test_lookup_includes_timestamps(cursor):
     created_at = datetime(2026, 6, 18, 12, 0, tzinfo=UTC)
+    last_updated_at = datetime(2026, 6, 18, 13, 0, tzinfo=UTC)
     cursor.execute(
-        "INSERT INTO tokens (client_id, token, created_at) VALUES (?, ?, ?)",
-        ("client", "token", int(created_at.timestamp())),
+        (
+            "INSERT INTO tokens (client_id, token, created_at, last_updated_at) "
+            "VALUES (?, ?, ?, ?)"
+        ),
+        ("client", "token", int(created_at.timestamp()), int(last_updated_at.timestamp())),
     )
 
     assert db.lookup("client") == db.TokenRecord(
         client_id="client",
         encrypted_token=b"token",
         created_at=created_at,
+        last_updated_at=last_updated_at,
     )
 
 
@@ -65,35 +70,48 @@ def test_insert(cursor):
     db.insert(client_id, b"token")
 
     cursor.execute(
-        "SELECT token, typeof(token), created_at FROM tokens WHERE client_id = ?",
+        "SELECT token, typeof(token), created_at, last_updated_at FROM tokens WHERE client_id = ?",
         (client_id,),
     )
-    result, dbtype, created_at = cursor.fetchone()
+    result, dbtype, created_at, last_updated_at = cursor.fetchone()
     assert b"token" == result
     assert b"text" == dbtype
     assert created_at is not None
+    assert last_updated_at is not None
 
 
 def test_update(cursor):
-    cursor.execute("INSERT INTO tokens (client_id) VALUES ('client')")
+    cursor.execute(
+        "INSERT INTO tokens (client_id, last_updated_at) VALUES ('client', 1)"
+    )
 
     assert 1 == db.update("client", b"token")
 
-    cursor.execute(TOKEN_TYPE_QUERY, ("client",))
-    result, dbtype = cursor.fetchone()
+    cursor.execute(
+        "SELECT token, typeof(token), last_updated_at FROM tokens WHERE client_id = ?",
+        ("client",),
+    )
+    result, dbtype, last_updated_at = cursor.fetchone()
     assert b"token" == result
     assert b"text" == dbtype
+    assert last_updated_at != 1
 
 
 def test_update_none(cursor):
-    cursor.execute("INSERT INTO tokens (client_id, token) VALUES ('client', 'token')")
+    cursor.execute(
+        "INSERT INTO tokens (client_id, token, last_updated_at) VALUES ('client', 'token', 1)"
+    )
 
     assert 1 == db.update("client", None)
 
-    cursor.execute(TOKEN_TYPE_QUERY, ("client",))
-    result, dbtype = cursor.fetchone()
+    cursor.execute(
+        "SELECT token, typeof(token), last_updated_at FROM tokens WHERE client_id = ?",
+        ("client",),
+    )
+    result, dbtype, last_updated_at = cursor.fetchone()
     assert result is None
     assert b"null" == dbtype
+    assert last_updated_at != 1
 
 
 def test_update_missing(app_context):
@@ -111,4 +129,5 @@ def test_upgrade_adds_timestamp_columns_without_dropping_rows(app_context, curso
         client_id="client",
         encrypted_token=b"token",
         created_at=None,
+        last_updated_at=None,
     )
