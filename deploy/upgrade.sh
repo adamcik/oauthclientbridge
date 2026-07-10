@@ -10,6 +10,7 @@ Options:
   --instance <name>    Instance name (examples: spotify, soundcloud, spotify-prod)
   --image <ref>        Image ref to pull + set in quadlet
                       (default: ghcr.io/adamcik/oauthclientbridge:latest)
+  --upgrade            Run one-off DB upgrade before restart
   --unit <name>        systemd unit (default: oauthclientbridge-<instance>.service)
   --container <name>   container name (default: oauthclientbridge-<instance>)
   --quadlet-file <p>   Quadlet path
@@ -23,6 +24,7 @@ Options:
 Examples:
   $0 --instance spotify
   $0 --instance spotify --check
+  $0 --instance spotify --upgrade
   $0 --instance spotify-prod --image ghcr.io/adamcik/oauthclientbridge@sha256:abcd...
 EOF
 }
@@ -37,6 +39,7 @@ IMAGE_OVERRIDE_FILE=""
 
 CHECK_ONLY=0
 DRY_RUN=0
+RUN_DB_UPGRADE=0
 
 UNIT_SET=0
 CONTAINER_SET=0
@@ -46,8 +49,22 @@ IMAGE_OVERRIDE_SET=0
 TARGET_DIGEST_REF=""
 TARGET_OVERRIDE_REF=""
 
+QUADLET_NETWORK=""
+QUADLET_USER=""
+QUADLET_ENV_FILE=""
+QUADLET_READ_ONLY=0
+QUADLET_TMPFS=()
+QUADLET_VOLUMES=()
+
 log() {
   printf '\n==> %s\n' "$*"
+}
+
+trim() {
+  local value="$1"
+  value="${value#${value%%[![:space:]]*}}"
+  value="${value%${value##*[![:space:]]}}"
+  printf '%s\n' "$value"
 }
 
 unit_to_quadlet_path() {
@@ -78,6 +95,101 @@ apply_instance_defaults() {
   fi
 }
 
+load_quadlet_runtime_config() {
+  QUADLET_NETWORK=""
+  QUADLET_USER=""
+  QUADLET_ENV_FILE=""
+  QUADLET_READ_ONLY=0
+  QUADLET_TMPFS=()
+  QUADLET_VOLUMES=()
+
+  while IFS= read -r raw_line; do
+    line="$(trim "$raw_line")"
+
+    case "$line" in
+      ''|'#'*|'['*)
+        continue
+        ;;
+      Network=*)
+        QUADLET_NETWORK="${line#Network=}"
+        ;;
+      User=*)
+        QUADLET_USER="${line#User=}"
+        ;;
+      EnvironmentFile=*)
+        QUADLET_ENV_FILE="${line#EnvironmentFile=}"
+        ;;
+      ReadOnly=*)
+        if [ "${line#ReadOnly=}" = "true" ]; then
+          QUADLET_READ_ONLY=1
+        fi
+        ;;
+      Tmpfs=*)
+        QUADLET_TMPFS+=("${line#Tmpfs=}")
+        ;;
+      Volume=*)
+        QUADLET_VOLUMES+=("${line#Volume=}")
+        ;;
+    esac
+  done < "$QUADLET_FILE"
+}
+
+run_db_upgrade() {
+  if [ "$RUN_DB_UPGRADE" -ne 1 ]; then
+    return
+  fi
+
+  load_quadlet_runtime_config
+
+  if [ -z "$QUADLET_ENV_FILE" ]; then
+    echo "Quadlet is missing EnvironmentFile=: $QUADLET_FILE" >&2
+    exit 1
+  fi
+
+  log "Run DB upgrade command"
+
+  local podman_args=(
+    run --rm
+    --name "${CONTAINER_NAME}-db-upgrade"
+    --entrypoint flask
+    --env-file "$QUADLET_ENV_FILE"
+  )
+
+  if [ -n "$QUADLET_USER" ]; then
+    podman_args+=(--user "$QUADLET_USER")
+  fi
+
+  if [ -n "$QUADLET_NETWORK" ]; then
+    podman_args+=(--network "$QUADLET_NETWORK")
+  fi
+
+  if [ "$QUADLET_READ_ONLY" -eq 1 ]; then
+    podman_args+=(--read-only)
+  fi
+
+  local tmpfs
+  for tmpfs in "${QUADLET_TMPFS[@]}"; do
+    podman_args+=(--tmpfs "$tmpfs")
+  done
+
+  local volume
+  for volume in "${QUADLET_VOLUMES[@]}"; do
+    podman_args+=(-v "$volume")
+  done
+
+  podman_args+=("$TARGET_OVERRIDE_REF")
+
+  printf 'Command:'
+  printf ' %q' sudo podman "${podman_args[@]}" upgradedb
+  printf '\n'
+
+  if [ "$DRY_RUN" -eq 1 ]; then
+    return
+  fi
+
+  sudo podman "${podman_args[@]}" upgradedb
+}
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --instance)
@@ -87,6 +199,10 @@ while [ "$#" -gt 0 ]; do
     --image)
       IMAGE_REF="$2"
       shift 2
+      ;;
+    --upgrade)
+      RUN_DB_UPGRADE=1
+      shift
       ;;
     --unit)
       UNIT_NAME="$2"
@@ -137,15 +253,27 @@ echo "Unit:        $UNIT_NAME"
 echo "QuadletFile: $QUADLET_FILE"
 echo "ImageOvr:    $IMAGE_OVERRIDE_FILE"
 echo "ImageRef:    $IMAGE_REF"
-
-if [ "$DRY_RUN" -eq 1 ]; then
-  echo "Dry run: no changes applied"
-  exit 0
+if [ "$RUN_DB_UPGRADE" -eq 1 ]; then
+  echo "Upgrade:     yes"
+else
+  echo "Upgrade:     no"
 fi
 
-if ! sudo test -f "$QUADLET_FILE"; then
+if [ "$DRY_RUN" -eq 1 ]; then
+  if ! test -f "$QUADLET_FILE"; then
+    echo "Quadlet file not found: $QUADLET_FILE" >&2
+    exit 1
+  fi
+elif ! sudo test -f "$QUADLET_FILE"; then
   echo "Quadlet file not found: $QUADLET_FILE" >&2
   exit 1
+fi
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  TARGET_OVERRIDE_REF="$IMAGE_REF"
+  run_db_upgrade
+  echo "Dry run: no changes applied"
+  exit 0
 fi
 
 log "Current runtime image"
@@ -196,6 +324,8 @@ sudo tee "$IMAGE_OVERRIDE_FILE" >/dev/null <<EOF
 [Container]
 Image=$TARGET_OVERRIDE_REF
 EOF
+
+run_db_upgrade
 
 log "Reload + restart service"
 sudo systemctl daemon-reload
