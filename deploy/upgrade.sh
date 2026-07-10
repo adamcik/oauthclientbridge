@@ -7,7 +7,8 @@ Usage:
   $0 --instance <name> [options]
 
 Options:
-  --instance <name>    Instance name (examples: spotify, soundcloud, spotify-prod)
+  --instance <name>    Instance name or comma-separated names
+                      (examples: spotify, soundcloud, spotify-prod, spotify,soundcloud)
   --image <ref>        Image ref to pull + set in quadlet
                       (default: ghcr.io/adamcik/oauthclientbridge:latest)
   --upgrade            Run one-off DB upgrade before restart
@@ -23,6 +24,7 @@ Options:
 
 Examples:
   $0 --instance spotify
+  $0 --instance spotify,soundcloud
   $0 --instance spotify --check
   $0 --instance spotify --upgrade
   $0 --instance spotify-prod --image ghcr.io/adamcik/oauthclientbridge@sha256:abcd...
@@ -36,6 +38,8 @@ UNIT_NAME=""
 CONTAINER_NAME=""
 QUADLET_FILE=""
 IMAGE_OVERRIDE_FILE=""
+
+INSTANCE_NAMES=()
 
 CHECK_ONLY=0
 DRY_RUN=0
@@ -93,6 +97,21 @@ apply_instance_defaults() {
   if [ "$IMAGE_OVERRIDE_SET" -eq 0 ]; then
     IMAGE_OVERRIDE_FILE="${QUADLET_FILE}.d/image.conf"
   fi
+}
+
+split_instances() {
+  local raw_instances="$1"
+  local part
+
+  IFS=',' read -r -a INSTANCE_NAMES <<< "$raw_instances"
+
+  for part in "${!INSTANCE_NAMES[@]}"; do
+    INSTANCE_NAMES[$part]="$(trim "${INSTANCE_NAMES[$part]}")"
+    if [ -z "${INSTANCE_NAMES[$part]}" ]; then
+      echo "Invalid --instance value: $raw_instances" >&2
+      exit 2
+    fi
+  done
 }
 
 load_quadlet_runtime_config() {
@@ -190,6 +209,116 @@ run_db_upgrade() {
   sudo podman "${podman_args[@]}" upgradedb
 }
 
+run_for_instance() {
+  TARGET_DIGEST_REF=""
+  TARGET_OVERRIDE_REF=""
+
+  apply_instance_defaults
+
+  log "Resolved configuration"
+  echo "Instance:    $INSTANCE_NAME"
+  echo "Container:   $CONTAINER_NAME"
+  echo "Unit:        $UNIT_NAME"
+  echo "QuadletFile: $QUADLET_FILE"
+  echo "ImageOvr:    $IMAGE_OVERRIDE_FILE"
+  echo "ImageRef:    $IMAGE_REF"
+  if [ "$RUN_DB_UPGRADE" -eq 1 ]; then
+    echo "Upgrade:     yes"
+  else
+    echo "Upgrade:     no"
+  fi
+
+  if [ "$DRY_RUN" -eq 1 ]; then
+    if ! test -f "$QUADLET_FILE"; then
+      echo "Quadlet file not found: $QUADLET_FILE" >&2
+      exit 1
+    fi
+  elif ! sudo test -f "$QUADLET_FILE"; then
+    echo "Quadlet file not found: $QUADLET_FILE" >&2
+    exit 1
+  fi
+
+  if [ "$DRY_RUN" -eq 1 ]; then
+    TARGET_OVERRIDE_REF="$IMAGE_REF"
+    run_db_upgrade
+    echo "Dry run: no changes applied"
+    return
+  fi
+
+  log "Current runtime image"
+  if sudo podman container exists "$CONTAINER_NAME"; then
+    before_id="$(sudo podman inspect "$CONTAINER_NAME" --format '{{.Image}}')"
+    before_name="$(sudo podman inspect "$CONTAINER_NAME" --format '{{.ImageName}}')"
+    before_repo_digest="$(sudo podman image inspect "$before_name" --format '{{index .RepoDigests 0}}' 2>/dev/null || true)"
+    echo "Container: $CONTAINER_NAME"
+    echo "ImageName:  $before_name"
+    echo "ImageID:    $before_id"
+    echo "RepoDigest: ${before_repo_digest:-<none>}"
+  else
+    echo "Container not found: $CONTAINER_NAME"
+    before_id=""
+    before_name=""
+    before_repo_digest=""
+  fi
+
+  log "Pull image"
+  sudo podman pull "$IMAGE_REF"
+  target_id="$(sudo podman image inspect "$IMAGE_REF" --format '{{.Id}}')"
+  TARGET_DIGEST_REF="$(sudo podman image inspect "$IMAGE_REF" --format '{{index .RepoDigests 0}}' 2>/dev/null || true)"
+  if [ -n "$TARGET_DIGEST_REF" ]; then
+    TARGET_OVERRIDE_REF="$TARGET_DIGEST_REF"
+  else
+    TARGET_OVERRIDE_REF="$IMAGE_REF"
+  fi
+  echo "TargetRef: $IMAGE_REF"
+  echo "TargetID:  $target_id"
+  echo "TargetPin: $TARGET_OVERRIDE_REF"
+
+  if [ "$CHECK_ONLY" -eq 1 ]; then
+    if [ -n "$before_id" ] && [ "$before_id" = "$target_id" ]; then
+      echo "Status: up to date"
+      return
+    fi
+    echo "Status: runtime differs from pulled target"
+    exit 1
+  fi
+
+  log "Write quadlet Image= drop-in override"
+  sudo install -d -m 0755 "$(dirname "$IMAGE_OVERRIDE_FILE")"
+  sudo tee "$IMAGE_OVERRIDE_FILE" >/dev/null <<EOF
+# Managed by deploy/upgrade.sh
+# Requested image: $IMAGE_REF
+# To roll back, set Image=<previous-ref> and restart $UNIT_NAME.
+# Previous runtime image: ${before_repo_digest:-${before_name:-<unknown>}}
+[Container]
+Image=$TARGET_OVERRIDE_REF
+EOF
+
+  run_db_upgrade
+
+  log "Reload + restart service"
+  sudo systemctl daemon-reload
+  sudo systemctl restart "$UNIT_NAME"
+  sudo systemctl is-active --quiet "$UNIT_NAME"
+
+  after_id="$(sudo podman inspect "$CONTAINER_NAME" --format '{{.Image}}')"
+  after_name="$(sudo podman inspect "$CONTAINER_NAME" --format '{{.ImageName}}')"
+  log "Runtime image after action"
+  echo "ImageName: $after_name"
+  echo "ImageID:   $after_id"
+
+  if [ "$after_id" = "$target_id" ]; then
+    echo "Result: runtime matches target"
+  else
+    echo "Result: runtime does not match target" >&2
+    echo "Hint: verify $QUADLET_FILE and unit $UNIT_NAME" >&2
+    exit 1
+  fi
+
+  log "Recent logs"
+  sudo podman logs --tail 50 "$CONTAINER_NAME" || true
+}
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --instance)
@@ -244,107 +373,30 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-apply_instance_defaults
+split_instances "$INSTANCE_NAME"
 
-log "Resolved configuration"
-echo "Instance:    $INSTANCE_NAME"
-echo "Container:   $CONTAINER_NAME"
-echo "Unit:        $UNIT_NAME"
-echo "QuadletFile: $QUADLET_FILE"
-echo "ImageOvr:    $IMAGE_OVERRIDE_FILE"
-echo "ImageRef:    $IMAGE_REF"
-if [ "$RUN_DB_UPGRADE" -eq 1 ]; then
-  echo "Upgrade:     yes"
-else
-  echo "Upgrade:     no"
+if [ "${#INSTANCE_NAMES[@]}" -gt 1 ] && {
+  [ "$UNIT_SET" -eq 1 ] ||
+  [ "$CONTAINER_SET" -eq 1 ] ||
+  [ "$QUADLET_SET" -eq 1 ] ||
+  [ "$IMAGE_OVERRIDE_SET" -eq 1 ]
+}; then
+  echo "Comma-separated --instance does not support --unit, --container, --quadlet-file, or --image-override" >&2
+  exit 2
 fi
 
-if [ "$DRY_RUN" -eq 1 ]; then
-  if ! test -f "$QUADLET_FILE"; then
-    echo "Quadlet file not found: $QUADLET_FILE" >&2
-    exit 1
+for INSTANCE_NAME in "${INSTANCE_NAMES[@]}"; do
+  if [ "$UNIT_SET" -eq 0 ]; then
+    UNIT_NAME=""
   fi
-elif ! sudo test -f "$QUADLET_FILE"; then
-  echo "Quadlet file not found: $QUADLET_FILE" >&2
-  exit 1
-fi
-
-if [ "$DRY_RUN" -eq 1 ]; then
-  TARGET_OVERRIDE_REF="$IMAGE_REF"
-  run_db_upgrade
-  echo "Dry run: no changes applied"
-  exit 0
-fi
-
-log "Current runtime image"
-if sudo podman container exists "$CONTAINER_NAME"; then
-  before_id="$(sudo podman inspect "$CONTAINER_NAME" --format '{{.Image}}')"
-  before_name="$(sudo podman inspect "$CONTAINER_NAME" --format '{{.ImageName}}')"
-  before_repo_digest="$(sudo podman image inspect "$before_name" --format '{{index .RepoDigests 0}}' 2>/dev/null || true)"
-  echo "Container: $CONTAINER_NAME"
-  echo "ImageName:  $before_name"
-  echo "ImageID:    $before_id"
-  echo "RepoDigest: ${before_repo_digest:-<none>}"
-else
-  echo "Container not found: $CONTAINER_NAME"
-  before_id=""
-  before_name=""
-  before_repo_digest=""
-fi
-
-log "Pull image"
-sudo podman pull "$IMAGE_REF"
-target_id="$(sudo podman image inspect "$IMAGE_REF" --format '{{.Id}}')"
-TARGET_DIGEST_REF="$(sudo podman image inspect "$IMAGE_REF" --format '{{index .RepoDigests 0}}' 2>/dev/null || true)"
-if [ -n "$TARGET_DIGEST_REF" ]; then
-  TARGET_OVERRIDE_REF="$TARGET_DIGEST_REF"
-else
-  TARGET_OVERRIDE_REF="$IMAGE_REF"
-fi
-echo "TargetRef: $IMAGE_REF"
-echo "TargetID:  $target_id"
-echo "TargetPin: $TARGET_OVERRIDE_REF"
-
-if [ "$CHECK_ONLY" -eq 1 ]; then
-  if [ -n "$before_id" ] && [ "$before_id" = "$target_id" ]; then
-    echo "Status: up to date"
-    exit 0
+  if [ "$CONTAINER_SET" -eq 0 ]; then
+    CONTAINER_NAME=""
   fi
-  echo "Status: runtime differs from pulled target"
-  exit 1
-fi
-
-log "Write quadlet Image= drop-in override"
-sudo install -d -m 0755 "$(dirname "$IMAGE_OVERRIDE_FILE")"
-sudo tee "$IMAGE_OVERRIDE_FILE" >/dev/null <<EOF
-# Managed by deploy/upgrade.sh
-# Requested image: $IMAGE_REF
-# To roll back, set Image=<previous-ref> and restart $UNIT_NAME.
-# Previous runtime image: ${before_repo_digest:-${before_name:-<unknown>}}
-[Container]
-Image=$TARGET_OVERRIDE_REF
-EOF
-
-run_db_upgrade
-
-log "Reload + restart service"
-sudo systemctl daemon-reload
-sudo systemctl restart "$UNIT_NAME"
-sudo systemctl is-active --quiet "$UNIT_NAME"
-
-after_id="$(sudo podman inspect "$CONTAINER_NAME" --format '{{.Image}}')"
-after_name="$(sudo podman inspect "$CONTAINER_NAME" --format '{{.ImageName}}')"
-log "Runtime image after action"
-echo "ImageName: $after_name"
-echo "ImageID:   $after_id"
-
-if [ "$after_id" = "$target_id" ]; then
-  echo "Result: runtime matches target"
-else
-  echo "Result: runtime does not match target" >&2
-  echo "Hint: verify $QUADLET_FILE and unit $UNIT_NAME" >&2
-  exit 1
-fi
-
-log "Recent logs"
-sudo podman logs --tail 50 "$CONTAINER_NAME" || true
+  if [ "$QUADLET_SET" -eq 0 ]; then
+    QUADLET_FILE=""
+  fi
+  if [ "$IMAGE_OVERRIDE_SET" -eq 0 ]; then
+    IMAGE_OVERRIDE_FILE=""
+  fi
+  run_for_instance
+done
