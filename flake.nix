@@ -284,7 +284,7 @@
           '';
 
           flaskEntrypoint = pkgs.writeShellScriptBin "flask" ''
-            exec ${runtimeVenv}/bin/python -m flask --app oauthclientbridge.wsgi:app "$@"
+            exec ${runtimeVenv}/bin/python -m flask --app oauthclientbridge "$@"
           '';
         in
           lib.optionalAttrs pkgs.stdenv.isLinux {
