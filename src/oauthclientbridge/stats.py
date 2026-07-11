@@ -343,6 +343,12 @@ def start_background_refresh(app: Flask) -> None:
     worker.request()
 
 
+def stop_background_refresh(app: Flask) -> None:
+    worker = app.extensions.pop("oauth_metrics_refresh_worker", None)
+    if worker is not None:
+        worker.stop(timeout=1.0)
+
+
 def _refresh_metrics_in_app(app: Flask) -> None:
     try:
         with app.app_context():

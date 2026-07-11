@@ -15,7 +15,10 @@ __version__ = version("oauthclientbridge")
 logger: structlog.BoundLogger = structlog.get_logger()
 
 
-def create_app(settings: Settings) -> Flask:
+def create_app(settings: Settings | None = None) -> Flask:
+    if settings is None:
+        settings = Settings()
+
     app = Flask(__name__)
     app.config["SETTINGS"] = settings
     _ = app.config.from_prefixed_env()
@@ -70,9 +73,20 @@ def create_app(settings: Settings) -> Flask:
 
 
 def start_runtime_services(app: Flask) -> None:
+    if app.extensions.get("oauth_runtime_services_started") is True:
+        return
+
     with app.app_context():
         if not db.is_initialized():
-            raise RuntimeError("Database must be initialized before starting runtime services")
+            raise RuntimeError(
+                "Database must be initialized before starting runtime services"
+            )
 
     stats.start_background_refresh(app)
     stats.request_refresh(app)
+    app.extensions["oauth_runtime_services_started"] = True
+
+
+def stop_runtime_services(app: Flask) -> None:
+    stats.stop_background_refresh(app)
+    app.extensions.pop("oauth_runtime_services_started", None)

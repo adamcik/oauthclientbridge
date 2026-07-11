@@ -1,6 +1,14 @@
 from datetime import UTC, datetime, timedelta
 
-from oauthclientbridge import create_app, db, stats
+import pytest
+
+from oauthclientbridge import (
+    create_app,
+    db,
+    start_runtime_services,
+    stats,
+    stop_runtime_services,
+)
 from oauthclientbridge.settings import Settings, TelemetrySettings
 
 
@@ -94,6 +102,29 @@ def test_metrics_write_paths_request_background_refresh(client, monkeypatch):
     db.update("missing-client", None)
 
     assert requested == 2
+
+
+def test_stop_runtime_services_stops_background_worker(app, monkeypatch):
+    stopped = False
+
+    class Worker:
+        def stop(self, timeout: float | None = None) -> None:
+            nonlocal stopped
+            stopped = True
+
+    app.extensions["oauth_runtime_services_started"] = True
+    app.extensions["oauth_metrics_refresh_worker"] = Worker()
+
+    stop_runtime_services(app)
+
+    assert stopped is True
+    assert "oauth_runtime_services_started" not in app.extensions
+    assert "oauth_metrics_refresh_worker" not in app.extensions
+
+
+def test_start_runtime_services_requires_initialized_database(app):
+    with pytest.raises(RuntimeError, match="Database must be initialized"):
+        start_runtime_services(app)
 
 
 def test_metrics_exposes_workaround_counter(
