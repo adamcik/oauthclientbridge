@@ -352,7 +352,7 @@ def stop_background_refresh(app: Flask) -> None:
 def _refresh_metrics_in_app(app: Flask) -> None:
     try:
         with app.app_context():
-            with tracer.start_as_current_span("metrics.refresh"):
+            with tracer.start_as_current_span("METRICS refresh"):
                 refresh_once(app)
     except Exception:
         logger.exception("Metrics refresh failed")

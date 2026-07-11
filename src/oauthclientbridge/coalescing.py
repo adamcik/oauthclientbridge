@@ -4,6 +4,10 @@ import threading
 import time
 from collections.abc import Callable
 
+from opentelemetry import trace
+
+tracer = trace.get_tracer(__name__)
+
 
 class CoalescingWorker:
     """Run background work once for each burst of incoming refresh requests."""
@@ -54,8 +58,8 @@ class CoalescingWorker:
             self._thread.join(timeout=timeout)
 
     def _run(self) -> None:
-        delay = 0.0 if self._startup_delay is None else self._startup_delay()
-        if not self._wait(delay):
+        startup_delay = 0.0 if self._startup_delay is None else self._startup_delay()
+        if not self._wait(startup_delay):
             return
 
         while True:
@@ -77,8 +81,18 @@ class CoalescingWorker:
                 if self._stopped:
                     return
                 self._handled_generation = max(generation, self._generation)
+                handled_generation = self._handled_generation
 
-            self._work()
+            with tracer.start_as_current_span(f"WORKER {self._name}") as span:
+                span.set_attribute("worker.name", self._name)
+                span.set_attribute("worker.debounce_seconds", self._debounce_seconds)
+                span.set_attribute("worker.startup_delay_seconds", startup_delay)
+                span.set_attribute("worker.request_generation", generation)
+                span.set_attribute("worker.handled_generation", handled_generation)
+                span.set_attribute(
+                    "worker.coalesced_requests", handled_generation - generation + 1
+                )
+                self._work()
 
     def _wait(self, delay: float) -> bool:
         if delay <= 0:

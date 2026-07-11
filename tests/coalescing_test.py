@@ -81,3 +81,33 @@ def test_worker_runs_again_for_request_during_work() -> None:
         assert count == 2
 
     worker.stop(timeout=1.0)
+
+
+def test_worker_emits_root_span_for_each_run(otel_mock) -> None:
+    ran = threading.Event()
+
+    worker = CoalescingWorker(
+        ran.set,
+        debounce_seconds=0.05,
+        startup_delay=lambda: 0.2,
+        name="test-worker",
+    )
+    worker.start()
+    worker.request()
+
+    assert ran.wait(timeout=0.5)
+    worker.stop(timeout=1.0)
+
+    spans = otel_mock.get_finished_spans()
+    assert len(spans) == 1
+
+    span = spans[0]
+    assert span.name == "WORKER test-worker"
+    assert span.attributes == {
+        "worker.name": "test-worker",
+        "worker.debounce_seconds": 0.05,
+        "worker.startup_delay_seconds": 0.2,
+        "worker.request_generation": 1,
+        "worker.handled_generation": 1,
+        "worker.coalesced_requests": 1,
+    }

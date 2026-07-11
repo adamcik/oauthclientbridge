@@ -1,5 +1,7 @@
 import atexit
 
+from opentelemetry import trace
+
 from oauthclientbridge import (
     create_app,
     logs,
@@ -9,6 +11,8 @@ from oauthclientbridge import (
     telemetry,
 )
 from oauthclientbridge.settings import Settings
+
+tracer = trace.get_tracer(__name__)
 
 settings = Settings()
 
@@ -20,6 +24,8 @@ telemetry.instrument()
 telemetry.init_tracing(settings.otel)
 telemetry.init_metrics(settings.otel)
 
-app = create_app(settings)
-start_runtime_services(app)
+with tracer.start_as_current_span("STARTUP"):
+    app = create_app(settings)
+    start_runtime_services(app)
+
 atexit.register(stop_runtime_services, app)

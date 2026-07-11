@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from unittest.mock import patch
 
 import pytest
 
@@ -35,6 +36,13 @@ def test_lookup(case: LookupCase, cursor):
 def test_lookup_missing(cursor):
     with pytest.raises(LookupError):
         db.lookup("client")
+
+
+def test_is_initialized_uses_check_tokens_table_operation_name(cursor):
+    with patch.object(db, "cursor", wraps=db.cursor) as mocked_cursor:
+        db.is_initialized()
+
+    mocked_cursor.assert_called_once_with(name="check_tokens_table", connection=None)
 
 
 def test_lookup_revoked(cursor):

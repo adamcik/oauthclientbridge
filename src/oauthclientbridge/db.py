@@ -64,7 +64,7 @@ def upgrade() -> None:
 
 
 def is_initialized(connection: sqlite3.Connection | None = None) -> bool:
-    with cursor(name="tokens_table_exists", connection=connection) as c:
+    with cursor(name="check_tokens_table", connection=connection) as c:
         c.execute(
             "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'tokens'"
         )
