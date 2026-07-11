@@ -127,6 +127,11 @@ def test_start_runtime_services_requires_initialized_database(app):
         start_runtime_services(app)
 
 
+def test_create_app_does_not_start_runtime_services(app):
+    assert "oauth_runtime_services_started" not in app.extensions
+    assert "oauth_metrics_refresh_worker" not in app.extensions
+
+
 def test_metrics_exposes_workaround_counter(
     client, post, access_token, settings: Settings
 ):

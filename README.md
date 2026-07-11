@@ -47,6 +47,12 @@ Run the development server:
 
     FLASK_APP=oauthclientbridge flask run
 
+`flask run` uses the app factory directly. This intentionally does not start
+runtime background services. In practice that means request handling works the
+same, but background-refreshed metrics such as `oauth_token_records` are only
+kept fresh in the production WSGI entrypoint, which calls
+`start_runtime_services(app)` after the database has been initialized.
+
 Additionally you might want to run `cleandb` as a cron job to clear out
 stale data every now and then.:
 
