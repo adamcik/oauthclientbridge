@@ -1,17 +1,25 @@
+import logging
 import re
 import time
 from datetime import datetime
 from http import HTTPStatus
+from random import uniform
+from typing import Callable
 
 import flask
 import prometheus_client
 import prometheus_client.multiprocess
+from flask import Flask
+from opentelemetry import trace
 
+from oauthclientbridge.coalescing import CoalescingWorker
 from oauthclientbridge.resource_labels import build_info_labels
 from oauthclientbridge.settings import current_settings
 from oauthclientbridge.utils import utcnow
 
 registry = prometheus_client.CollectorRegistry()
+logger = logging.getLogger(__name__)
+tracer = trace.get_tracer(__name__)
 
 TIME_BUCKETS = (
     0.0001,
@@ -217,6 +225,8 @@ TokenStateGauge = prometheus_client.Gauge(
 )
 
 _build_info_values: tuple[str, str, str, str, str, str, str] | None = None
+
+
 def status(code: HTTPStatus) -> str:
     if code not in HTTP_STATUS_LABELS:
         phrase = re.sub(r"[ -]", "_", code.name.lower())
@@ -293,3 +303,50 @@ def set_build_info(settings) -> None:
 def set_token_state_counts(counts: dict[str, int]) -> None:
     for state, count in counts.items():
         TokenStateGauge.labels(state=state).set(count)
+
+
+def add_refresher(app: Flask, refresher: Callable[[], None]) -> None:
+    refreshers = app.extensions.setdefault("oauth_metrics_refreshers", [])
+    refreshers.append(refresher)
+
+
+def refresh_once(app: Flask | None = None) -> None:
+    current = app or flask.current_app
+    refreshers = current.extensions.get("oauth_metrics_refreshers", [])
+    for refresher in refreshers:
+        refresher()
+
+
+def request_refresh(app: Flask | None = None) -> None:
+    current = app or flask.current_app
+    worker = current.extensions.get("oauth_metrics_refresh_worker")
+    if worker is not None:
+        worker.request()
+
+
+def start_background_refresh(app: Flask) -> None:
+    if app.extensions.get("oauth_metrics_refresh_worker") is not None:
+        return
+
+    refreshers = app.extensions.get("oauth_metrics_refreshers", [])
+    if not refreshers:
+        return
+
+    worker = CoalescingWorker(
+        lambda: _refresh_metrics_in_app(app),
+        debounce_seconds=0.5,
+        startup_delay=lambda: uniform(0, 5.0),
+        name="oauth-metrics-refresh",
+    )
+    app.extensions["oauth_metrics_refresh_worker"] = worker
+    worker.start()
+    worker.request()
+
+
+def _refresh_metrics_in_app(app: Flask) -> None:
+    try:
+        with app.app_context():
+            with tracer.start_as_current_span("metrics.refresh"):
+                refresh_once(app)
+    except Exception:
+        logger.exception("Metrics refresh failed")

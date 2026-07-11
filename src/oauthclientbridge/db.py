@@ -63,6 +63,14 @@ def upgrade() -> None:
             c.execute("ALTER TABLE tokens ADD COLUMN last_updated_at INTEGER")
 
 
+def is_initialized(connection: sqlite3.Connection | None = None) -> bool:
+    with cursor(name="tokens_table_exists", connection=connection) as c:
+        c.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'tokens'"
+        )
+        return c.fetchone() is not None
+
+
 # TODO: Make this internal in favour of always needing to have a cursor
 # https://github.com/open-telemetry/opentelemetry-python-contrib/issues/3082
 # is the driver for this idea, as connection.execute() is not instrumented.
@@ -189,6 +197,8 @@ def insert(client_id: str, token: bytes) -> None:
             ),
         )
 
+    stats.request_refresh()
+
 def lookup(client_id: str) -> TokenRecord:
     """Lookup a client_id and return encrypted token plus metadata.
 
@@ -226,22 +236,35 @@ def update(client_id: str, token: bytes | None) -> int:
         trace.get_current_span().add_event("Update result", {"rows": c.rowcount})
         rowcount = int(c.rowcount)
 
+    if rowcount:
+        stats.request_refresh()
+
     return rowcount
 
 
 def token_state_counts() -> dict[str, int]:
     """Count stored token records by coarse database state."""
 
-    with cursor(name="count_token_states") as c:
-        c.execute(
-            """
-            SELECT
-                SUM(CASE WHEN token IS NOT NULL THEN 1 ELSE 0 END) AS present,
-                SUM(CASE WHEN token IS NULL THEN 1 ELSE 0 END) AS revoked
-            FROM tokens
-            """
-        )
-        row = c.fetchone()
+    with contextlib.closing(_connect()) as connection:
+        return _token_state_counts(connection)
+
+
+def _token_state_counts(connection: sqlite3.Connection | None = None) -> dict[str, int]:
+    try:
+        with cursor(name="count_token_states", connection=connection) as c:
+            c.execute(
+                """
+                SELECT
+                    SUM(CASE WHEN token IS NOT NULL THEN 1 ELSE 0 END) AS present,
+                    SUM(CASE WHEN token IS NULL THEN 1 ELSE 0 END) AS revoked
+                FROM tokens
+                """
+            )
+            row = c.fetchone()
+    except sqlite3.OperationalError as e:
+        if str(e) != "no such table: tokens":
+            raise
+        row = None
 
     present = int(row[0] or 0) if row is not None else 0
     revoked = int(row[1] or 0) if row is not None else 0

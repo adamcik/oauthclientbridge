@@ -47,6 +47,7 @@ def test_metrics_exposes_token_state_counts(client):
     _ = db.insert("present-client", b"placeholder")
     _ = db.insert("revoked-client", b"placeholder")
     _ = db.update("revoked-client", None)
+    stats.refresh_once(client.application)
 
     resp = client.get("/metrics")
 
@@ -59,7 +60,7 @@ def test_metrics_uses_mostrecent_aggregation_for_token_state_counts():
     assert stats.TokenStateGauge._multiprocess_mode == "mostrecent"
 
 
-def test_metrics_recounts_token_states_during_scrape(
+def test_metrics_refreshes_token_states_when_run(
     client,
     monkeypatch,
 ):
@@ -71,11 +72,28 @@ def test_metrics_recounts_token_states_during_scrape(
         return {"present": 1, "revoked": 0}
 
     monkeypatch.setattr(db, "token_state_counts", counts)
+    stats.refresh_once(client.application)
 
     resp = client.get("/metrics")
 
     assert resp.status_code == 200
     assert called is True
+
+
+def test_metrics_write_paths_request_background_refresh(client, monkeypatch):
+    requested = 0
+
+    def request(app=None) -> None:
+        nonlocal requested
+        requested += 1
+
+    monkeypatch.setattr(stats, "request_refresh", request)
+
+    db.insert("present-client", b"placeholder")
+    db.update("present-client", None)
+    db.update("missing-client", None)
+
+    assert requested == 2
 
 
 def test_metrics_exposes_workaround_counter(

@@ -1,4 +1,10 @@
-from oauthclientbridge import create_app, logs, sentry, telemetry
+from oauthclientbridge import (
+    create_app,
+    logs,
+    sentry,
+    start_runtime_services,
+    telemetry,
+)
 from oauthclientbridge.settings import Settings
 
 settings = Settings()
@@ -12,3 +18,4 @@ telemetry.init_tracing(settings.otel)
 telemetry.init_metrics(settings.otel)
 
 app = create_app(settings)
+start_runtime_services(app)

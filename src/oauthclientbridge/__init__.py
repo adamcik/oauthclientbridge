@@ -44,6 +44,10 @@ def create_app(settings: Settings) -> Flask:
     _ = app.after_request(stats.finalize_metrics)
 
     stats.set_build_info(settings.otel)
+    stats.add_refresher(
+        app,
+        lambda: stats.set_token_state_counts(db.token_state_counts()),
+    )
 
     app.register_blueprint(views.routes)
 
@@ -63,3 +67,12 @@ def create_app(settings: Settings) -> Flask:
         db.vacuum()
 
     return app
+
+
+def start_runtime_services(app: Flask) -> None:
+    with app.app_context():
+        if not db.is_initialized():
+            raise RuntimeError("Database must be initialized before starting runtime services")
+
+    stats.start_background_refresh(app)
+    stats.request_refresh(app)
