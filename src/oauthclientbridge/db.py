@@ -66,18 +66,31 @@ def upgrade() -> None:
 # TODO: Make this internal in favour of always needing to have a cursor
 # https://github.com/open-telemetry/opentelemetry-python-contrib/issues/3082
 # is the driver for this idea, as connection.execute() is not instrumented.
+def _database_connect_args() -> tuple[str, bool]:
+    database = current_settings.database.database
+    if database == ":memory:":
+        return ("file:oauthclientbridge?mode=memory&cache=shared", True)
+    return (database, False)
+
+
+def _connect() -> sqlite3.Connection:
+    database, uri = _database_connect_args()
+    connection = sqlite3.connect(
+        database,
+        timeout=current_settings.database.timeout,
+        isolation_level=None,
+        uri=uri,
+    )
+    connection.text_factory = lambda v: v
+    for pragma in current_settings.database.pragmas:
+        connection.execute(pragma)
+    return connection
+
+
 def get() -> sqlite3.Connection:
     """Get singleton SQLite database connection."""
     if getattr(g, "_oauth_database", None) is None:
-        connection = sqlite3.connect(
-            current_settings.database.database,
-            timeout=current_settings.database.timeout,
-            isolation_level=None,
-        )
-        g._oauth_database = connection
-        g._oauth_database.text_factory = lambda v: v
-        for pragma in current_settings.database.pragmas:
-            g._oauth_database.execute(pragma)
+        g._oauth_database = _connect()
 
     return g._oauth_database
 
@@ -88,7 +101,11 @@ def vacuum() -> None:
 
 
 @contextlib.contextmanager
-def cursor(name: str, transaction: bool = False) -> Iterator[sqlite3.Cursor]:
+def cursor(
+    name: str,
+    transaction: bool = False,
+    connection: sqlite3.Connection | None = None,
+) -> Iterator[sqlite3.Cursor]:
     """Get SQLite cursor with automatic commit if no exceptions are raised."""
     start_time = time.monotonic()
     attributes = {
@@ -101,7 +118,8 @@ def cursor(name: str, transaction: bool = False) -> Iterator[sqlite3.Cursor]:
         f"DB {name}", attributes={"transaction": transaction}
     ) as span:
         try:
-            with get() as connection:
+            source = get() if connection is None else connection
+            with source as connection:
                 c = connection.cursor()
                 with contextlib.closing(c):
                     with stats.DBLatencyHistorgram.labels(query=name).time():
