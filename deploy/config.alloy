@@ -1,0 +1,135 @@
+loki.source.journal "oauthclientbridge_spotify" {
+  matches = "_SYSTEMD_UNIT=oauthclientbridge-spotify.service"
+
+  labels = {
+    job = "oauthclientbridge",
+  }
+
+  forward_to = [loki.process.oauthclientbridge.receiver]
+}
+
+loki.source.journal "oauthclientbridge_soundcloud" {
+  matches = "_SYSTEMD_UNIT=oauthclientbridge-soundcloud.service"
+
+  labels = {
+    job = "oauthclientbridge",
+  }
+
+  forward_to = [loki.process.oauthclientbridge.receiver]
+}
+
+loki.source.journal "oauthclientbridge_spotify_preprod" {
+  matches = "_SYSTEMD_UNIT=oauthclientbridge-preprod.service"
+
+  labels = {
+    job = "oauthclientbridge",
+  }
+
+  forward_to = [loki.process.oauthclientbridge.receiver]
+}
+
+loki.process "oauthclientbridge" {
+  stage.json {
+    expressions = {
+      trace_id               = "trace_id",
+      span_id                = "span_id",
+      trace_sampled          = "trace_sampled",
+      service_name           = "\"service.name\"",
+      service_namespace      = "\"service.namespace\"",
+      service_instance_id    = "\"service.instance.id\"",
+      deployment_environment = "\"deployment.environment\"",
+      oauth_provider         = "\"oauth.provider\"",
+      service_version        = "\"service.version\"",
+      vcs_revision           = "\"vcs.revision\"",
+      level                  = "level",
+      logger                 = "logger",
+      user_agent             = "\"user_agent.original\"",
+    }
+  }
+
+  stage.regex {
+    source     = "user_agent"
+    expression = "^(?i:mopidy-spotify)/(?P<mopidy_spotify_version>\\S+)\\s+Mopidy/(?P<mopidy_version>\\S+)\\s+CPython/(?P<python_version>\\S+)$"
+  }
+
+  stage.template {
+    source   = "client_family"
+    template = "{{ if .mopidy_spotify_version }}mopidy-spotify{{ end }}"
+  }
+
+  stage.labels {
+    values = {
+      service_name           = "service_name",
+      service_instance_id    = "service_instance_id",
+      deployment_environment = "deployment_environment",
+      oauth_provider         = "oauth_provider",
+      level                  = "level",
+      client_family          = "client_family",
+    }
+  }
+
+  stage.structured_metadata {
+    values = {
+      trace_id               = "trace_id",
+      span_id                = "span_id",
+      trace_sampled          = "trace_sampled",
+      service_version        = "service_version",
+      vcs_revision           = "vcs_revision",
+      logger                 = "logger",
+      user_agent             = "user_agent",
+      mopidy_spotify_version = "mopidy_spotify_version",
+      mopidy_version         = "mopidy_version",
+      python_version         = "python_version",
+    }
+  }
+
+  forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://127.0.0.1:3100/loki/api/v1/push"
+  }
+}
+
+// Receives application OTLP/HTTP on 4319 and forwards traces to Tempo's
+// existing local OTLP/HTTP receiver on 4318.
+otelcol.receiver.otlp "oauthclientbridge" {
+  http {
+    endpoint = "127.0.0.1:4319"
+  }
+
+  output {
+    traces = [otelcol.processor.transform.oauthclientbridge.input]
+  }
+}
+
+otelcol.processor.transform "oauthclientbridge" {
+  error_mode = "ignore"
+
+  trace_statements {
+    context = "span"
+    statements = [
+      `set(span.attributes["client.family"], "mopidy-spotify") where IsMatch(span.attributes["user_agent.original"], "(?i)^mopidy-spotify/")`,
+      `set(span.attributes["mopidy_spotify.version"], ExtractPatterns(span.attributes["user_agent.original"], "(?i)^mopidy-spotify/(?P<mopidy_spotify_version>\\S+)\\s+Mopidy/(?P<mopidy_version>\\S+)\\s+CPython/(?P<python_version>\\S+)$")["mopidy_spotify_version"]) where IsMatch(span.attributes["user_agent.original"], "(?i)^mopidy-spotify/")`,
+      `set(span.attributes["mopidy.version"], ExtractPatterns(span.attributes["user_agent.original"], "(?i)^mopidy-spotify/(?P<mopidy_spotify_version>\\S+)\\s+Mopidy/(?P<mopidy_version>\\S+)\\s+CPython/(?P<python_version>\\S+)$")["mopidy_version"]) where IsMatch(span.attributes["user_agent.original"], "(?i)^mopidy-spotify/")`,
+      `set(span.attributes["python.version"], ExtractPatterns(span.attributes["user_agent.original"], "(?i)^mopidy-spotify/(?P<mopidy_spotify_version>\\S+)\\s+Mopidy/(?P<mopidy_version>\\S+)\\s+CPython/(?P<python_version>\\S+)$")["python_version"]) where IsMatch(span.attributes["user_agent.original"], "(?i)^mopidy-spotify/")`,
+    ]
+  }
+
+  output {
+    traces = [otelcol.processor.batch.oauthclientbridge.input]
+  }
+}
+
+otelcol.processor.batch "oauthclientbridge" {
+  output {
+    traces = [otelcol.exporter.otlphttp.tempo.input]
+  }
+}
+
+otelcol.exporter.otlphttp "tempo" {
+  client {
+    endpoint = "http://127.0.0.1:4318"
+  }
+}

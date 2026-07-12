@@ -17,6 +17,7 @@ This flow installs per-instance quadlets into `/etc/containers/systemd/`.
 - `soundcloud/container`
 - `soundcloud/env`
 - `soundcloud/callback.html`
+- `config.alloy`
 
 ## 1) Prepare host dirs and env files
 
@@ -102,6 +103,30 @@ sudo systemctl enable --now oauthclientbridge-spotify.service oauthclientbridge-
 ```
 
 Quadlet will materialize the generated service units from the `.container` files on reload.
+
+## Trace Processing With Alloy
+
+Install `deploy/config.alloy` as the host Alloy configuration. It contains the
+Loki pipeline and an OTLP/HTTP trace pipeline that receives application traces
+on `127.0.0.1:4319`, parses Mopidy-Spotify user agents on request spans, batches
+the traces, and forwards them to Tempo's existing local receiver on
+`127.0.0.1:4318`.
+
+The Spotify and SoundCloud environment files use the Alloy receiver endpoint.
+After installing the Alloy configuration, reload Alloy before restarting either
+application:
+
+```bash
+sudo systemctl reload alloy.service
+sudo systemctl restart oauthclientbridge-spotify.service oauthclientbridge-soundcloud.service
+```
+
+Confirm Alloy is accepting traces and Tempo continues receiving them:
+
+```bash
+sudo systemctl status alloy.service --no-pager
+sudo journalctl -u alloy.service -n 100 --no-pager
+```
 
 ## 5) Verify
 

@@ -27,7 +27,8 @@ SENTRY_DSN=REDACTED
 
 TELEMETRY_COMPONENTS=["tracing"]
 TELEMETRY_EXPORTERS=["otlp_http"]
-TELEMETRY_ENDPOINT=http://127.0.0.1:4318/v1/traces
+# Alloy enriches traces before forwarding them to Tempo on 4318.
+TELEMETRY_ENDPOINT=http://127.0.0.1:4319/v1/traces
 TELEMETRY_OAUTH_PROVIDER=soundcloud
 TELEMETRY_DEPLOYMENT_ENVIRONMENT=soundcloud
 
