@@ -46,13 +46,12 @@ def log_attributes(attributes: Mapping[str, str | int]) -> dict[str, str | int]:
 
 
 def build_info_labels(settings: TelemetrySettings) -> dict[str, str]:
-    attributes = resource_attributes(settings)
     return {
-        "service_name": attributes["service.name"],
-        "service_namespace": attributes["service.namespace"],
-        "service_instance_id": attributes.get("service.instance.id", "unknown"),
-        "deployment_environment": attributes["deployment.environment"],
-        "oauth_provider": attributes.get("oauth.provider", "unknown"),
-        "service_version": attributes["service.version"],
-        "vcs_revision": attributes.get("vcs.revision", "unknown"),
+        "service_name": settings.service_name,
+        "service_namespace": settings.service_namespace,
+        "service_instance_id": settings.service_instance_id or "unknown",
+        "deployment_environment": settings.deployment_environment,
+        "oauth_provider": settings.oauth_provider or "unknown",
+        "service_version": settings.service_version,
+        "vcs_revision": settings.vcs_revision or "unknown",
     }

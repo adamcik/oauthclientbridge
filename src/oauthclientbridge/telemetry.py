@@ -171,7 +171,7 @@ def _logging_log_hook(span: trace.Span, record: object):
     setattr(record, "span_id", format(context.span_id, "016x"))
     setattr(record, "trace_sampled", context.trace_flags.sampled)
 
-    resource_attributes_for_logs: dict[str, str] = {}
+    resource_attributes_for_logs: dict[str, str | int] = {}
     resource = getattr(trace.get_tracer_provider(), "resource", None)
     if resource is not None:
         resource_attributes_for_logs = log_attributes(resource.attributes)

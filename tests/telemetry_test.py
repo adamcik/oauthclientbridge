@@ -12,7 +12,7 @@ from opentelemetry import metrics, trace
 from opentelemetry.sdk.metrics.export import HistogramDataPoint, NumberDataPoint
 from requests_mock import Mocker
 
-from oauthclientbridge import db, oauth, telemetry
+from oauthclientbridge import db, oauth, resource_labels, telemetry
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.oauth import core as oauth_core
 from oauthclientbridge.settings import (
@@ -125,6 +125,18 @@ def test_init_metrics_sets_resource_attributes() -> None:
     assert attrs["service.instance.id"] == "delta-testing-spotify"
     assert attrs["vcs.revision"] == "abc1234"
     assert attrs["process.pid"] == os.getpid()
+
+
+def test_log_attributes_preserves_numeric_process_id() -> None:
+    assert resource_labels.log_attributes(
+        {
+            "service.name": "test-service",
+            "process.pid": 1234,
+        }
+    ) == {
+        "service.name": "test-service",
+        "process.pid": 1234,
+    }
 
 
 def test_requests_creates_spans(
