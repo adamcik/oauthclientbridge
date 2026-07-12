@@ -1,4 +1,5 @@
 import re
+import uuid
 from http import HTTPStatus
 from typing import Any
 
@@ -18,6 +19,13 @@ from oauthclientbridge.settings import LogLevel, current_settings
 logger: structlog.BoundLogger = structlog.get_logger()
 
 routes = Blueprint("views", __name__)
+
+
+def _normalize_client_id(client_id: str) -> str:
+    try:
+        return str(uuid.UUID(client_id))
+    except ValueError:
+        raise oauth.Error(OAuthError.INVALID_CLIENT, "Malformed client_id.")
 
 
 @routes.route("/")
@@ -181,6 +189,8 @@ def token() -> flask.Response:
             OAuthError.INVALID_CLIENT,
             "client_id and client_secret set to same value.",
         )
+
+    client_id = _normalize_client_id(client_id)
 
     # TODO: Combine this in telemetry.set_user() that also does span...
     # Keep client_id visible in logs/telemetry by design; it is an internal

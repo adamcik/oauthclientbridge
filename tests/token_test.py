@@ -171,6 +171,37 @@ def test_token(post: PostClient, access_token: TokenTuple):
     assert resp.data == access_token.value
 
 
+def test_token_normalizes_dashless_uuid_client_id(
+    post: PostClient, access_token: TokenTuple
+):
+    data = {
+        "client_id": access_token.client_id.replace("-", ""),
+        "client_secret": access_token.client_secret,
+        "grant_type": "client_credentials",
+    }
+
+    resp = post("/token", data)
+
+    assert resp.status == 200
+    assert resp.data == access_token.value
+
+
+def test_token_rejects_malformed_client_id(post: PostClient, access_token: TokenTuple):
+    data = {
+        "client_id": "# SPOTIFY_CLIENT_ID",
+        "client_secret": access_token.client_secret,
+        "grant_type": "client_credentials",
+    }
+
+    resp = post("/token", data)
+
+    assert resp.status == 401
+    assert resp.data == {
+        "error": OAuthError.INVALID_CLIENT,
+        "error_description": "Malformed client_id.",
+    }
+
+
 def test_token_basic_auth(post: PostClient, access_token: TokenTuple):
     auth = (access_token.client_id, access_token.client_secret)
     data = {"grant_type": "client_credentials"}
@@ -307,7 +338,7 @@ def test_token_wrong_secret_and_not_found_identical(
         "grant_type": "client_credentials",
     }
     data2 = {
-        "client_id": "bad-client",
+        "client_id": db.generate_id(),
         "client_secret": access_token.client_secret,
         "grant_type": "client_credentials",
     }
