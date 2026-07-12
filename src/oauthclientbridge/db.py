@@ -199,6 +199,7 @@ def insert(client_id: str, token: bytes) -> None:
 
     stats.request_refresh()
 
+
 def lookup(client_id: str) -> TokenRecord:
     """Lookup a client_id and return encrypted token plus metadata.
 
