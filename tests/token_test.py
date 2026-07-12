@@ -186,6 +186,21 @@ def test_token_normalizes_dashless_uuid_client_id(
     assert resp.data == access_token.value
 
 
+def test_token_normalizes_unpadded_client_secret(
+    post: PostClient, access_token: TokenTuple
+):
+    data = {
+        "client_id": access_token.client_id,
+        "client_secret": access_token.client_secret.rstrip("="),
+        "grant_type": "client_credentials",
+    }
+
+    resp = post("/token", data)
+
+    assert resp.status == 200
+    assert resp.data == access_token.value
+
+
 def test_token_rejects_malformed_client_id(post: PostClient, access_token: TokenTuple):
     data = {
         "client_id": "# SPOTIFY_CLIENT_ID",
