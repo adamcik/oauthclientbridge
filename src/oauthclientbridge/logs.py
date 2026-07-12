@@ -29,7 +29,7 @@ from opentelemetry.semconv.attributes.user_agent_attributes import USER_AGENT_OR
 from structlog.types import EventDict
 
 from oauthclientbridge.compat import HTTP_REQUEST_BODY_SIZE, HTTP_RESPONSE_BODY_SIZE
-from oauthclientbridge.resource_labels import log_attributes
+from oauthclientbridge.resource_labels import log_attributes, runtime_log_attributes
 from oauthclientbridge.settings import LogSettings
 
 access_logger: structlog.BoundLogger = structlog.get_logger("oauthclientbridge.http")
@@ -131,14 +131,24 @@ def add_otel_context_processor(_: Any, __: str, event_dict: EventDict) -> EventD
             event_dict["trace_sampled"] = getattr(record, "trace_sampled")
             if hasattr(record, "resource_attributes"):
                 event_dict.update(getattr(record, "resource_attributes"))
+            if hasattr(record, "process_pid"):
+                event_dict["process.pid"] = getattr(record, "process_pid")
+            if hasattr(record, "process_thread_id"):
+                event_dict["process.thread.id"] = getattr(record, "process_thread_id")
+            if hasattr(record, "process_thread_name"):
+                event_dict["process.thread.name"] = getattr(
+                    record, "process_thread_name"
+                )
             return event_dict
 
     span = trace.get_current_span()
     if not span.is_recording():
+        event_dict.update(runtime_log_attributes())
         return event_dict
 
     context = span.get_span_context()
     if not context.is_valid:
+        event_dict.update(runtime_log_attributes())
         return event_dict
 
     event_dict["trace_id"] = format(context.trace_id, "032x")
@@ -148,6 +158,8 @@ def add_otel_context_processor(_: Any, __: str, event_dict: EventDict) -> EventD
     resource = getattr(trace.get_tracer_provider(), "resource", None)
     if resource is not None:
         event_dict.update(log_attributes(resource.attributes))
+
+    event_dict.update(runtime_log_attributes())
 
     return event_dict
 

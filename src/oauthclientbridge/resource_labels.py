@@ -1,14 +1,17 @@
+import os
 from collections.abc import Mapping
+from threading import current_thread, get_ident
 
 from oauthclientbridge.settings import TelemetrySettings
 
 
-def resource_attributes(settings: TelemetrySettings) -> dict[str, str]:
+def resource_attributes(settings: TelemetrySettings) -> dict[str, str | int]:
     attributes = {
         "service.name": settings.service_name,
         "service.namespace": settings.service_namespace,
         "service.version": settings.service_version,
         "deployment.environment": settings.deployment_environment,
+        "process.pid": os.getpid(),
     }
     if settings.service_instance_id:
         attributes["service.instance.id"] = settings.service_instance_id
@@ -19,7 +22,16 @@ def resource_attributes(settings: TelemetrySettings) -> dict[str, str]:
     return attributes
 
 
-def log_attributes(attributes: Mapping[str, str]) -> dict[str, str]:
+def runtime_log_attributes() -> dict[str, str | int]:
+    thread = current_thread()
+    return {
+        "process.pid": os.getpid(),
+        "process.thread.id": get_ident(),
+        "process.thread.name": thread.name,
+    }
+
+
+def log_attributes(attributes: Mapping[str, str | int]) -> dict[str, str | int]:
     canonical_keys = {
         "service.name",
         "service.namespace",
@@ -28,6 +40,7 @@ def log_attributes(attributes: Mapping[str, str]) -> dict[str, str]:
         "service.instance.id",
         "oauth.provider",
         "vcs.revision",
+        "process.pid",
     }
     return {key: value for key, value in attributes.items() if key in canonical_keys}
 

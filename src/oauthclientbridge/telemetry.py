@@ -42,7 +42,11 @@ from opentelemetry.sdk.trace.export import (
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 from requests.structures import CaseInsensitiveDict
 
-from oauthclientbridge.resource_labels import log_attributes, resource_attributes
+from oauthclientbridge.resource_labels import (
+    log_attributes,
+    resource_attributes,
+    runtime_log_attributes,
+)
 from oauthclientbridge.settings import (
     TelemetryComponent,
     TelemetryExporter,
@@ -172,6 +176,9 @@ def _logging_log_hook(span: trace.Span, record: object):
     if resource is not None:
         resource_attributes_for_logs = log_attributes(resource.attributes)
     setattr(record, "resource_attributes", resource_attributes_for_logs)
+
+    for key, value in runtime_log_attributes().items():
+        setattr(record, key.replace(".", "_"), value)
 
 
 instrumentors = [

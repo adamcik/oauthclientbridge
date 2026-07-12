@@ -1,3 +1,4 @@
+import os
 import sqlite3
 import unittest.mock
 from http import HTTPStatus
@@ -123,6 +124,7 @@ def test_init_metrics_sets_resource_attributes() -> None:
     assert attrs["oauth.provider"] == "spotify"
     assert attrs["service.instance.id"] == "delta-testing-spotify"
     assert attrs["vcs.revision"] == "abc1234"
+    assert attrs["process.pid"] == os.getpid()
 
 
 def test_requests_creates_spans(

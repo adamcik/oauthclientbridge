@@ -1,5 +1,7 @@
 import json
 import logging
+import os
+import threading
 from typing import cast
 
 import structlog
@@ -314,6 +316,9 @@ def assert_has_otel_records(record, span: trace.Span):
     assert record["oauth.provider"] == "spotify"
     assert record["service.instance.id"] == "tests-spotify-testing"
     assert record["vcs.revision"] == "abc1234"
+    assert record["process.pid"] == os.getpid()
+    assert record["process.thread.id"] == threading.get_ident()
+    assert record["process.thread.name"] == threading.current_thread().name
 
     assert int(record["trace_id"], 16) == span.get_span_context().trace_id
     assert int(record["span_id"], 16) == span.get_span_context().span_id
