@@ -110,10 +110,10 @@ otelcol.processor.transform "oauthclientbridge" {
   trace_statements {
     context = "span"
     statements = [
-      `set(span.attributes["client.family"], "mopidy-spotify") where IsMatch(span.attributes["user_agent.original"], "(?i)^mopidy-spotify/")`,
-      `set(span.attributes["mopidy_spotify.version"], ExtractPatterns(span.attributes["user_agent.original"], "(?i)^mopidy-spotify/(?P<mopidy_spotify_version>\\S+)\\s+Mopidy/(?P<mopidy_version>\\S+)\\s+CPython/(?P<python_version>\\S+)$")["mopidy_spotify_version"]) where IsMatch(span.attributes["user_agent.original"], "(?i)^mopidy-spotify/")`,
-      `set(span.attributes["mopidy.version"], ExtractPatterns(span.attributes["user_agent.original"], "(?i)^mopidy-spotify/(?P<mopidy_spotify_version>\\S+)\\s+Mopidy/(?P<mopidy_version>\\S+)\\s+CPython/(?P<python_version>\\S+)$")["mopidy_version"]) where IsMatch(span.attributes["user_agent.original"], "(?i)^mopidy-spotify/")`,
-      `set(span.attributes["python.version"], ExtractPatterns(span.attributes["user_agent.original"], "(?i)^mopidy-spotify/(?P<mopidy_spotify_version>\\S+)\\s+Mopidy/(?P<mopidy_version>\\S+)\\s+CPython/(?P<python_version>\\S+)$")["python_version"]) where IsMatch(span.attributes["user_agent.original"], "(?i)^mopidy-spotify/")`,
+      `set(span.attributes["client.family"], "mopidy-spotify") where IsMatch(span.attributes["http.user_agent"], "(?i)^mopidy-spotify/")`,
+      `set(span.attributes["mopidy_spotify.version"], ExtractPatterns(span.attributes["http.user_agent"], "(?i)^mopidy-spotify/(?P<mopidy_spotify_version>\\S+)\\s+Mopidy/(?P<mopidy_version>\\S+)\\s+CPython/(?P<python_version>\\S+)$")["mopidy_spotify_version"]) where IsMatch(span.attributes["http.user_agent"], "(?i)^mopidy-spotify/")`,
+      `set(span.attributes["mopidy.version"], ExtractPatterns(span.attributes["http.user_agent"], "(?i)^mopidy-spotify/(?P<mopidy_spotify_version>\\S+)\\s+Mopidy/(?P<mopidy_version>\\S+)\\s+CPython/(?P<python_version>\\S+)$")["mopidy_version"]) where IsMatch(span.attributes["http.user_agent"], "(?i)^mopidy-spotify/")`,
+      `set(span.attributes["python.version"], ExtractPatterns(span.attributes["http.user_agent"], "(?i)^mopidy-spotify/(?P<mopidy_spotify_version>\\S+)\\s+Mopidy/(?P<mopidy_version>\\S+)\\s+CPython/(?P<python_version>\\S+)$")["python_version"]) where IsMatch(span.attributes["http.user_agent"], "(?i)^mopidy-spotify/")`,
     ]
   }
 
