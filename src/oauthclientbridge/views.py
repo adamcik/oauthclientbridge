@@ -1,5 +1,4 @@
 import re
-import uuid
 from http import HTTPStatus
 from typing import Any
 
@@ -12,20 +11,13 @@ from opentelemetry.semconv.attributes.exception_attributes import (
     EXCEPTION_TYPE,
 )
 
-from oauthclientbridge import crypto, db, oauth, sentry, stats
+from oauthclientbridge import crypto, db, oauth, stats, telemetry
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import LogLevel, current_settings
 
 logger: structlog.BoundLogger = structlog.get_logger()
 
 routes = Blueprint("views", __name__)
-
-
-def _normalize_client_id(client_id: str) -> str:
-    try:
-        return str(uuid.UUID(client_id))
-    except ValueError:
-        raise oauth.Error(OAuthError.INVALID_CLIENT, "Malformed client_id.")
 
 
 @routes.route("/")
@@ -132,10 +124,7 @@ def callback() -> flask.Response:
     token = crypto.dumps(client_secret, result)
 
     client_id = db.generate_id()
-    # Keep client_id visible in logs/telemetry by design; it is an internal
-    # handle used for debugging and support, not an OAuth secret.
-    # TODO: Make this into telemetry.set_user and populate span attr?
-    sentry.set_user({"client_id": client_id})
+    telemetry.set_client_id(client_id)
 
     try:
         db.insert(client_id, token)
@@ -190,14 +179,13 @@ def token() -> flask.Response:
             "client_id and client_secret set to same value.",
         )
 
-    client_id = _normalize_client_id(client_id)
-
-    # TODO: Combine this in telemetry.set_user() that also does span...
-    # Keep client_id visible in logs/telemetry by design; it is an internal
-    # handle used for debugging and support, not an OAuth secret.
-    structlog.contextvars.bind_contextvars(client_id=client_id)
-    trace.get_current_span().set_attribute("client_id", client_id)
-    sentry.set_user({"client_id": client_id})
+    try:
+        client_id = db.normalize_id(client_id)
+    except ValueError:
+        telemetry.record_invalid_client_id(client_id)
+        raise oauth.Error(OAuthError.INVALID_CLIENT, "Malformed client_id.")
+    else:
+        telemetry.set_client_id(client_id)
 
     try:
         record = db.lookup(client_id)
