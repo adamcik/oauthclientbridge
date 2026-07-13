@@ -2,6 +2,7 @@ import importlib.util
 from typing import assert_never
 
 import requests
+import structlog
 from flask import Flask
 from opentelemetry import trace
 from opentelemetry.baggage.propagation import W3CBaggagePropagator
@@ -42,6 +43,7 @@ from opentelemetry.sdk.trace.export import (
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 from requests.structures import CaseInsensitiveDict
 
+from oauthclientbridge import sentry
 from oauthclientbridge.resource_labels import (
     log_attributes,
     resource_attributes,
@@ -100,6 +102,19 @@ BYTE_BUCKETS = (
     204800,
     float("inf"),
 )
+
+
+def set_client_id(client_id: str) -> None:
+    """Associate a canonical client ID with the current request telemetry."""
+    structlog.contextvars.bind_contextvars(client_id=client_id)
+    trace.get_current_span().set_attribute("client_id", client_id)
+    sentry.set_user({"client_id": client_id})
+
+
+def record_invalid_client_id(client_id: str) -> None:
+    """Preserve the rejected input without treating it as a client identity."""
+    structlog.contextvars.bind_contextvars(invalid_client_id=client_id)
+    trace.get_current_span().add_event("invalid_client_id", {"client_id": client_id})
 
 
 def _requests_response_hook(
