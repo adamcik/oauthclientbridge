@@ -322,7 +322,7 @@ def _error(
     )
     current_span.add_event(
         "error",
-        {EXCEPTION_MESSAGE: description or "", EXCEPTION_TYPE: error_code},
+        {EXCEPTION_MESSAGE: f"{error_code}: {description}", EXCEPTION_TYPE: error_code},
     )
 
     stats.ServerErrorCounter.labels(
