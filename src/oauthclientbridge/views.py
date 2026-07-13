@@ -173,7 +173,8 @@ def token() -> flask.Response:
     try:
         credentials = client.validate_credentials(client_id_value, client_secret_value)
     except client.ClientIdValidationError:
-        telemetry.record_invalid_client_id(client_id_value)
+        if client_id_value is not None:
+            telemetry.record_invalid_client_id(client_id_value)
         raise oauth.Error(OAuthError.INVALID_CLIENT, "Malformed client_id.")
     except client.ClientSecretValidationError:
         raise oauth.Error(OAuthError.INVALID_CLIENT, "Client not known.")
