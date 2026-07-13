@@ -1,3 +1,4 @@
+import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from unittest.mock import patch
@@ -5,6 +6,24 @@ from unittest.mock import patch
 import pytest
 
 from oauthclientbridge import db
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "00000000-0000-0000-0000-000000000001",
+        "00000000000000000000000000000001",
+    ],
+)
+def test_validate_client_id(value: str) -> None:
+    assert db.validate_client_id(value) == uuid.UUID(
+        "00000000-0000-0000-0000-000000000001"
+    )
+
+
+def test_validate_client_id_rejects_malformed_value() -> None:
+    with pytest.raises(ValueError, match="badly formed"):
+        _ = db.validate_client_id("not-a-uuid")
 
 
 @dataclass(frozen=True)

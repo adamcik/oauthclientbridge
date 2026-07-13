@@ -11,7 +11,7 @@ from opentelemetry.semconv.attributes.exception_attributes import (
     EXCEPTION_TYPE,
 )
 
-from oauthclientbridge import crypto, db, oauth, stats, telemetry
+from oauthclientbridge import client, crypto, db, oauth, stats, telemetry
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import LogLevel, current_settings
 
@@ -132,7 +132,9 @@ def callback() -> flask.Response:
         logger.warning("Could not get unique client id.")
         return _error("integrity_error", "Database integrity error.", client_state)
 
-    return _render(client_id=client_id, client_secret=client_secret, state=client_state)
+    return _render(
+        client_id=str(client_id), client_secret=client_secret, state=client_state
+    )
 
 
 @routes.route("/token", methods=["POST"])
@@ -157,35 +159,31 @@ def token() -> flask.Response:
     if authorization and authorization.type != "basic":
         raise oauth.Error(OAuthError.INVALID_CLIENT, "Only Basic Auth is supported.")
 
-    client_id: str | None = flask.request.form.get("client_id")
-    client_secret: str | None = flask.request.form.get("client_secret")
-    if (client_id or client_secret) and authorization:
+    client_id_value: str | None = flask.request.form.get("client_id")
+    client_secret_value: str | None = flask.request.form.get("client_secret")
+    if (client_id_value or client_secret_value) and authorization:
         raise oauth.Error(
             OAuthError.INVALID_REQUEST,
             "More than one mechanism for authenticating set.",
         )
     elif authorization:
-        client_id = authorization.username
-        client_secret = authorization.password
-
-    if not client_id or not client_secret:
-        raise oauth.Error(
-            OAuthError.INVALID_CLIENT,
-            "Both client_id and client_secret must be set.",
-        )
-    elif client_id == client_secret:
-        raise oauth.Error(
-            OAuthError.INVALID_CLIENT,
-            "client_id and client_secret set to same value.",
-        )
+        client_id_value = authorization.username
+        client_secret_value = authorization.password
 
     try:
-        client_id = db.normalize_id(client_id)
-    except ValueError:
-        telemetry.record_invalid_client_id(client_id)
+        credentials = client.validate_credentials(client_id_value, client_secret_value)
+    except client.ClientIdValidationError:
+        telemetry.record_invalid_client_id(client_id_value)
         raise oauth.Error(OAuthError.INVALID_CLIENT, "Malformed client_id.")
+    except client.ClientSecretValidationError:
+        raise oauth.Error(OAuthError.INVALID_CLIENT, "Client not known.")
+    except client.CredentialValidationError as e:
+        raise oauth.Error(OAuthError.INVALID_CLIENT, str(e))
     else:
-        telemetry.set_client_id(client_id)
+        telemetry.set_client_id(credentials.client_id)
+
+    client_id = credentials.client_id
+    client_secret = credentials.client_secret
 
     try:
         record = db.lookup(client_id)
