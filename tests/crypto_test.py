@@ -7,7 +7,7 @@ def test_validate_key_accepts_padded_and_unpadded_fernet_keys():
     key = crypto.generate_key()
 
     assert crypto.validate_key(key) == key
-    assert crypto.validate_key(key.rstrip("=")) == key.rstrip("=")
+    assert crypto.validate_key(key.rstrip("=")) == key
 
 
 def test_validate_key_rejects_malformed_key():

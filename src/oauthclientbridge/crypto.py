@@ -9,7 +9,7 @@ from oauthclientbridge import types
 InvalidToken = fernet.InvalidToken
 
 
-def _normalize_key_padding(key: str) -> str:
+def _normalize_base64_padding(key: str) -> str:
     if (remainder := len(key) % 4) in (2, 3):
         return key + ("=" * (4 - remainder))
     return key
@@ -22,11 +22,12 @@ def generate_key() -> types.ClientSecret:
 
 def validate_key(key: str) -> types.ClientSecret:
     """Validate an encoded Fernet key and mark it as a client secret."""
+    normalized_key = _normalize_base64_padding(key)
     try:
-        _ = fernet.Fernet(_normalize_key_padding(key).encode("ascii"))
+        _ = fernet.Fernet(normalized_key.encode("ascii"))
     except (ValueError, binascii.Error) as e:
         raise InvalidToken from e
-    return types.ClientSecret(key)
+    return types.ClientSecret(normalized_key)
 
 
 def dumps(key: types.ClientSecret, data: dict[str, Any]) -> types.EncryptedToken:
@@ -38,7 +39,7 @@ def dumps(key: types.ClientSecret, data: dict[str, Any]) -> types.EncryptedToken
 def loads(key: types.ClientSecret, token: types.EncryptedToken) -> dict[str, Any]:
     """Decrypts and verifies token with given key and calls json.loads."""
     try:
-        f = fernet.Fernet(_normalize_key_padding(key).encode("ascii"))
+        f = fernet.Fernet(_normalize_base64_padding(key).encode("ascii"))
     except (ValueError, binascii.Error) as e:
         raise InvalidToken from e
     return json.loads(f.decrypt(token).decode("utf-8"))
