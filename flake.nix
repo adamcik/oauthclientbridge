@@ -1,6 +1,11 @@
 {
   description = "oauthclientbridge";
 
+  nixConfig = {
+    extra-substituters = ["https://oauthclientbridge.cachix.org"];
+    extra-trusted-public-keys = ["oauthclientbridge.cachix.org-1:j8sS8Vcj2imJiTxX76XwA1se5oRobp2j/mYgHbP6AKg="];
+  };
+
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
