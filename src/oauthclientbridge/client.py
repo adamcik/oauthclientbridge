@@ -32,8 +32,9 @@ def validate_credentials(
     client_id: str | None,
     client_secret: str | None,
 ) -> ClientCredentials:
-    if not client_id or not client_secret:
-        raise CredentialValidationError("Both client_id and client_secret must be set.")
+    if client_id is None or client_id == "":
+        raise CredentialValidationError("client_id must be set.")
+
     if client_id == client_secret:
         raise CredentialValidationError(
             "client_id and client_secret set to same value."
@@ -43,6 +44,9 @@ def validate_credentials(
         normalized_client_id = db.validate_client_id(client_id)
     except ValueError as e:
         raise ClientIdValidationError("Malformed client_id.") from e
+
+    if client_secret is None or client_secret == "":
+        raise CredentialValidationError("client_secret must be set.")
 
     try:
         validated_client_secret = crypto.validate_key(client_secret)

@@ -20,8 +20,20 @@ def test_validate_credentials_returns_typed_credentials() -> None:
 @pytest.mark.parametrize(
     ("client_id", "client_secret", "error_type", "message"),
     [
-        (None, "secret", client.CredentialValidationError, "Both client_id"),
-        ("client", None, client.CredentialValidationError, "Both client_id"),
+        (None, "secret", client.CredentialValidationError, "client_id must be set"),
+        ("", "secret", client.CredentialValidationError, "client_id must be set"),
+        (
+            "00000000-0000-0000-0000-000000000001",
+            None,
+            client.CredentialValidationError,
+            "client_secret must be set",
+        ),
+        (
+            "00000000-0000-0000-0000-000000000001",
+            "",
+            client.CredentialValidationError,
+            "client_secret must be set",
+        ),
         ("same", "same", client.CredentialValidationError, "set to same value"),
         ("malformed", "secret", client.ClientIdValidationError, "Malformed client_id"),
         (
