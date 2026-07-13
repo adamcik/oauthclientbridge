@@ -36,6 +36,10 @@ def generate_id() -> str:
     return str(uuid.uuid4())
 
 
+def normalize_id(client_id: str) -> str:
+    return str(uuid.UUID(client_id))
+
+
 @dataclass(frozen=True)
 class TokenRecord:
     client_id: str
