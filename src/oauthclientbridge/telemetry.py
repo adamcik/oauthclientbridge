@@ -43,7 +43,7 @@ from opentelemetry.sdk.trace.export import (
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 from requests.structures import CaseInsensitiveDict
 
-from oauthclientbridge import sentry
+from oauthclientbridge import sentry, types
 from oauthclientbridge.resource_labels import (
     log_attributes,
     resource_attributes,
@@ -104,11 +104,12 @@ BYTE_BUCKETS = (
 )
 
 
-def set_client_id(client_id: str) -> None:
+def set_client_id(client_id: types.ClientId) -> None:
     """Associate a canonical client ID with the current request telemetry."""
-    structlog.contextvars.bind_contextvars(client_id=client_id)
-    trace.get_current_span().set_attribute("client_id", client_id)
-    sentry.set_user({"client_id": client_id})
+    client_id_string = str(client_id)
+    structlog.contextvars.bind_contextvars(client_id=client_id_string)
+    trace.get_current_span().set_attribute("client_id", client_id_string)
+    sentry.set_user({"client_id": client_id_string})
 
 
 def record_invalid_client_id(client_id: str) -> None:

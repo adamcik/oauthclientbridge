@@ -10,7 +10,7 @@ from typing import Iterator
 from flask import current_app, g
 from opentelemetry import metrics, trace
 
-from oauthclientbridge import stats
+from oauthclientbridge import stats, types
 from oauthclientbridge.settings import current_settings
 from oauthclientbridge.utils import utcnow
 
@@ -32,18 +32,18 @@ _db_cursor_duration_histogram = meter.create_histogram(
 )
 
 
-def generate_id() -> str:
-    return str(uuid.uuid4())
+def generate_id() -> types.ClientId:
+    return types.ClientId(uuid.uuid4())
 
 
-def normalize_id(client_id: str) -> str:
-    return str(uuid.UUID(client_id))
+def validate_client_id(client_id: str) -> types.ClientId:
+    return types.ClientId(uuid.UUID(client_id))
 
 
 @dataclass(frozen=True)
 class TokenRecord:
-    client_id: str
-    encrypted_token: bytes | None
+    client_id: types.ClientId
+    encrypted_token: types.EncryptedToken | None
     created_at: datetime | None
     last_updated_at: datetime | None
 
@@ -160,7 +160,7 @@ def cursor(
             _db_cursor_total_counter.add(1, attributes=attributes)
 
 
-def _prepare_token(token: bytes | None) -> str | None:
+def _prepare_token(token: types.EncryptedToken | None) -> str | None:
     """Convert token to str so it gets stored as text type in sqlite3.
 
     This is primarily to make it nicer to inspect the DB when debugging as the
@@ -183,7 +183,7 @@ def _parse_datetime(value: object) -> datetime | None:
     return datetime.fromtimestamp(value, UTC)
 
 
-def insert(client_id: str, token: bytes) -> None:
+def insert(client_id: types.ClientId, token: types.EncryptedToken) -> None:
     """Store encrypted token and return what client_id it was stored under."""
 
     now = utcnow()
@@ -194,7 +194,7 @@ def insert(client_id: str, token: bytes) -> None:
                 "(client_id, token, created_at, last_updated_at) VALUES (?, ?, ?, ?)"
             ),
             (
-                client_id,
+                str(client_id),
                 _prepare_token(token),
                 _prepare_timestamp(now),
                 _prepare_timestamp(now),
@@ -204,7 +204,7 @@ def insert(client_id: str, token: bytes) -> None:
     stats.request_refresh()
 
 
-def lookup(client_id: str) -> TokenRecord:
+def lookup(client_id: types.ClientId) -> TokenRecord:
     """Lookup a client_id and return encrypted token plus metadata.
 
     Raises a LookupError if client_id is not found.
@@ -213,7 +213,7 @@ def lookup(client_id: str) -> TokenRecord:
     with cursor(name="lookup_token") as c:
         c.execute(
             "SELECT token, created_at, last_updated_at FROM tokens WHERE client_id = ?",
-            (client_id,),
+            (str(client_id),),
         )
         row = c.fetchone()
 
@@ -223,20 +223,22 @@ def lookup(client_id: str) -> TokenRecord:
     token_value = row[0]
     return TokenRecord(
         client_id=client_id,
-        encrypted_token=bytes(token_value) if token_value else None,
+        encrypted_token=types.EncryptedToken(bytes(token_value))
+        if token_value
+        else None,
         created_at=_parse_datetime(row[1]),
         last_updated_at=_parse_datetime(row[2]),
     )
 
 
-def update(client_id: str, token: bytes | None) -> int:
+def update(client_id: types.ClientId, token: types.EncryptedToken | None) -> int:
     """Update a client_id with a new encrypted token."""
 
     now = utcnow()
     with cursor(name="update_token", transaction=True) as c:
         c.execute(
             "UPDATE tokens SET token = ?, last_updated_at = ? WHERE client_id = ?",
-            (_prepare_token(token), _prepare_timestamp(now), client_id),
+            (_prepare_token(token), _prepare_timestamp(now), str(client_id)),
         )
         trace.get_current_span().add_event("Update result", {"rows": c.rowcount})
         rowcount = int(c.rowcount)

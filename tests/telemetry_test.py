@@ -230,7 +230,7 @@ def test_local_invalid_grant_records_handled_trace_error(
     request_span = otel.get_span(spans, "POST /token")
     assert request_span is not None
     assert request_span.attributes is not None
-    assert request_span.attributes["client_id"] == access_token.client_id
+    assert request_span.attributes["client_id"] == str(access_token.client_id)
     assert request_span.attributes["error.unhandled"] is False
     assert request_span.attributes["oauth.error"] == "invalid_grant"
     assert request_span.status.status_code == trace.StatusCode.ERROR

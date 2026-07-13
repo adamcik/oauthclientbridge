@@ -11,7 +11,7 @@ from flask.testing import FlaskClient
 from pydantic import SecretStr
 from werkzeug.datastructures import Headers
 
-from oauthclientbridge import create_app, crypto, db
+from oauthclientbridge import create_app, crypto, db, types
 from oauthclientbridge.oauth import retry as oauth_retry
 from oauthclientbridge.settings import (
     DatabaseSettings,
@@ -44,8 +44,8 @@ class ResponseTuple(NamedTuple):
 
 
 class TokenTuple(NamedTuple):
-    client_id: str
-    client_secret: str
+    client_id: types.ClientId
+    client_secret: types.ClientSecret
     value: dict[str, Any]
 
 

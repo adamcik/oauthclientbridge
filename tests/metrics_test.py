@@ -164,7 +164,7 @@ def test_metrics_exposes_token_grant_age_histogram_for_successful_token_use(
     created_at = int((datetime.now(UTC) - timedelta(days=200)).timestamp())
     _ = cursor.execute(
         "UPDATE tokens SET created_at = ? WHERE client_id = ?",
-        (created_at, access_token.client_id),
+        (created_at, str(access_token.client_id)),
     )
 
     observed: list[float] = []
@@ -196,7 +196,7 @@ def test_metrics_skips_token_grant_age_histogram_for_unknown_age(
 ):
     _ = cursor.execute(
         "UPDATE tokens SET created_at = NULL WHERE client_id = ?",
-        (access_token.client_id,),
+        (str(access_token.client_id),),
     )
 
     observed: list[float] = []

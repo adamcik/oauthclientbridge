@@ -175,7 +175,7 @@ def test_token_normalizes_dashless_uuid_client_id(
     post: PostClient, access_token: TokenTuple
 ):
     data = {
-        "client_id": access_token.client_id.replace("-", ""),
+        "client_id": str(access_token.client_id).replace("-", ""),
         "client_secret": access_token.client_secret,
         "grant_type": "client_credentials",
     }
