@@ -400,6 +400,41 @@ def test_endpoint_creates_sqlite3_spans(
     )
 
 
+def test_token_update_records_changed_fields(
+    requests_mock: Mocker,
+    otel_mock: otel.OTelMocker,
+    instrumented,
+    post: PostClient,
+    refresh_token: TokenTuple,
+) -> None:
+    requests_mock.post(
+        current_settings.oauth.token_uri,
+        json={
+            "access_token": "mock_token",
+            "token_type": "Bearer",
+            "refresh_token": "rotated_refresh_token",
+        },
+        status_code=200,
+    )
+
+    post(
+        "/token",
+        {
+            "client_id": refresh_token.client_id,
+            "client_secret": refresh_token.client_secret,
+            "grant_type": "client_credentials",
+        },
+    )
+
+    spans = otel_mock.get_finished_spans()
+    request_span = otel.get_span(spans, "POST /token")
+    assert request_span is not None
+    events = [event for event in request_span.events if event.name == "Updating token"]
+
+    assert len(events) == 1
+    assert events[0].attributes == {"updated_fields": ("refresh_token",)}
+
+
 def test_revoked_grant_workaround_adds_span_event(
     otel_mock: otel.OTelMocker,
     post: PostClient,

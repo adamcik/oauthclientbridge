@@ -20,6 +20,18 @@ logger: structlog.BoundLogger = structlog.get_logger()
 routes = Blueprint("views", __name__)
 
 
+def _updated_fields(
+    original: dict[str, Any], modified: dict[str, Any]
+) -> tuple[str, ...]:
+    return tuple(
+        sorted(
+            key
+            for key in set(original).union(modified)
+            if original.get(key) != modified.get(key)
+        )
+    )
+
+
 @routes.route("/")
 def authorize() -> flask.Response:
     """Store random state in session cookie and redirect to auth endpoint."""
@@ -283,7 +295,11 @@ def token() -> flask.Response:
 
     # Reduce write pressure by only issuing update on changes.
     if result != modified:
-        logger.warning("Updating token")
+        updated_fields = _updated_fields(result, modified)
+        logger.warning("Updating token", updated_fields=updated_fields)
+        trace.get_current_span().add_event(
+            "Updating token", {"updated_fields": updated_fields}
+        )
         db.update(client_id, crypto.dumps(client_secret, modified))
 
     # Only return what we got from the API (minus refresh_token).
