@@ -237,6 +237,49 @@ def test_local_invalid_grant_records_handled_trace_error(
     assert any(event.name == "exception" for event in request_span.events)
 
 
+def test_malformed_client_id_records_rejected_value(
+    otel_mock: otel.OTelMocker,
+    post: PostClient,
+) -> None:
+    malformed_client_id = "# SPOTIFY_CLIENT_ID"
+
+    response = post(
+        "/token",
+        {
+            "client_id": malformed_client_id,
+            "client_secret": "secret",
+            "grant_type": "client_credentials",
+        },
+    )
+
+    assert response.status == HTTPStatus.UNAUTHORIZED
+
+    spans = otel_mock.get_finished_spans()
+    request_span = otel.get_span(spans, "POST /token")
+    assert request_span is not None
+    invalid_client_id_event = next(
+        event for event in request_span.events if event.name == "invalid_client_id"
+    )
+    assert invalid_client_id_event.attributes["client_id"] == malformed_client_id
+
+
+def test_callback_missing_state_records_trace_error_message(
+    otel_mock: otel.OTelMocker,
+    get: GetClient,
+) -> None:
+    response = get("/callback?code=1234")
+
+    assert response.status == 400
+    assert response.data["error"] == OAuthError.INVALID_STATE
+
+    spans = otel_mock.get_finished_spans()
+    request_span = otel.get_span(spans, "GET /callback")
+    assert request_span is not None
+
+    error_event = next(event for event in request_span.events if event.name == "error")
+    assert error_event.attributes["exception.message"].startswith("invalid_state:")
+
+
 def test_unhandled_server_error_marks_span_unhandled(
     otel_mock: otel.OTelMocker,
     client: FlaskClient,
