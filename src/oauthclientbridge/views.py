@@ -415,11 +415,17 @@ def _render(
         ).encode("utf-8"),
         content_type="text/html; charset=UTF-8",
     )
+    return _set_callback_security_headers(
+        response, current_settings.callback_content_security_policy
+    )
+
+
+def _set_callback_security_headers(
+    response: flask.Response, content_security_policy: str | None
+) -> flask.Response:
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
-    if current_settings.callback_content_security_policy:
-        response.headers["Content-Security-Policy"] = (
-            current_settings.callback_content_security_policy
-        )
+    if content_security_policy:
+        response.headers["Content-Security-Policy"] = content_security_policy
     return response

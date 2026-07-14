@@ -3,6 +3,7 @@ import unittest.mock
 import urllib.parse
 from dataclasses import dataclass
 
+import flask
 import pytest
 from flask.testing import FlaskClient
 from requests_mock import Mocker
@@ -10,6 +11,7 @@ from requests_mock import Mocker
 from oauthclientbridge import crypto, db
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import Settings
+from oauthclientbridge.views import _set_callback_security_headers
 from tests.conftest import GetClient
 
 
@@ -55,7 +57,10 @@ def test_callback_response_has_security_headers(client: FlaskClient):
 
     assert response.headers["Referrer-Policy"] == "no-referrer"
     assert response.headers["X-Content-Type-Options"] == "nosniff"
-    assert response.headers["Permissions-Policy"] == "geolocation=(), microphone=(), camera=()"
+    assert (
+        response.headers["Permissions-Policy"]
+        == "geolocation=(), microphone=(), camera=()"
+    )
     assert response.headers["Content-Security-Policy"] == (
         "default-src 'none'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
     )
@@ -69,6 +74,21 @@ def test_callback_csp_can_be_disabled(client: FlaskClient, settings: Settings):
     response = client.get("/callback")
 
     assert "Content-Security-Policy" not in response.headers
+
+
+def test_callback_security_header_helper(app):
+    with app.app_context():
+        response = _set_callback_security_headers(
+            flask.Response(), "default-src 'none'"
+        )
+
+    assert response.headers["Referrer-Policy"] == "no-referrer"
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert (
+        response.headers["Permissions-Policy"]
+        == "geolocation=(), microphone=(), camera=()"
+    )
+    assert response.headers["Content-Security-Policy"] == "default-src 'none'"
 
 
 def test_authorize_uses_configured_scopes_when_scope_is_omitted(
