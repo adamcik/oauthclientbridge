@@ -42,8 +42,7 @@ def authorize() -> flask.Response:
 
     default_scope = " ".join(current_settings.oauth.scopes)
     scope = flask.request.args.get("scope", default_scope)
-    allowed_scopes = current_settings.oauth.allowed_scopes
-    if allowed_scopes is not None and not set(scope.split()).issubset(allowed_scopes):
+    if not _requested_scope_is_allowed(scope, current_settings.oauth.allowed_scopes):
         return _error(OAuthError.INVALID_SCOPE, "Requested scope is not allowed.")
     state = crypto.generate_key()
 
@@ -57,6 +56,14 @@ def authorize() -> flask.Response:
         redirect_uri=current_settings.oauth.redirect_uri,
         scope=scope,
         state=state,
+    )
+
+
+def _requested_scope_is_allowed(
+    requested_scope: str, allowed_scopes: set[str] | None
+) -> bool:
+    return allowed_scopes is None or set(requested_scope.split()).issubset(
+        allowed_scopes
     )
 
 

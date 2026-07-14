@@ -11,7 +11,10 @@ from requests_mock import Mocker
 from oauthclientbridge import crypto, db
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import Settings
-from oauthclientbridge.views import _set_callback_security_headers
+from oauthclientbridge.views import (
+    _requested_scope_is_allowed,
+    _set_callback_security_headers,
+)
 from tests.conftest import GetClient
 
 
@@ -91,6 +94,70 @@ def test_callback_security_header_helper(app):
     assert response.headers["Content-Security-Policy"] == "default-src 'none'"
 
 
+@dataclass(frozen=True)
+class ScopeCase:
+    name: str
+    requested_scope: str
+    allowed_scopes: set[str] | None
+    expected_allowed: bool
+    expected_status: int
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        ScopeCase(
+            name="exact",
+            requested_scope="foo bar",
+            allowed_scopes={"foo", "bar"},
+            expected_allowed=True,
+            expected_status=302,
+        ),
+        ScopeCase(
+            name="subset",
+            requested_scope="foo",
+            allowed_scopes={"foo", "bar"},
+            expected_allowed=True,
+            expected_status=302,
+        ),
+        ScopeCase(
+            name="empty",
+            requested_scope="",
+            allowed_scopes={"foo", "bar"},
+            expected_allowed=True,
+            expected_status=302,
+        ),
+        ScopeCase(
+            name="duplicate",
+            requested_scope="foo foo",
+            allowed_scopes={"foo", "bar"},
+            expected_allowed=True,
+            expected_status=302,
+        ),
+        ScopeCase(
+            name="disallowed",
+            requested_scope="foo baz",
+            allowed_scopes={"foo", "bar"},
+            expected_allowed=False,
+            expected_status=400,
+        ),
+        ScopeCase(
+            name="allowlist disabled",
+            requested_scope="foo baz",
+            allowed_scopes=None,
+            expected_allowed=True,
+            expected_status=302,
+        ),
+    ],
+    ids=lambda case: case.name,
+)
+def test_requested_scope_allowlist(case: ScopeCase):
+    assert (
+        _requested_scope_is_allowed(case.requested_scope, case.allowed_scopes)
+        is case.expected_allowed
+    )
+
+
 def test_authorize_uses_configured_scopes_when_scope_is_omitted(
     client: FlaskClient, settings: Settings
 ):
@@ -103,30 +170,61 @@ def test_authorize_uses_configured_scopes_when_scope_is_omitted(
 
 
 @pytest.mark.parametrize(
-    ("requested_scope", "expected_status"),
+    "case",
     [
-        ("foo bar", 302),
-        ("foo", 302),
-        ("", 302),
-        ("foo foo", 302),
-        ("foo baz", 400),
+        ScopeCase(
+            name="exact",
+            requested_scope="foo bar",
+            allowed_scopes={"foo", "bar"},
+            expected_allowed=True,
+            expected_status=302,
+        ),
+        ScopeCase(
+            name="subset",
+            requested_scope="foo",
+            allowed_scopes={"foo", "bar"},
+            expected_allowed=True,
+            expected_status=302,
+        ),
+        ScopeCase(
+            name="empty",
+            requested_scope="",
+            allowed_scopes={"foo", "bar"},
+            expected_allowed=True,
+            expected_status=302,
+        ),
+        ScopeCase(
+            name="duplicate",
+            requested_scope="foo foo",
+            allowed_scopes={"foo", "bar"},
+            expected_allowed=True,
+            expected_status=302,
+        ),
+        ScopeCase(
+            name="disallowed",
+            requested_scope="foo baz",
+            allowed_scopes={"foo", "bar"},
+            expected_allowed=False,
+            expected_status=400,
+        ),
     ],
-    ids=["exact", "subset", "empty", "duplicate", "disallowed"],
+    ids=lambda case: case.name,
 )
 def test_authorize_enforces_configured_scope_allowlist(
     client: FlaskClient,
     settings: Settings,
-    requested_scope: str,
-    expected_status: int,
+    case: ScopeCase,
 ):
     settings.oauth = settings.oauth.model_copy(
-        update={"scopes": {"foo", "bar"}, "allowed_scopes": {"foo", "bar"}}
+        update={"scopes": {"foo", "bar"}, "allowed_scopes": case.allowed_scopes}
     )
 
-    response = client.get("/?" + urllib.parse.urlencode({"scope": requested_scope}))
+    response = client.get(
+        "/?" + urllib.parse.urlencode({"scope": case.requested_scope})
+    )
 
-    assert response.status_code == expected_status
-    if expected_status == 400:
+    assert response.status_code == case.expected_status
+    if case.expected_status == 400:
         assert json.loads(response.text)["error"] == "invalid_scope"
 
 
