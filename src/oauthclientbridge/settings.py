@@ -141,8 +141,11 @@ class SentrySettings(BaseSettings):
     sample_rate: float = 1.0
     """The sample rate for error events."""
 
-    traces_sample_rate: float = 0.0
+    traces_sample_rate: float = 1.0
     """The sample rate for performance monitoring traces."""
+
+    traces_sample_rate_overrides: dict[str, float] = Field(default_factory=dict)
+    """Per-path performance trace sample-rate overrides."""
 
     @model_validator(mode="after")
     def check_dsn_if_enabled(self) -> "SentrySettings":

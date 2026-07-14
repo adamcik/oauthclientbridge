@@ -59,6 +59,14 @@ def test_init_sentry_sdk_installed(sentry_settings: SentrySettings) -> None:
         assert call_kwargs["dsn"] == sentry_settings.dsn.get_secret_value()
 
 
+def test_trace_sampler_uses_path_overrides(sentry_settings: SentrySettings) -> None:
+    sentry_settings.traces_sample_rate_overrides = {"/metrics": 0.1}
+    sample = sentry._traces_sampler(sentry_settings)
+
+    assert sample({"wsgi_environ": {"PATH_INFO": "/metrics"}}) == 0.1
+    assert sample({"wsgi_environ": {"PATH_INFO": "/authorize"}}) == 1.0
+
+
 def test_init_sentry_sdk_not_installed(
     caplog: pytest.LogCaptureFixture, sentry_settings: SentrySettings
 ) -> None:

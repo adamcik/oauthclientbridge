@@ -1,9 +1,28 @@
 import logging
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from oauthclientbridge.settings import SentrySettings
 
 logger = logging.getLogger(__name__)
+
+
+def _traces_sampler(
+    settings: SentrySettings,
+) -> Callable[[dict[str, object]], float]:
+    def sample(sampling_context: dict[str, object]) -> float:
+        wsgi_environ = sampling_context.get("wsgi_environ")
+        path = (
+            wsgi_environ.get("PATH_INFO") if isinstance(wsgi_environ, Mapping) else None
+        )
+        if not isinstance(path, str):
+            return settings.traces_sample_rate
+        return settings.traces_sample_rate_overrides.get(
+            path, settings.traces_sample_rate
+        )
+
+    return sample
+
 
 try:
     import sentry_sdk
@@ -30,8 +49,9 @@ def init(
 
     sentry_sdk.init(
         dsn=settings.dsn.get_secret_value() if settings.dsn else None,
-        sample_rate=1.0,  # settings.sample_rate,
-        traces_sample_rate=1.0,  # settings.traces_sample_rate,
+        sample_rate=settings.sample_rate,
+        traces_sample_rate=settings.traces_sample_rate,
+        traces_sampler=_traces_sampler(settings),
         integrations=[
             FlaskIntegration(),
             LoggingIntegration(event_level=None, level=None),
