@@ -25,13 +25,24 @@ def create_app(settings: Settings | None = None) -> Flask:
 
     telemetry.instrument_app(app)
 
-    if settings.num_proxies:
+    forwarded_for_proxies = settings.forwarded_for_proxies
+    if forwarded_for_proxies is None:
+        forwarded_for_proxies = settings.num_proxies
+
+    if any(
+        (
+            forwarded_for_proxies,
+            settings.forwarded_proto_proxies,
+            settings.forwarded_host_proxies,
+            settings.forwarded_port_proxies,
+        )
+    ):
         wrapper = ProxyFix(
             app.wsgi_app,
-            x_for=int(settings.num_proxies),
-            x_proto=int(settings.num_proxies),
-            x_host=int(settings.num_proxies),
-            x_port=int(settings.num_proxies),
+            x_for=forwarded_for_proxies,
+            x_proto=settings.forwarded_proto_proxies,
+            x_host=settings.forwarded_host_proxies,
+            x_port=settings.forwarded_port_proxies,
         )
         app.wsgi_app = wrapper
 
