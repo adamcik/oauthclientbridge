@@ -393,7 +393,7 @@ def _render(
         "error": error,
         "description": description,
     }
-    return flask.Response(
+    response = flask.Response(
         flask.render_template_string(
             current_settings.callback_template,
             variables=variables,
@@ -401,3 +401,11 @@ def _render(
         ).encode("utf-8"),
         content_type="text/html; charset=UTF-8",
     )
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    if current_settings.callback_content_security_policy is not None:
+        response.headers["Content-Security-Policy"] = (
+            current_settings.callback_content_security_policy
+        )
+    return response

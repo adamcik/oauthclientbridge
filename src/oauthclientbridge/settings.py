@@ -317,6 +317,11 @@ class Settings(BaseSettings):
     callback_template_file: Path | None = None
     """Optional path to file containing callback_template."""
 
+    callback_content_security_policy: str | None = (
+        "default-src 'none'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+    )
+    """CSP for callback HTML. Set to None only when a custom template requires it."""
+
     error_levels: dict[str, LogLevel] = Field(
         default_factory=lambda: {
             "access_denied": LogLevel.INFO,

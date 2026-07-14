@@ -50,6 +50,19 @@ def test_authorize_client_state(client: FlaskClient):
         assert session["client_state"] == "s3cret"
 
 
+def test_callback_response_has_security_headers(client: FlaskClient):
+    response = client.get("/callback")
+
+    assert response.headers["Referrer-Policy"] == "no-referrer"
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.headers["Permissions-Policy"] == "geolocation=(), microphone=(), camera=()"
+    assert response.headers["Content-Security-Policy"] == (
+        "default-src 'none'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+    )
+    assert response.headers["Cache-Control"] == "no-store"
+    assert response.headers["Pragma"] == "no-cache"
+
+
 def test_authorize_uses_configured_scopes_when_scope_is_omitted(
     client: FlaskClient, settings: Settings
 ):
