@@ -1,3 +1,4 @@
+import json
 import unittest.mock
 import urllib.parse
 from dataclasses import dataclass
@@ -47,6 +48,45 @@ def test_authorize_client_state(client: FlaskClient):
     with client.session_transaction() as session:
         assert resp.status_code == 302
         assert session["client_state"] == "s3cret"
+
+
+def test_authorize_uses_configured_scopes_when_scope_is_omitted(
+    client: FlaskClient, settings: Settings
+):
+    settings.oauth = settings.oauth.model_copy(update={"scopes": {"foo", "bar"}})
+
+    response = client.get("/")
+
+    query = urllib.parse.parse_qs(urllib.parse.urlsplit(response.location).query)
+    assert set(query["scope"][0].split()) == {"foo", "bar"}
+
+
+@pytest.mark.parametrize(
+    ("requested_scope", "expected_status"),
+    [
+        ("foo bar", 302),
+        ("foo", 302),
+        ("", 302),
+        ("foo foo", 302),
+        ("foo baz", 400),
+    ],
+    ids=["exact", "subset", "empty", "duplicate", "disallowed"],
+)
+def test_authorize_enforces_configured_scope_allowlist(
+    client: FlaskClient,
+    settings: Settings,
+    requested_scope: str,
+    expected_status: int,
+):
+    settings.oauth = settings.oauth.model_copy(
+        update={"scopes": {"foo", "bar"}, "allowed_scopes": {"foo", "bar"}}
+    )
+
+    response = client.get("/?" + urllib.parse.urlencode({"scope": requested_scope}))
+
+    assert response.status_code == expected_status
+    if expected_status == 400:
+        assert json.loads(response.text)["error"] == "invalid_scope"
 
 
 def test_callback_authorization_client_state(

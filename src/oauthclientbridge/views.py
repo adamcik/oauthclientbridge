@@ -39,8 +39,11 @@ def authorize() -> flask.Response:
     if redirect_uri and redirect_uri != current_settings.oauth.redirect_uri:
         return _error(OAuthError.INVALID_REQUEST, "Wrong redirect_uri.")
 
-    default_scope: str = " ".join(current_settings.oauth.scopes or [])
+    default_scope = " ".join(current_settings.oauth.scopes)
     scope = flask.request.args.get("scope", default_scope)
+    allowed_scopes = current_settings.oauth.allowed_scopes
+    if allowed_scopes is not None and not set(scope.split()).issubset(allowed_scopes):
+        return _error(OAuthError.INVALID_SCOPE, "Requested scope is not allowed.")
     state = crypto.generate_key()
 
     flask.session["client_state"] = flask.request.args.get("state")

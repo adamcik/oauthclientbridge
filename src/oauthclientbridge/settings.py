@@ -30,7 +30,10 @@ class OAuthSettings(BaseSettings):
     """Type of grant to request from upstream."""
 
     scopes: set[str] = Field(default_factory=set)
-    """List of OAuth scopes to request from the upstream provider:"""
+    """Default OAuth scopes to request from the upstream provider."""
+
+    allowed_scopes: set[str] | None = None
+    """Allowed requested OAuth scopes. None permits dynamic requested scopes."""
 
     authorization_uri: str
     """Upstream authorization URI to redirect users to."""
