@@ -137,6 +137,11 @@ def callback() -> flask.Response:
 
     client_id = db.generate_id()
     telemetry.set_client_id(client_id)
+    inserted_fields = tuple(sorted(result.keys()))
+    logger.warning("Inserting token", inserted_fields=inserted_fields)
+    trace.get_current_span().add_event(
+        "Inserting token", {"inserted_fields": inserted_fields}
+    )
 
     try:
         db.insert(client_id, token)

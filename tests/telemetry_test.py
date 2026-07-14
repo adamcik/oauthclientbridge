@@ -435,6 +435,34 @@ def test_token_update_records_changed_fields(
     assert events[0].attributes == {"updated_fields": ("refresh_token",)}
 
 
+def test_token_insert_records_fields(
+    requests_mock: Mocker,
+    otel_mock: otel.OTelMocker,
+    instrumented,
+    get: GetClient,
+    state: str,
+) -> None:
+    requests_mock.post(
+        current_settings.oauth.token_uri,
+        json={
+            "access_token": "mock_token",
+            "refresh_token": "refresh_token",
+            "token_type": "Bearer",
+        },
+        status_code=200,
+    )
+
+    get("/callback?code=1234&state=" + state)
+
+    spans = otel_mock.get_finished_spans()
+    request_span = otel.get_span(spans, "GET /callback")
+    assert request_span is not None
+    events = [event for event in request_span.events if event.name == "Inserting token"]
+
+    assert len(events) == 1
+    assert events[0].attributes == {"inserted_fields": ("refresh_token",)}
+
+
 def test_revoked_grant_workaround_adds_span_event(
     otel_mock: otel.OTelMocker,
     post: PostClient,
