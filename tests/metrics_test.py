@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from pydantic import SecretStr
 
 from oauthclientbridge import (
     create_app,
@@ -17,6 +18,32 @@ def test_metrics(client):
 
     assert 200 == resp.status_code
     assert b"auth_server_error_total" in resp.data
+
+
+def test_metrics_is_disabled_by_default(settings: Settings):
+    app = create_app(settings.model_copy(update={"metrics_enabled": False}))
+
+    response = app.test_client().get("/metrics")
+
+    assert response.status_code == 404
+
+
+def test_metrics_requires_configured_bearer_token(settings: Settings):
+    app = create_app(
+        settings.model_copy(
+            update={"metrics_token": SecretStr("metrics-secret")},
+        )
+    )
+    client = app.test_client()
+
+    unauthorized = client.get("/metrics")
+    authorized = client.get(
+        "/metrics", headers={"Authorization": "Bearer metrics-secret"}
+    )
+
+    assert unauthorized.status_code == 401
+    assert unauthorized.headers["WWW-Authenticate"] == "Bearer"
+    assert authorized.status_code == 200
 
 
 def test_metrics_exposes_build_info(settings: Settings):

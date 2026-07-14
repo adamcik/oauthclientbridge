@@ -277,6 +277,12 @@ class Settings(BaseSettings):
     auth_realm: str = "oauthclientbridge"
     """Realm to present for basic auth."""
 
+    metrics_enabled: bool = False
+    """Whether to expose the Prometheus metrics endpoint."""
+
+    metrics_token: SecretStr | None = None
+    """Optional bearer token required to access the metrics endpoint."""
+
     callback_template: str = """{% if error %}
   {{ error }}{% if description %}: {{ description }}{% endif %}
 {% else %}

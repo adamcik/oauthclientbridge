@@ -1,3 +1,4 @@
+import hmac
 import re
 from http import HTTPStatus
 from typing import Any
@@ -317,6 +318,19 @@ def token() -> flask.Response:
 
 @routes.route("/metrics", methods=["GET"])
 def metrics() -> flask.Response:
+    if not current_settings.metrics_enabled:
+        return flask.Response(status=HTTPStatus.NOT_FOUND)
+
+    token = current_settings.metrics_token
+    if token is not None:
+        authorization = flask.request.headers.get("Authorization", "")
+        expected = f"Bearer {token.get_secret_value()}"
+        if not hmac.compare_digest(authorization, expected):
+            return flask.Response(
+                status=HTTPStatus.UNAUTHORIZED,
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
     return stats.export_metrics()
 
 
