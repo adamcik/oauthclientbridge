@@ -219,8 +219,9 @@ sudo systemctl reload caddy
 
 ## Notes
 
-- Set proxy trust counts to the exact number of trusted proxies. The edge proxy
-  must discard client-provided `X-Forwarded-*` headers before setting its own.
+- The Caddy uWSGI transport sends Caddy's request host and remote address
+  directly; uWSGI derives the request scheme from `X-Forwarded-Proto`. Configure
+  Caddy's trusted proxy chain correctly and sanitize forwarded headers there.
 - Keep `/metrics` internal. The application disables it by default; when it is
   enabled, configure `BRIDGE_METRICS_TOKEN` and additionally restrict the Caddy
   route to the monitoring network.

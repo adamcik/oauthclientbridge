@@ -4,7 +4,6 @@ from importlib.metadata import version
 
 import structlog
 from flask import Flask
-from werkzeug.middleware.proxy_fix import ProxyFix
 
 from oauthclientbridge import db, logs, oauth, stats, telemetry, views
 from oauthclientbridge.settings import Settings
@@ -24,27 +23,6 @@ def create_app(settings: Settings | None = None) -> Flask:
     _ = app.config.from_prefixed_env()
 
     telemetry.instrument_app(app)
-
-    forwarded_for_proxies = settings.forwarded_for_proxies
-    if forwarded_for_proxies is None:
-        forwarded_for_proxies = settings.num_proxies
-
-    if any(
-        (
-            forwarded_for_proxies,
-            settings.forwarded_proto_proxies,
-            settings.forwarded_host_proxies,
-            settings.forwarded_port_proxies,
-        )
-    ):
-        wrapper = ProxyFix(
-            app.wsgi_app,
-            x_for=forwarded_for_proxies,
-            x_proto=settings.forwarded_proto_proxies,
-            x_host=settings.forwarded_host_proxies,
-            x_port=settings.forwarded_port_proxies,
-        )
-        app.wsgi_app = wrapper
 
     logs.init_access_logs(settings.log, app)
 

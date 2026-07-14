@@ -305,21 +305,6 @@ class Settings(BaseSettings):
     value back to the parent window if this is being run in a pop-up window.
     """
 
-    num_proxies: int = 0
-    """Number proxies to expect in front of us. Used for handling X-Forwarded-For"""
-
-    forwarded_for_proxies: int | None = None
-    """Trusted X-Forwarded-For proxy count. Defaults to num_proxies for compatibility."""
-
-    forwarded_proto_proxies: int = 0
-    """Trusted X-Forwarded-Proto proxy count."""
-
-    forwarded_host_proxies: int = 0
-    """Trusted X-Forwarded-Host proxy count."""
-
-    forwarded_port_proxies: int = 0
-    """Trusted X-Forwarded-Port proxy count."""
-
     callback_template_file: Path | None = None
     """Optional path to file containing callback_template."""
 

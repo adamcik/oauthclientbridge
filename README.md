@@ -64,12 +64,10 @@ stale data every now and then.:
 -   Set `FLASK_SESSION_COOKIE_SECURE` to `True` to ensure cookies are only sent
     over HTTPS.
 -   Ideally also set `FLASK_SESSION_COOKIE_DOMAIN` and `FLASK_SESSION_COOKIE_PATH`.
--   If you are behind a proxy set `BRIDGE_NUM_PROXIES` to the number of
-    trusted proxies for `X-Forwarded-For`. Set the corresponding
-    `BRIDGE_FORWARDED_PROTO_PROXIES`, `BRIDGE_FORWARDED_HOST_PROXIES`, and
-    `BRIDGE_FORWARDED_PORT_PROXIES` settings only when those headers must be
-    trusted. Counts must match the actual trusted proxy chain, whose edge proxy
-    must remove client-supplied forwarded headers before adding its own.
+-   The supported Caddy uWSGI transport passes Caddy's request host and remote
+    address directly and uWSGI derives the request scheme from Caddy's
+    `X-Forwarded-Proto`. Configure Caddy's trusted proxy chain correctly before
+    it reaches the bridge; the bridge does not reinterpret forwarded headers.
 -   `OAUTH_SCOPES` is used when the authorization request omits `scope`.
     Set `OAUTH_ALLOWED_SCOPES` to restrict requested scopes to that allowlist.
     Leaving it unset permits dynamic scopes for compatibility and should only be
