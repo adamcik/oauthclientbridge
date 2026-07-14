@@ -18,6 +18,7 @@ def test_telemetry_settings_defaults() -> None:
     assert settings.service_namespace == "oauthclientbridge"
     assert settings.oauth_provider is None
     assert settings.service_instance_id is not None
+    assert settings.metric_export_interval_seconds == 60.0
 
 
 def test_telemetry_settings_invalid_if_exporter_and_no_endpoint() -> None:
@@ -26,8 +27,9 @@ def test_telemetry_settings_invalid_if_exporter_and_no_endpoint() -> None:
             exporters={TelemetryExporter.OTLP_HTTP},
             endpoint=None,
         )
-    assert "OTEL_ENDPOINT must be set if OTLP_HTTP is in TELEMETRY_EXPORTERS" in str(
-        excinfo.value
+    assert (
+        "TELEMETRY_ENDPOINT must be set if OTLP_HTTP is in TELEMETRY_EXPORTERS"
+        in str(excinfo.value)
     )
 
 

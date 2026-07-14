@@ -219,6 +219,11 @@ sudo systemctl reload caddy
 
 ## Notes
 
+- Set proxy trust counts to the exact number of trusted proxies. The edge proxy
+  must discard client-provided `X-Forwarded-*` headers before setting its own.
+- Keep `/metrics` internal. The application disables it by default; when it is
+  enabled, configure `BRIDGE_METRICS_TOKEN` and additionally restrict the Caddy
+  route to the monitoring network.
 - Image entrypoint does not implicitly bind an HTTP port. Listener mode is set explicitly
   via container args (for example `--socket ...` in this deployment).
 - Containers run with `--read-only`; writable paths are provided via bind mounts and tmpfs.

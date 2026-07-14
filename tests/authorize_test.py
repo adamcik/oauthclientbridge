@@ -63,6 +63,14 @@ def test_callback_response_has_security_headers(client: FlaskClient):
     assert response.headers["Pragma"] == "no-cache"
 
 
+def test_callback_csp_can_be_disabled(client: FlaskClient, settings: Settings):
+    settings.callback_content_security_policy = None
+
+    response = client.get("/callback")
+
+    assert "Content-Security-Policy" not in response.headers
+
+
 def test_authorize_uses_configured_scopes_when_scope_is_omitted(
     client: FlaskClient, settings: Settings
 ):

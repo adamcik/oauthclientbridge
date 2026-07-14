@@ -40,7 +40,9 @@ def test_proxy_fix_only_trusts_forwarded_for_by_legacy_default(
     }
 
 
-def test_proxy_fix_uses_explicitly_trusted_forwarded_headers(settings: Settings) -> None:
+def test_proxy_fix_uses_explicitly_trusted_forwarded_headers(
+    settings: Settings,
+) -> None:
     app = create_app(
         settings.model_copy(
             update={

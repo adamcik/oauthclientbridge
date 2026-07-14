@@ -65,8 +65,24 @@ stale data every now and then.:
     over HTTPS.
 -   Ideally also set `FLASK_SESSION_COOKIE_DOMAIN` and `FLASK_SESSION_COOKIE_PATH`.
 -   If you are behind a proxy set `BRIDGE_NUM_PROXIES` to the number of
-    proxies. This ensures `X-Forwarded-For` gets respected with the
-    value from the proxy.
+    trusted proxies for `X-Forwarded-For`. Set the corresponding
+    `BRIDGE_FORWARDED_PROTO_PROXIES`, `BRIDGE_FORWARDED_HOST_PROXIES`, and
+    `BRIDGE_FORWARDED_PORT_PROXIES` settings only when those headers must be
+    trusted. Counts must match the actual trusted proxy chain, whose edge proxy
+    must remove client-supplied forwarded headers before adding its own.
+-   `OAUTH_SCOPES` is used when the authorization request omits `scope`.
+    Set `OAUTH_ALLOWED_SCOPES` to restrict requested scopes to that allowlist.
+    Leaving it unset permits dynamic scopes for compatibility and should only be
+    used when the caller is trusted.
+-   Callback HTML has a restrictive default CSP plus no-referrer, nosniff, and
+    permissions-policy headers. Custom callback templates using scripts or
+    external resources must set `BRIDGE_CALLBACK_CONTENT_SECURITY_POLICY` to a
+    suitable policy, or explicitly disable it with an empty
+    `BRIDGE_CALLBACK_CONTENT_SECURITY_POLICY` value.
+-   `/metrics` is disabled by default. Set `BRIDGE_METRICS_ENABLED=True` and
+    `BRIDGE_METRICS_TOKEN` to require bearer authentication. Metrics expose
+    operational information; additionally restrict the route to internal
+    networks at Caddy or another edge proxy.
 
 For further details on deploying Flask applications see the [upstream
 documentation][].
@@ -137,7 +153,7 @@ environment variables:
     reported as `vcs.revision` in OpenTelemetry resources.
 
 -   `TELEMETRY_METRIC_EXPORT_INTERVAL_SECONDS`: The interval in seconds at which
-    metrics are exported (defaults to `5`).
+    metrics are exported (defaults to `60`).
 
 Metrics are pushed over OTLP HTTP as this is the only exporter we support.
 

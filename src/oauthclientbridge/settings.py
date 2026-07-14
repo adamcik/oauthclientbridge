@@ -231,7 +231,7 @@ class TelemetrySettings(BaseSettings):
     def check_endpoint_if_otlp_http(self) -> "TelemetrySettings":
         if TelemetryExporter.OTLP_HTTP in self.exporters and self.endpoint is None:
             raise ValueError(
-                "OTEL_ENDPOINT must be set if OTLP_HTTP is in TELEMETRY_EXPORTERS"
+                "TELEMETRY_ENDPOINT must be set if OTLP_HTTP is in TELEMETRY_EXPORTERS"
             )
         return self
 

@@ -418,7 +418,7 @@ def _render(
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
-    if current_settings.callback_content_security_policy is not None:
+    if current_settings.callback_content_security_policy:
         response.headers["Content-Security-Policy"] = (
             current_settings.callback_content_security_policy
         )
