@@ -86,9 +86,9 @@ class SentryCapture:
         raise LookupError(f"Exception with type='{exception_type}' not found.")
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def sentry_isolation_scope():
-    """Always run with an isolated blank slate."""
+    """Run a test with an isolated blank Sentry SDK state."""
     with sentry_sdk.isolation_scope():
         _ = sentry_sdk.init()
         yield

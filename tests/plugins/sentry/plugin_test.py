@@ -13,11 +13,6 @@ from oauthclientbridge.telemetry import sentry
 from pytest_sentry_capture import FakeTransport, SentryCapture
 
 
-@pytest.fixture(autouse=True)
-def _isolate_sentry(sentry_isolation_scope):
-    pass
-
-
 @pytest.fixture
 def sentry_settings() -> SentrySettings:
     """A pytest fixture that provides SentrySettings."""

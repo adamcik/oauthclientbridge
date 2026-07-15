@@ -23,6 +23,11 @@ pytest_plugins = ["tests.plugins.sentry", "tests.plugins.otel"]
 
 
 @pytest.fixture(autouse=True)
+def _isolate_sentry(sentry_isolation_scope):
+    _ = sentry_isolation_scope
+
+
+@pytest.fixture(autouse=True)
 def reset_logging_handlers():
     """Fixture to reset logging handlers before each test."""
     root_logger = logging.getLogger()
