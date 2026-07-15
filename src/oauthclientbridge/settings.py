@@ -141,6 +141,11 @@ class SentrySettings(BaseSettings):
     dsn: SecretStr | None = None
     """Sentry DSN."""
 
+    release: str = Field(
+        default_factory=lambda: f"oauthclientbridge@{_current_package_version()}",
+    )
+    """Release name sent to Sentry. Override with SENTRY_RELEASE when deploying."""
+
     sample_rate: float = 1.0
     """The sample rate for error events."""
 

@@ -49,6 +49,7 @@ def init(
 
     sentry_sdk.init(
         dsn=settings.dsn.get_secret_value() if settings.dsn else None,
+        release=settings.release,
         sample_rate=settings.sample_rate,
         traces_sample_rate=settings.traces_sample_rate,
         traces_sampler=_traces_sampler(settings),

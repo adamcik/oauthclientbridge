@@ -57,6 +57,7 @@ def test_init_sentry_sdk_installed(sentry_settings: SentrySettings) -> None:
         call_kwargs = mock_init.call_args[1]
 
         assert call_kwargs["dsn"] == sentry_settings.dsn.get_secret_value()
+        assert call_kwargs["release"] == sentry_settings.release
 
 
 def test_trace_sampler_uses_path_overrides(sentry_settings: SentrySettings) -> None:
