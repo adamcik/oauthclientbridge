@@ -1,6 +1,7 @@
 import os
 from collections.abc import Mapping
 from threading import current_thread, get_ident
+from typing import TypedDict
 
 from oauthclientbridge.settings import TelemetrySettings
 
@@ -45,7 +46,17 @@ def log_attributes(attributes: Mapping[str, str | int]) -> dict[str, str | int]:
     return {key: value for key, value in attributes.items() if key in canonical_keys}
 
 
-def build_info_labels(settings: TelemetrySettings) -> dict[str, str]:
+class BuildInfoLabels(TypedDict):
+    service_name: str
+    service_namespace: str
+    service_instance_id: str
+    deployment_environment: str
+    oauth_provider: str
+    service_version: str
+    vcs_revision: str
+
+
+def build_info_labels(settings: TelemetrySettings) -> BuildInfoLabels:
     return {
         "service_name": settings.service_name,
         "service_namespace": settings.service_namespace,

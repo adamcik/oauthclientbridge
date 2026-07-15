@@ -1,71 +1,20 @@
-import logging
 import re
 import time
 from datetime import datetime
 from http import HTTPStatus
-from random import uniform
-from typing import Callable
+from pathlib import Path
 
 import flask
 import prometheus_client
 import prometheus_client.multiprocess
-from flask import Flask
-from opentelemetry import trace
 
-from oauthclientbridge.coalescing import CoalescingWorker
 from oauthclientbridge.settings import current_settings
 from oauthclientbridge.utils import utcnow
 
-from ._resources import build_info_labels
+from ._buckets import BYTES, TIME, TOKEN_GRANT_AGE
+from ._resources import BuildInfoLabels, build_info_labels
 
 registry = prometheus_client.CollectorRegistry()
-logger = logging.getLogger(__name__)
-tracer = trace.get_tracer(__name__)
-TIME_BUCKETS = (
-    0.0001,
-    0.00055,
-    0.001,
-    0.0028,
-    0.0046,
-    0.0064,
-    0.0082,
-    0.01,
-    0.028,
-    0.046,
-    0.064,
-    0.082,
-    0.1,
-    0.4,
-    0.7,
-    1.0,
-    4.0,
-    7.0,
-    10.0,
-    float("inf"),
-)
-BYTE_BUCKETS = (
-    8,
-    22,
-    36,
-    50,
-    64,
-    176,
-    288,
-    400,
-    512,
-    1408,
-    2304,
-    3200,
-    4096,
-    11264,
-    18432,
-    25600,
-    32768,
-    90112,
-    147456,
-    204800,
-    float("inf"),
-)
 RETRY_BUCKETS = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, float("inf"))
 
 HTTP_STATUS_LABELS: dict[HTTPStatus, str] = {}
@@ -81,7 +30,7 @@ DBLatencyHistorgram = prometheus_client.Histogram(
     "oauth_database_latency_seconds",
     "Database query latency.",
     ["query"],
-    buckets=TIME_BUCKETS,
+    buckets=TIME,
     registry=registry,
 )
 
@@ -96,7 +45,7 @@ ServerLatencyHistogram = prometheus_client.Histogram(
     "oauth_server_latency_seconds",
     "Overall request latency.",
     ["endpoint", "status"],
-    buckets=TIME_BUCKETS,
+    buckets=TIME,
     registry=registry,
 )
 
@@ -104,7 +53,7 @@ ServerRequestSizeHistogram = prometheus_client.Histogram(
     "oauth_server_request_bytes",
     "Overall request size.",
     ["endpoint", "status"],
-    buckets=BYTE_BUCKETS,
+    buckets=BYTES,
     registry=registry,
 )
 
@@ -112,7 +61,7 @@ ServerResponseSizeHistogram = prometheus_client.Histogram(
     "oauth_server_response_bytes",
     "Overall response size.",
     ["endpoint", "status"],
-    buckets=BYTE_BUCKETS,
+    buckets=BYTES,
     registry=registry,
 )
 
@@ -149,7 +98,7 @@ ClientLatencyHistogram = prometheus_client.Histogram(
     "oauth_client_latency_seconds",
     "Overall request latency.",
     ["endpoint", "status"],
-    buckets=TIME_BUCKETS,
+    buckets=TIME,
     registry=registry,
 )
 
@@ -157,7 +106,7 @@ ClientResponseSizeHistogram = prometheus_client.Histogram(
     "oauth_client_response_bytes",
     "Overall response size.",
     ["endpoint", "status"],
-    buckets=BYTE_BUCKETS,
+    buckets=BYTES,
     registry=registry,
 )
 
@@ -165,15 +114,7 @@ ClientResponseSizeHistogram = prometheus_client.Histogram(
 BuildInfoGauge = prometheus_client.Gauge(
     "oauth_build_info",
     "Build and deployment metadata.",
-    [
-        "service_name",
-        "service_namespace",
-        "service_instance_id",
-        "deployment_environment",
-        "oauth_provider",
-        "service_version",
-        "vcs_revision",
-    ],
+    BuildInfoLabels.__annotations__.keys(),
     multiprocess_mode="max",
     registry=registry,
 )
@@ -195,23 +136,7 @@ WorkaroundCounter = prometheus_client.Counter(
 TokenGrantAgeHistogram = prometheus_client.Histogram(
     "oauth_token_grant_age_seconds",
     "Age of successfully used stored token grants.",
-    buckets=(
-        3600,
-        21600,
-        86400,
-        259200,
-        604800,
-        1209600,
-        2592000,
-        5184000,
-        7776000,
-        10368000,
-        12960000,
-        15552000,
-        18144000,
-        31536000,
-        float("inf"),
-    ),
+    buckets=TOKEN_GRANT_AGE,
     registry=registry,
 )
 
@@ -223,7 +148,7 @@ TokenStateGauge = prometheus_client.Gauge(
     registry=registry,
 )
 
-_build_info_values: tuple[str, str, str, str, str, str, str] | None = None
+_multiprocess_registries: dict[Path, prometheus_client.CollectorRegistry] = {}
 
 
 def status(code: HTTPStatus) -> str:
@@ -262,11 +187,14 @@ def export_metrics() -> flask.Response:
     metrics_registry = registry
     multiproc_dir = current_settings.prometheus.multiproc_dir
     if multiproc_dir:
-        metrics_registry = prometheus_client.CollectorRegistry()
-        prometheus_client.multiprocess.MultiProcessCollector(
-            metrics_registry,
-            path=str(multiproc_dir),
-        )
+        metrics_registry = _multiprocess_registries.get(multiproc_dir)
+        if metrics_registry is None:
+            metrics_registry = prometheus_client.CollectorRegistry()
+            prometheus_client.multiprocess.MultiProcessCollector(
+                metrics_registry,
+                path=str(multiproc_dir),
+            )
+            _multiprocess_registries[multiproc_dir] = metrics_registry
 
     text = prometheus_client.generate_latest(metrics_registry)
     return flask.Response(text, mimetype=prometheus_client.CONTENT_TYPE_LATEST)
@@ -280,75 +208,9 @@ def observe_token_grant_age(created_at: datetime | None) -> None:
 
 
 def set_build_info(settings) -> None:
-    global _build_info_values
-
-    labels_dict = build_info_labels(settings)
-    labels = (
-        labels_dict["service_name"],
-        labels_dict["service_namespace"],
-        labels_dict["service_instance_id"],
-        labels_dict["deployment_environment"],
-        labels_dict["oauth_provider"],
-        labels_dict["service_version"],
-        labels_dict["vcs_revision"],
-    )
-    if _build_info_values == labels:
-        return
-
-    BuildInfoGauge.labels(**labels_dict).set(1)
-    _build_info_values = labels
+    BuildInfoGauge.labels(**build_info_labels(settings)).set(1)
 
 
 def set_token_state_counts(counts: dict[str, int]) -> None:
     for state, count in counts.items():
         TokenStateGauge.labels(state=state).set(count)
-
-
-def add_refresher(app: Flask, refresher: Callable[[], None]) -> None:
-    refreshers = app.extensions.setdefault("oauth_metrics_refreshers", [])
-    refreshers.append(refresher)
-
-
-def refresh_once(app: Flask | None = None) -> None:
-    current = app or flask.current_app
-    refreshers = current.extensions.get("oauth_metrics_refreshers", [])
-    for refresher in refreshers:
-        refresher()
-
-
-def request_refresh(app: Flask | None = None) -> None:
-    current = app or flask.current_app
-    worker = current.extensions.get("oauth_metrics_refresh_worker")
-    if worker is not None:
-        worker.request()
-
-
-def start_background_refresh(app: Flask) -> None:
-    if app.extensions.get("oauth_metrics_refresh_worker") is not None:
-        return
-    if not app.extensions.get("oauth_metrics_refreshers", []):
-        return
-    worker = CoalescingWorker(
-        lambda: _refresh_metrics_in_app(app),
-        debounce_seconds=0.5,
-        startup_delay=lambda: uniform(0, 5.0),
-        name="oauth-metrics-refresh",
-    )
-    app.extensions["oauth_metrics_refresh_worker"] = worker
-    worker.start()
-    worker.request()
-
-
-def stop_background_refresh(app: Flask) -> None:
-    worker = app.extensions.pop("oauth_metrics_refresh_worker", None)
-    if worker is not None:
-        worker.stop(timeout=1.0)
-
-
-def _refresh_metrics_in_app(app: Flask) -> None:
-    try:
-        with app.app_context():
-            with tracer.start_as_current_span("METRICS refresh"):
-                refresh_once(app)
-    except Exception:
-        logger.exception("Metrics refresh failed")

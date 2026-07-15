@@ -47,6 +47,27 @@ def test_metrics_requires_configured_bearer_token(settings: Settings):
     assert authorized.status_code == 200
 
 
+def test_metrics_reuses_multiprocess_registry(
+    client, settings: Settings, monkeypatch, tmp_path
+):
+    _ = client
+    settings.prometheus.multiproc_dir = tmp_path
+    stats._multiprocess_registries.clear()
+    collectors: list[object] = []
+
+    def collect(registry, path: str) -> None:
+        collectors.append(registry)
+
+    monkeypatch.setattr(
+        stats.prometheus_client.multiprocess, "MultiProcessCollector", collect
+    )
+
+    stats.export_metrics()
+    stats.export_metrics()
+
+    assert len(collectors) == 1
+
+
 def test_metrics_exposes_build_info(settings: Settings):
     settings.otel = TelemetrySettings(
         service_name="oauthclientbridge",
