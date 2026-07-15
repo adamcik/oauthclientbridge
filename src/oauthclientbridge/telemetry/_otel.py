@@ -50,54 +50,8 @@ from oauthclientbridge.settings import (
     TelemetrySettings,
 )
 
-from ._resources import log_attributes, resource_attributes, runtime_log_attributes
-
-TIME_BUCKETS = (
-    0.0001,
-    0.00055,
-    0.001,
-    0.0028,
-    0.0046,
-    0.0064,
-    0.0082,
-    0.01,
-    0.028,
-    0.046,
-    0.064,
-    0.082,
-    0.1,
-    0.4,
-    0.7,
-    1.0,
-    4.0,
-    7.0,
-    10.0,
-    float("inf"),
-)
-
-BYTE_BUCKETS = (
-    8,
-    22,
-    36,
-    50,
-    64,
-    176,
-    288,
-    400,
-    512,
-    1408,
-    2304,
-    3200,
-    4096,
-    11264,
-    18432,
-    25600,
-    32768,
-    90112,
-    147456,
-    204800,
-    float("inf"),
-)
+from ._buckets import BYTES, TIME
+from ._resources import otel_log_attributes, resource_attributes
 
 
 def set_client_id(client_id: types.ClientId) -> None:
@@ -175,22 +129,7 @@ def _logging_log_hook(span: trace.Span, record: object):
     if not span or not span.is_recording():
         return
 
-    context = span.get_span_context()
-    if not context.is_valid:
-        return
-
-    setattr(record, "trace_id", format(context.trace_id, "032x"))
-    setattr(record, "span_id", format(context.span_id, "016x"))
-    setattr(record, "trace_sampled", context.trace_flags.sampled)
-
-    resource_attributes_for_logs: dict[str, str | int] = {}
-    resource = getattr(trace.get_tracer_provider(), "resource", None)
-    if resource is not None:
-        resource_attributes_for_logs = log_attributes(resource.attributes)
-    setattr(record, "resource_attributes", resource_attributes_for_logs)
-
-    for key, value in runtime_log_attributes().items():
-        setattr(record, key.replace(".", "_"), value)
+    setattr(record, "telemetry_attributes", otel_log_attributes(span))
 
 
 instrumentors = [
@@ -311,28 +250,20 @@ def init_metrics(
             views=[
                 View(
                     instrument_name="http.*.duration",
-                    aggregation=ExplicitBucketHistogramAggregation(
-                        boundaries=TIME_BUCKETS
-                    ),
+                    aggregation=ExplicitBucketHistogramAggregation(boundaries=TIME),
                 ),
                 View(
                     instrument_name="http.*.size",
-                    aggregation=ExplicitBucketHistogramAggregation(
-                        boundaries=BYTE_BUCKETS
-                    ),
+                    aggregation=ExplicitBucketHistogramAggregation(boundaries=BYTES),
                 ),
                 View(
                     instrument_name="oauth.db.cursor.duration",
-                    aggregation=ExplicitBucketHistogramAggregation(
-                        boundaries=TIME_BUCKETS
-                    ),
+                    aggregation=ExplicitBucketHistogramAggregation(boundaries=TIME),
                     attribute_keys={"db.operation", "error.type"},
                 ),
                 View(
                     instrument_name="oauth.client.duration",
-                    aggregation=ExplicitBucketHistogramAggregation(
-                        boundaries=TIME_BUCKETS
-                    ),
+                    aggregation=ExplicitBucketHistogramAggregation(boundaries=TIME),
                     attribute_keys={"operation", "final.result", "error.type"},
                 ),
                 View(

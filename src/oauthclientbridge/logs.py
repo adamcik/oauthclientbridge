@@ -6,7 +6,6 @@ from urllib.parse import parse_qsl, quote, urlsplit, urlunsplit
 
 import structlog
 from flask import Flask, Request, Response, g, request
-from opentelemetry import trace
 from opentelemetry.semconv.attributes.client_attributes import CLIENT_ADDRESS
 from opentelemetry.semconv.attributes.http_attributes import (
     HTTP_REQUEST_HEADER_TEMPLATE,
@@ -125,41 +124,11 @@ def init_logging(settings: LogSettings) -> None:
 def add_otel_context_processor(_: Any, __: str, event_dict: EventDict) -> EventDict:
     if "_record" in event_dict:
         record = cast(logging.LogRecord, event_dict["_record"])
-        if hasattr(record, "trace_id"):
-            event_dict["trace_id"] = getattr(record, "trace_id")
-            event_dict["span_id"] = getattr(record, "span_id")
-            event_dict["trace_sampled"] = getattr(record, "trace_sampled")
-            if hasattr(record, "resource_attributes"):
-                event_dict.update(getattr(record, "resource_attributes"))
-            if hasattr(record, "process_pid"):
-                event_dict["process.pid"] = getattr(record, "process_pid")
-            if hasattr(record, "process_thread_id"):
-                event_dict["process.thread.id"] = getattr(record, "process_thread_id")
-            if hasattr(record, "process_thread_name"):
-                event_dict["process.thread.name"] = getattr(
-                    record, "process_thread_name"
-                )
+        if hasattr(record, "telemetry_attributes"):
+            event_dict.update(getattr(record, "telemetry_attributes"))
             return event_dict
 
-    span = trace.get_current_span()
-    if not span.is_recording():
-        event_dict.update(telemetry.runtime_log_attributes())
-        return event_dict
-
-    context = span.get_span_context()
-    if not context.is_valid:
-        event_dict.update(telemetry.runtime_log_attributes())
-        return event_dict
-
-    event_dict["trace_id"] = format(context.trace_id, "032x")
-    event_dict["span_id"] = format(context.span_id, "016x")
-    event_dict["trace_sampled"] = context.trace_flags.sampled
-
-    resource = getattr(trace.get_tracer_provider(), "resource", None)
-    if resource is not None:
-        event_dict.update(telemetry.log_attributes(resource.attributes))
-
-    event_dict.update(telemetry.runtime_log_attributes())
+    event_dict.update(telemetry.otel_log_attributes())
 
     return event_dict
 

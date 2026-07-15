@@ -3,6 +3,8 @@ from collections.abc import Mapping
 from threading import current_thread, get_ident
 from typing import TypedDict
 
+from opentelemetry import trace
+
 from oauthclientbridge.settings import TelemetrySettings
 
 
@@ -44,6 +46,26 @@ def log_attributes(attributes: Mapping[str, str | int]) -> dict[str, str | int]:
         "process.pid",
     }
     return {key: value for key, value in attributes.items() if key in canonical_keys}
+
+
+def otel_log_attributes(span: trace.Span | None = None) -> dict[str, str | int | bool]:
+    attributes: dict[str, str | int | bool] = runtime_log_attributes()
+    current_span = span or trace.get_current_span()
+    if not current_span.is_recording():
+        return attributes
+
+    context = current_span.get_span_context()
+    if not context.is_valid:
+        return attributes
+
+    attributes["trace_id"] = format(context.trace_id, "032x")
+    attributes["span_id"] = format(context.span_id, "016x")
+    attributes["trace_sampled"] = context.trace_flags.sampled
+
+    resource = getattr(trace.get_tracer_provider(), "resource", None)
+    if resource is not None:
+        attributes.update(log_attributes(resource.attributes))
+    return attributes
 
 
 class BuildInfoLabels(TypedDict):

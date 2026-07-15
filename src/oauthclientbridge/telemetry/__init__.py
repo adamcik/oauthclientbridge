@@ -31,8 +31,7 @@ __all__ = [
     "start_background_refresh",
     "stop_background_refresh",
     "uninstrument",
-    "log_attributes",
-    "runtime_log_attributes",
+    "otel_log_attributes",
 ]
 
 set_client_id = _otel.set_client_id
@@ -43,8 +42,7 @@ instrument_app = _otel.instrument_app
 init_tracing = _otel.init_tracing
 init_metrics = _otel.init_metrics
 
-log_attributes = _resources.log_attributes
-runtime_log_attributes = _resources.runtime_log_attributes
+otel_log_attributes = _resources.otel_log_attributes
 
 record_request_metrics = _prometheus.record_metrics
 finalize_request_metrics = _prometheus.finalize_metrics
