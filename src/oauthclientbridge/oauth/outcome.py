@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from enum import StrEnum
 from http import HTTPStatus
 from typing import Any, Mapping
 
@@ -43,6 +44,32 @@ class TokenEndpointOutcome:
     normalized_error: OAuthError | None
     invalidate_refresh_token: bool
     retry_reason: RetryReason | None = None
+
+
+class UpstreamResult(StrEnum):
+    SUCCESS = "success"
+    CLIENT_ERROR = "client_error"
+    SERVER_ERROR = "server_error"
+    RATE_LIMITED = "rate_limited"
+    TIMEOUT = "timeout"
+    UNKNOWN = "unknown"
+
+
+def upstream_result_for_status(status: HTTPStatus) -> UpstreamResult:
+    if status.is_success:
+        return UpstreamResult.SUCCESS
+    elif status.is_redirection:
+        # Redirects are not followed by our client, so we treat them as an
+        # unexpected response, which is a form of client error.
+        return UpstreamResult.CLIENT_ERROR
+    elif status == HTTPStatus.TOO_MANY_REQUESTS:
+        return UpstreamResult.RATE_LIMITED
+    elif status.is_client_error:
+        return UpstreamResult.CLIENT_ERROR
+    elif status.is_server_error:
+        return UpstreamResult.SERVER_ERROR
+    else:
+        return UpstreamResult.UNKNOWN
 
 
 def normalize_error(

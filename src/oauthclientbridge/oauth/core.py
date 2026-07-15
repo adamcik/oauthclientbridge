@@ -15,10 +15,14 @@ from opentelemetry import metrics, trace
 from oauthclientbridge import telemetry
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import current_settings
-from oauthclientbridge.utils import http
 from oauthclientbridge.utils import uri as uri_utils
 
-from .outcome import OAuthResponse, token_endpoint_outcome
+from .outcome import (
+    OAuthResponse,
+    UpstreamResult,
+    token_endpoint_outcome,
+    upstream_result_for_status,
+)
 from .retry import (
     RetryAttemptKind,
     RetryDecision,
@@ -334,9 +338,9 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
                 )
 
         final_result = (
-            http.APIResult.TIMEOUT
+            UpstreamResult.TIMEOUT
             if status is None
-            else http.http_status_to_result(status)
+            else upstream_result_for_status(status)
         )
 
         attributes: dict[str, Any] = {

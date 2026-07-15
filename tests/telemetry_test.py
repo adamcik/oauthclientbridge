@@ -15,6 +15,7 @@ from requests_mock import Mocker
 from oauthclientbridge import db, oauth, telemetry
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.oauth import core as oauth_core
+from oauthclientbridge.oauth.outcome import UpstreamResult
 from oauthclientbridge.settings import (
     Settings,
     TelemetryComponent,
@@ -22,7 +23,6 @@ from oauthclientbridge.settings import (
     current_settings,
 )
 from oauthclientbridge.telemetry import _resources as resource_labels
-from oauthclientbridge.utils.http import APIResult
 
 from .conftest import GetClient, PostClient, TokenTuple
 from .plugins import otel
@@ -668,7 +668,7 @@ def test_oauth_client_duration_metric_success(
         scope="oauthclientbridge.oauth",
     )
     assert duration_data.attributes is not None
-    assert duration_data.attributes["final.result"] == APIResult.SUCCESS
+    assert duration_data.attributes["final.result"] == UpstreamResult.SUCCESS
     assert "error.type" not in duration_data.attributes
     assert duration_data.count == 1
 
@@ -695,7 +695,7 @@ def test_oauth_client_retries_metric_success(
         scope="oauthclientbridge.oauth",
     )
     assert retries_data.attributes is not None
-    assert retries_data.attributes["final.result"] == APIResult.SUCCESS
+    assert retries_data.attributes["final.result"] == UpstreamResult.SUCCESS
     assert "error.type" not in retries_data.attributes
     assert retries_data.sum == 0  # No retries on success
     assert retries_data.count == 1
@@ -728,7 +728,7 @@ def test_oauth_client_retries_metric_records_completed_retry_count(
         scope="oauthclientbridge.oauth",
     )
     assert retries_data.attributes is not None
-    assert retries_data.attributes["final.result"] == APIResult.SUCCESS
+    assert retries_data.attributes["final.result"] == UpstreamResult.SUCCESS
     assert retries_data.sum == 1
     assert retries_data.count == 1
 
@@ -1051,7 +1051,7 @@ def test_oauth_client_metrics_failure(
         scope="oauthclientbridge.oauth",
     )
     assert duration_data.attributes is not None
-    assert duration_data.attributes["final.result"] == APIResult.CLIENT_ERROR
+    assert duration_data.attributes["final.result"] == UpstreamResult.CLIENT_ERROR
     assert duration_data.attributes["error.type"] == "invalid_grant"
     assert duration_data.count == 1
 
@@ -1078,7 +1078,7 @@ def test_oauth_client_total_metric_success(
         scope="oauthclientbridge.oauth",
     )
     assert total_data.attributes is not None
-    assert total_data.attributes["final.result"] == APIResult.SUCCESS
+    assert total_data.attributes["final.result"] == UpstreamResult.SUCCESS
     assert "error.type" not in total_data.attributes
     assert total_data.value == 1
 
@@ -1105,6 +1105,6 @@ def test_oauth_client_total_metric_failure(
         scope="oauthclientbridge.oauth",
     )
     assert total_data.attributes is not None
-    assert total_data.attributes["final.result"] == APIResult.CLIENT_ERROR
+    assert total_data.attributes["final.result"] == UpstreamResult.CLIENT_ERROR
     assert total_data.attributes["error.type"] == "invalid_grant"
     assert total_data.value == 1
