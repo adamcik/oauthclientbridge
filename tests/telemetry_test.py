@@ -22,7 +22,7 @@ from oauthclientbridge.settings import (
     current_settings,
 )
 from oauthclientbridge.telemetry import _resources as resource_labels
-from oauthclientbridge.utils import APIResult
+from oauthclientbridge.utils.http import APIResult
 
 from .conftest import GetClient, PostClient, TokenTuple
 from .plugins import otel

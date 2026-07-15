@@ -1,7 +1,7 @@
 import threading
 import time
 
-from oauthclientbridge.coalescing import CoalescingWorker
+from oauthclientbridge.utils.coalescing import CoalescingWorker
 
 
 def test_worker_respects_startup_delay_for_initial_request() -> None:

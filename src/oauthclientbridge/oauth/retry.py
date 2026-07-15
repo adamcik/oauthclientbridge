@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from http import HTTPStatus
 
-from oauthclientbridge.bucket import Bucket
+from oauthclientbridge.utils.bucket import Bucket
 
 
 class RetryAttemptKind(StrEnum):

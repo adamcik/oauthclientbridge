@@ -15,7 +15,8 @@ from opentelemetry import metrics, trace
 from oauthclientbridge import telemetry
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import current_settings
-from oauthclientbridge.utils import APIResult, http_status_to_result, rewrite_uri
+from oauthclientbridge.utils import http
+from oauthclientbridge.utils import uri as uri_utils
 
 from .outcome import OAuthResponse, token_endpoint_outcome
 from .retry import (
@@ -333,7 +334,9 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
                 )
 
         final_result = (
-            APIResult.TIMEOUT if status is None else http_status_to_result(status)
+            http.APIResult.TIMEOUT
+            if status is None
+            else http.http_status_to_result(status)
         )
 
         attributes: dict[str, Any] = {
@@ -488,7 +491,7 @@ def jitter_delay(delay: float, preserve_floor: bool = False) -> float:
 def redirect(uri: str, **params: str) -> flask.Response:
     return flask.Response(
         status=HTTPStatus.FOUND,
-        headers={"Location": rewrite_uri(uri, params)},
+        headers={"Location": uri_utils.rewrite_uri(uri, params)},
     )
 
 

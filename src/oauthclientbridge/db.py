@@ -12,7 +12,7 @@ from opentelemetry import metrics, trace
 
 from oauthclientbridge import telemetry, types
 from oauthclientbridge.settings import current_settings
-from oauthclientbridge.utils import utcnow
+from oauthclientbridge.utils import time as time_utils
 
 Error = sqlite3.Error
 IntegrityError = sqlite3.IntegrityError
@@ -186,7 +186,7 @@ def _parse_datetime(value: object) -> datetime | None:
 def insert(client_id: types.ClientId, token: types.EncryptedToken) -> None:
     """Store encrypted token and return what client_id it was stored under."""
 
-    now = utcnow()
+    now = time_utils.utcnow()
     with cursor(name="insert_token", transaction=True) as c:
         c.execute(
             (
@@ -234,7 +234,7 @@ def lookup(client_id: types.ClientId) -> TokenRecord:
 def update(client_id: types.ClientId, token: types.EncryptedToken | None) -> int:
     """Update a client_id with a new encrypted token."""
 
-    now = utcnow()
+    now = time_utils.utcnow()
     with cursor(name="update_token", transaction=True) as c:
         c.execute(
             "UPDATE tokens SET token = ?, last_updated_at = ? WHERE client_id = ?",

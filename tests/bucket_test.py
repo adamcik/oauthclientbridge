@@ -1,4 +1,4 @@
-from oauthclientbridge.bucket import Bucket
+from oauthclientbridge.utils.bucket import Bucket
 
 
 def test_bucket_consumes_token_on_admission() -> None:

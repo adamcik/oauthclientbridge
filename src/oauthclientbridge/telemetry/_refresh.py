@@ -8,7 +8,7 @@ import flask
 from flask import Flask
 from opentelemetry import trace
 
-from oauthclientbridge.coalescing import CoalescingWorker
+from oauthclientbridge.utils import coalescing
 
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -44,7 +44,7 @@ def start_background_refresh(app: Flask) -> None:
     if not app.extensions.get("oauth_metrics_refreshers", []):
         return
 
-    worker = CoalescingWorker(
+    worker = coalescing.CoalescingWorker(
         lambda: _refresh_metrics_in_app(app),
         debounce_seconds=0.5,
         startup_delay=lambda: uniform(0, 5.0),

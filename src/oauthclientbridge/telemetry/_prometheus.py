@@ -9,7 +9,7 @@ import prometheus_client
 import prometheus_client.multiprocess
 
 from oauthclientbridge.settings import current_settings
-from oauthclientbridge.utils import utcnow
+from oauthclientbridge.utils import time as time_utils
 
 from ._buckets import BYTES, TIME, TOKEN_GRANT_AGE
 from ._resources import BuildInfoLabels, build_info_labels
@@ -204,7 +204,7 @@ def observe_token_grant_age(created_at: datetime | None) -> None:
     if created_at is None:
         return
 
-    TokenGrantAgeHistogram.observe((utcnow() - created_at).total_seconds())
+    TokenGrantAgeHistogram.observe((time_utils.utcnow() - created_at).total_seconds())
 
 
 def set_build_info(settings) -> None:
