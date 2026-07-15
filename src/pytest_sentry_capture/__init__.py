@@ -1,6 +1,6 @@
-"""Compatibility re-export for the in-place Sentry pytest plugin."""
+"""Pytest fixtures and helpers for inspecting captured Sentry data."""
 
-from pytest_sentry_capture import (
+from .plugin import (
     FakeTransport,
     SentryCapture,
     sentry_capture,
