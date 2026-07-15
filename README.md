@@ -78,8 +78,9 @@ stale data every now and then.:
     external resources must set `BRIDGE_CALLBACK_CONTENT_SECURITY_POLICY` to a
     suitable policy, or explicitly disable it with an empty
     `BRIDGE_CALLBACK_CONTENT_SECURITY_POLICY` value.
--   `/metrics` is disabled by default. Set `BRIDGE_METRICS_ENABLED=True` and
-    `BRIDGE_METRICS_TOKEN` to require bearer authentication. Metrics expose
+-   `/metrics` is enabled by default. Set `BRIDGE_METRICS_ENABLED=False` to
+    disable it, or set `BRIDGE_METRICS_TOKEN` to require bearer authentication.
+    Metrics expose
     operational information; additionally restrict the route to internal
     networks at Caddy or another edge proxy.
 

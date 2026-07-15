@@ -20,7 +20,7 @@ def test_metrics(client):
     assert b"auth_server_error_total" in resp.data
 
 
-def test_metrics_is_disabled_by_default(settings: Settings):
+def test_metrics_can_be_disabled(settings: Settings):
     app = create_app(settings.model_copy(update={"metrics_enabled": False}))
 
     response = app.test_client().get("/metrics")

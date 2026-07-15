@@ -54,7 +54,6 @@ def settings():
     # https://github.com/pydantic/pydantic-settings/issues/201
     return Settings(
         callback_template="{{ variables|tojson }}",
-        metrics_enabled=True,
         database=DatabaseSettings(
             database=":memory:",
         ),

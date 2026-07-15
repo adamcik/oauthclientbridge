@@ -282,7 +282,7 @@ class Settings(BaseSettings):
     auth_realm: str = "oauthclientbridge"
     """Realm to present for basic auth."""
 
-    metrics_enabled: bool = False
+    metrics_enabled: bool = True
     """Whether to expose the Prometheus metrics endpoint."""
 
     metrics_token: SecretStr | None = None
