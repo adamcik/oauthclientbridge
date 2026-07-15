@@ -1,7 +1,7 @@
 from contextlib import AbstractContextManager
 from http import HTTPStatus
 
-from . import _otel, _prometheus, _resources
+from . import _otel, _prometheus, _refresh, _resources
 
 __all__ = [
     "add_refresher",
@@ -52,10 +52,10 @@ export_metrics = _prometheus.export_metrics
 observe_token_grant_age = _prometheus.observe_token_grant_age
 set_build_info = _prometheus.set_build_info
 set_token_state_counts = _prometheus.set_token_state_counts
-add_refresher = _prometheus.add_refresher
-request_refresh = _prometheus.request_refresh
-start_background_refresh = _prometheus.start_background_refresh
-stop_background_refresh = _prometheus.stop_background_refresh
+add_refresher = _refresh.add_refresher
+request_refresh = _refresh.request_refresh
+start_background_refresh = _refresh.start_background_refresh
+stop_background_refresh = _refresh.stop_background_refresh
 
 
 def record_database_latency(name: str) -> AbstractContextManager[object]:

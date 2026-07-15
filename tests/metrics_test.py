@@ -12,6 +12,7 @@ from oauthclientbridge import (
 )
 from oauthclientbridge.settings import Settings, TelemetrySettings
 from oauthclientbridge.telemetry import _prometheus as stats
+from oauthclientbridge.telemetry import _refresh
 
 
 def test_metrics(client):
@@ -104,7 +105,7 @@ def test_metrics_exposes_token_state_counts(client):
     _ = db.insert("present-client", b"placeholder")
     _ = db.insert("revoked-client", b"placeholder")
     _ = db.update("revoked-client", None)
-    stats.refresh_once(client.application)
+    _refresh.refresh_once(client.application)
 
     resp = client.get("/metrics")
 
@@ -129,7 +130,7 @@ def test_metrics_refreshes_token_states_when_run(
         return {"present": 1, "revoked": 0}
 
     monkeypatch.setattr(db, "token_state_counts", counts)
-    stats.refresh_once(client.application)
+    _refresh.refresh_once(client.application)
 
     resp = client.get("/metrics")
 
