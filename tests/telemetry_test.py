@@ -128,6 +128,27 @@ def test_init_metrics_sets_resource_attributes() -> None:
     assert attrs["process.pid"] == os.getpid()
 
 
+def test_init_metrics_derives_default_instance_id_in_worker_process(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(resource_labels.socket, "gethostname", lambda: "delta")
+    monkeypatch.setattr(resource_labels.os, "getpid", lambda: 2002)
+    settings = TelemetrySettings(
+        components={TelemetryComponent.METRICS},
+        deployment_environment="testing",
+        oauth_provider="spotify",
+    )
+
+    with unittest.mock.patch(
+        "oauthclientbridge.telemetry._otel.set_meter_provider"
+    ) as mock_set_meter_provider:
+        telemetry.init_metrics(settings)
+
+    provider = mock_set_meter_provider.call_args.args[0]
+    attrs = provider._sdk_config.resource.attributes
+    assert attrs["service.instance.id"] == "delta-spotify-testing-2002"
+
+
 def test_log_attributes_preserves_numeric_process_id() -> None:
     assert resource_labels.log_attributes(
         {

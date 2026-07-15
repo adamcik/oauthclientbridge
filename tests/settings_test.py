@@ -17,7 +17,7 @@ def test_telemetry_settings_defaults() -> None:
     assert settings.service_name == "oauthclientbridge"
     assert settings.service_namespace == "oauthclientbridge"
     assert settings.oauth_provider is None
-    assert settings.service_instance_id is not None
+    assert settings.service_instance_id is None
     assert settings.metric_export_interval_seconds == 60.0
 
 
@@ -47,13 +47,13 @@ def test_telemetry_settings_valid_if_no_exporter_and_no_endpoint() -> None:
     assert settings.service_name == "my-custom-service"
 
 
-def test_telemetry_settings_derives_service_instance_id() -> None:
+def test_telemetry_settings_defers_default_service_instance_id() -> None:
     settings = TelemetrySettings(
         deployment_environment="preprod",
         oauth_provider="spotify",
     )
-    assert settings.service_instance_id is not None
-    assert settings.service_instance_id.endswith("-spotify-preprod")
+
+    assert settings.service_instance_id is None
 
 
 def test_telemetry_settings_keeps_explicit_service_instance_id() -> None:

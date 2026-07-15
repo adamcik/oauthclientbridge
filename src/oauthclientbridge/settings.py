@@ -1,5 +1,4 @@
 import logging
-import socket
 import sys
 from enum import IntEnum, StrEnum
 from http import HTTPStatus
@@ -215,18 +214,6 @@ class TelemetrySettings(BaseSettings):
     def default_vcs_revision_from_package_metadata(self) -> "TelemetrySettings":
         if self.vcs_revision is None:
             self.vcs_revision = _current_package_revision()
-        return self
-
-    @model_validator(mode="after")
-    def default_service_instance_id(self) -> "TelemetrySettings":
-        if self.service_instance_id is not None:
-            return self
-
-        parts = [socket.gethostname()]
-        if self.oauth_provider:
-            parts.append(self.oauth_provider)
-        parts.append(self.deployment_environment)
-        self.service_instance_id = "-".join(parts)
         return self
 
     metric_export_interval_seconds: float = 60.0

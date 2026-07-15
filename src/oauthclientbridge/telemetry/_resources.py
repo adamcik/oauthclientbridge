@@ -1,4 +1,5 @@
 import os
+import socket
 from collections.abc import Mapping
 from threading import current_thread, get_ident
 from typing import TypedDict
@@ -6,6 +7,17 @@ from typing import TypedDict
 from opentelemetry import trace
 
 from oauthclientbridge.settings import TelemetrySettings
+
+
+def service_instance_id(settings: TelemetrySettings) -> str:
+    if settings.service_instance_id is not None:
+        return settings.service_instance_id
+
+    parts = [socket.gethostname()]
+    if settings.oauth_provider:
+        parts.append(settings.oauth_provider)
+    parts.extend((settings.deployment_environment, str(os.getpid())))
+    return "-".join(parts)
 
 
 def resource_attributes(settings: TelemetrySettings) -> dict[str, str | int]:
@@ -16,8 +28,8 @@ def resource_attributes(settings: TelemetrySettings) -> dict[str, str | int]:
         "deployment.environment": settings.deployment_environment,
         "process.pid": os.getpid(),
     }
-    if settings.service_instance_id:
-        attributes["service.instance.id"] = settings.service_instance_id
+    if instance_id := service_instance_id(settings):
+        attributes["service.instance.id"] = instance_id
     if settings.oauth_provider:
         attributes["oauth.provider"] = settings.oauth_provider
     if settings.vcs_revision:
@@ -82,7 +94,7 @@ def build_info_labels(settings: TelemetrySettings) -> BuildInfoLabels:
     return {
         "service_name": settings.service_name,
         "service_namespace": settings.service_namespace,
-        "service_instance_id": settings.service_instance_id or "unknown",
+        "service_instance_id": service_instance_id(settings) or "unknown",
         "deployment_environment": settings.deployment_environment,
         "oauth_provider": settings.oauth_provider or "unknown",
         "service_version": settings.service_version,
