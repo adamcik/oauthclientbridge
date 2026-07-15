@@ -43,13 +43,14 @@ from opentelemetry.sdk.trace.export import (
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 from requests.structures import CaseInsensitiveDict
 
-from oauthclientbridge import sentry, types
+from oauthclientbridge import types
 from oauthclientbridge.settings import (
     TelemetryComponent,
     TelemetryExporter,
     TelemetrySettings,
 )
 
+from . import sentry
 from ._buckets import BYTES, TIME
 from ._resources import otel_log_attributes, resource_attributes
 

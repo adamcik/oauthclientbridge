@@ -5,12 +5,12 @@ from opentelemetry import trace
 from oauthclientbridge import (
     create_app,
     logs,
-    sentry,
     start_runtime_services,
     stop_runtime_services,
     telemetry,
 )
 from oauthclientbridge.settings import Settings
+from oauthclientbridge.telemetry import sentry
 
 tracer = trace.get_tracer(__name__)
 

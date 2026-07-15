@@ -7,8 +7,9 @@ import pytest
 import sentry_sdk
 from pydantic import SecretStr
 
-from oauthclientbridge import logs, sentry
+from oauthclientbridge import logs
 from oauthclientbridge.settings import LogLevel, LogSettings, SentrySettings
+from oauthclientbridge.telemetry import sentry
 
 from . import FakeTransport, SentryCapture
 
