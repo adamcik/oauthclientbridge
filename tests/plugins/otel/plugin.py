@@ -4,12 +4,12 @@ import pytest
 from opentelemetry import metrics, trace
 
 from oauthclientbridge import telemetry
-from oauthclientbridge.compat import (
+from oauthclientbridge.settings import TelemetryComponent, TelemetrySettings
+from oauthclientbridge.testing.otel import (
     InMemoryLogRecordExporter,
     InMemoryMetricReader,
     InMemorySpanExporter,
 )
-from oauthclientbridge.settings import TelemetryComponent, TelemetrySettings
 
 from .mocker import OTelMocker
 

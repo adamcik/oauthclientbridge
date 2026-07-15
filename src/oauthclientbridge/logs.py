@@ -28,13 +28,14 @@ from opentelemetry.semconv.attributes.user_agent_attributes import USER_AGENT_OR
 from structlog.types import EventDict
 
 from oauthclientbridge import telemetry
-from oauthclientbridge.compat import HTTP_REQUEST_BODY_SIZE, HTTP_RESPONSE_BODY_SIZE
 from oauthclientbridge.settings import LogSettings
 
 access_logger: structlog.BoundLogger = structlog.get_logger("oauthclientbridge.http")
 logger: structlog.BoundLogger = structlog.get_logger()
 
 HTTP_SERVER_DURATION = "http.server.duration"
+HTTP_REQUEST_BODY_SIZE = "http.request.body.size"
+HTTP_RESPONSE_BODY_SIZE = "http.response.body.size"
 REDACTED_URL_VALUE = "<REDACTED>"
 
 

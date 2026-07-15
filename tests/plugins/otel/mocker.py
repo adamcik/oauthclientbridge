@@ -1,7 +1,7 @@
 from opentelemetry.sdk.metrics.export import MetricsData
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 
-from oauthclientbridge.compat import (
+from oauthclientbridge.testing.otel import (
     InMemoryLogRecordExporter,
     InMemoryMetricReader,
     InMemorySpanExporter,

@@ -32,7 +32,6 @@ from werkzeug.datastructures import Headers
 from werkzeug.routing import Rule
 
 from oauthclientbridge import logs, oauth
-from oauthclientbridge.compat import HTTP_REQUEST_BODY_SIZE, HTTP_RESPONSE_BODY_SIZE
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import LogLevel, LogSettings
 
@@ -122,7 +121,7 @@ def test_flask_request_logging(capsys):
         record[f"{HTTP_RESPONSE_HEADER_TEMPLATE}.content_type"]
         == "text/html; charset=utf-8"
     )
-    assert record[HTTP_RESPONSE_BODY_SIZE] == len(b"Hello, World!")
+    assert record[logs.HTTP_RESPONSE_BODY_SIZE] == len(b"Hello, World!")
     assert logs.HTTP_SERVER_DURATION in record
 
     # Assert the formatted access log message
@@ -208,7 +207,7 @@ def test_get_request_info():
 
     assert info[CLIENT_ADDRESS] == "127.0.0.1"
     assert info[HTTP_REQUEST_METHOD] == "GET"
-    assert info[HTTP_REQUEST_BODY_SIZE] == 0
+    assert info[logs.HTTP_REQUEST_BODY_SIZE] == 0
     assert info[HTTP_ROUTE] == "/test"
     assert info[NETWORK_PROTOCOL_VERSION] == "HTTP/1.1"
     assert info[SERVER_ADDRESS] == "localhost"
@@ -252,7 +251,7 @@ def test_get_response_info():
     resp = Response("test data", status=200, headers={"Content-Type": "text/plain"})
     info = logs.get_response_info(resp)
 
-    assert info[HTTP_RESPONSE_BODY_SIZE] == len(b"test data")
+    assert info[logs.HTTP_RESPONSE_BODY_SIZE] == len(b"test data")
     assert info[HTTP_RESPONSE_STATUS_CODE] == 200
     assert info[f"{HTTP_RESPONSE_HEADER_TEMPLATE}.content_length"] == len(b"test data")
     assert info[f"{HTTP_RESPONSE_HEADER_TEMPLATE}.content_type"] == "text/plain"
