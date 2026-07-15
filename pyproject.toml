@@ -64,7 +64,11 @@ build-backend = "hatchling.build"
 source = "vcs"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/oauthclientbridge", "src/pytest_sentry_capture"]
+packages = [
+  "src/oauthclientbridge",
+  "src/pytest_otel_capture",
+  "src/pytest_sentry_capture",
+]
 
 [tool.ruff.lint]
 extend-select = ["I"]

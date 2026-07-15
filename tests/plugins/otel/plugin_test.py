@@ -1,9 +1,7 @@
 import pytest
 
 from oauthclientbridge import telemetry
-from tests.plugins.otel.helpers import CollectedLog
-
-from . import OTelMocker
+from pytest_otel_capture import CollectedLog, OTelMocker
 
 
 def test_otel_mock_fixture_initializes_telemetry(monkeypatch, request) -> None:

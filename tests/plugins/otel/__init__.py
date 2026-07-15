@@ -1,7 +1,8 @@
-from .helpers import (
+from pytest_otel_capture import (
     CollectedLog,
     CollectedMetric,
     CollectedSpan,
+    OTelMocker,
     assert_trace_header,
     assert_trace_id,
     find_logs,
@@ -12,7 +13,7 @@ from .helpers import (
     get_span,
     latest_metric_data,
 )
-from .mocker import OTelMocker
+
 from .plugin import fixture_meter, fixture_otel_mock, fixture_tracer, instrumented
 
 __all__ = [

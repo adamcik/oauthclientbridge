@@ -1,15 +1,14 @@
 from opentelemetry.sdk.metrics.export import MetricsData
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 
-from oauthclientbridge.testing.otel import (
+from ._compat import (
     InMemoryLogRecordExporter,
     InMemoryMetricReader,
     InMemorySpanExporter,
     SimpleLogRecordProcessor,
     reset_otel_once,
 )
-
-from .helpers import CollectedLog, CollectedMetric, CollectedSpan
+from ._helpers import CollectedLog, CollectedMetric, CollectedSpan
 
 
 def _reset_otel_once():
