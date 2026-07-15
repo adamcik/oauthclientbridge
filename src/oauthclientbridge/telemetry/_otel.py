@@ -44,18 +44,14 @@ from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapProp
 from requests.structures import CaseInsensitiveDict
 
 from oauthclientbridge import sentry, types
-from oauthclientbridge.resource_labels import (
-    log_attributes,
-    resource_attributes,
-    runtime_log_attributes,
-)
 from oauthclientbridge.settings import (
     TelemetryComponent,
     TelemetryExporter,
     TelemetrySettings,
 )
 
-# Buckets for histogram metrics, taken from stats.py
+from ._resources import log_attributes, resource_attributes, runtime_log_attributes
+
 TIME_BUCKETS = (
     0.0001,
     0.00055,
@@ -258,7 +254,6 @@ def init_tracing(
             SentrySpanProcessor,
         )
 
-        print("SENTRY")
         provider.add_span_processor(SentrySpanProcessor())
         propagators.append(SentryPropagator())
 

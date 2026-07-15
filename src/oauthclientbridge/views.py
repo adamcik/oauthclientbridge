@@ -12,7 +12,7 @@ from opentelemetry.semconv.attributes.exception_attributes import (
     EXCEPTION_TYPE,
 )
 
-from oauthclientbridge import client, crypto, db, oauth, stats, telemetry
+from oauthclientbridge import client, crypto, db, oauth, telemetry
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import LogLevel, current_settings
 
@@ -223,7 +223,7 @@ def token() -> flask.Response:
         workaround_response = _revoked_grant_workaround_response()
         if workaround_response is not None:
             logger.warning("Serving revoked grant workaround token")
-            stats.WorkaroundCounter.labels(workaround="revoked_grant").inc()
+            telemetry.record_workaround("revoked_grant")
             trace.get_current_span().add_event("Served revoked grant workaround token")
             return flask.jsonify(workaround_response)
 
@@ -237,7 +237,7 @@ def token() -> flask.Response:
         raise oauth.Error(OAuthError.INVALID_CLIENT, "Client not known.")
 
     if "refresh_token" not in result:
-        stats.observe_token_grant_age(record.created_at)
+        telemetry.observe_token_grant_age(record.created_at)
         return flask.jsonify(result)
 
     refresh_result = oauth.fetch(
@@ -263,7 +263,7 @@ def token() -> flask.Response:
             # repeatedly sending the same dead refresh token upstream.
             # Spotify refresh token expiry: https://developer.spotify.com/blog/2026-06-18-refresh-token-expiration
             db.update(client_id, None)
-            stats.RefreshTokenInvalidationCounter.labels(reason=error.value).inc()
+            telemetry.record_refresh_token_invalidation(error.value)
             logger.warning("Revoking stored token after upstream invalid_grant")
         elif error == OAuthError.TEMPORARILY_UNAVAILABLE:
             logger.warning(
@@ -319,7 +319,7 @@ def token() -> flask.Response:
         db.update(client_id, crypto.dumps(client_secret, modified))
 
     # Only return what we got from the API (minus refresh_token).
-    stats.observe_token_grant_age(record.created_at)
+    telemetry.observe_token_grant_age(record.created_at)
     return flask.jsonify(refresh_result)
 
 
@@ -338,7 +338,7 @@ def metrics() -> flask.Response:
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-    return stats.export_metrics()
+    return telemetry.export_metrics()
 
 
 def _error(
@@ -369,11 +369,7 @@ def _error(
         {EXCEPTION_MESSAGE: f"{error_code}: {description}", EXCEPTION_TYPE: error_code},
     )
 
-    stats.ServerErrorCounter.labels(
-        endpoint=stats.endpoint(),
-        status=stats.status(status),
-        error=error,
-    ).inc()
+    telemetry.record_server_error(status, str(error))
 
     response = _render(error=error_code, description=description, state=state)
     response.status_code = status

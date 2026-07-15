@@ -12,7 +12,7 @@ import requests
 import structlog
 from opentelemetry import metrics, trace
 
-from oauthclientbridge import stats
+from oauthclientbridge import telemetry
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import current_settings
 from oauthclientbridge.utils import APIResult, http_status_to_result, rewrite_uri
@@ -114,20 +114,14 @@ def error_handler(e: Error) -> flask.Response:
     current_span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
 
     status = HTTPStatus(response.status_code)
-    stats.ServerErrorCounter.labels(
-        endpoint=stats.endpoint(),
-        status=stats.status(status),
-        error=e.error,
-    ).inc()
+    telemetry.record_server_error(status, e.error.value)
     return response
 
 
 def fallback_error_handler(e: Exception) -> flask.Response:
-    stats.ServerErrorCounter.labels(
-        endpoint=stats.endpoint(),
-        status=stats.status(HTTPStatus.INTERNAL_SERVER_ERROR),
-        error=OAuthError.SERVER_ERROR.value,
-    ).inc()
+    telemetry.record_server_error(
+        HTTPStatus.INTERNAL_SERVER_ERROR, OAuthError.SERVER_ERROR.value
+    )
 
     current_span = trace.get_current_span()
     current_span.set_attribute("error.unhandled", True)
@@ -160,15 +154,11 @@ def sanitize_for_logging(payload: OAuthResponse) -> OAuthResponse:
 
 
 def _record_attempt(endpoint: str, attempt_kind: RetryAttemptKind) -> None:
-    stats.ClientAttemptCounter.labels(endpoint=endpoint, kind=attempt_kind).inc()
+    telemetry.record_client_attempt(endpoint, attempt_kind)
 
 
 def _record_retry_decision(endpoint: str, decision: RetryDecision) -> None:
-    stats.ClientRetryDecisionCounter.labels(
-        endpoint=endpoint,
-        decision=decision.action,
-        reason=decision.reason,
-    ).inc()
+    telemetry.record_retry_decision(endpoint, decision.action, decision.reason)
 
 
 def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResponse:
@@ -319,11 +309,6 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
                 pending_retry_decision = None
                 break
 
-            labels = {
-                "endpoint": endpoint,
-                "status": stats.status(status) if status else "unknown",
-            }
-
             if status is not None and "error" in result:
                 error_code = result["error"]
                 if error_code in current_settings.fetch.error_types:
@@ -332,7 +317,7 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
                     error_label = OAuthError(error_code).value
                 else:
                     error_label = "invalid_error"
-                stats.ClientErrorCounter.labels(error=error_label, **labels).inc()
+                telemetry.record_client_error(endpoint, status, error_label)
 
             logger.debug(
                 "Result %s [status %s] [retry after %s]", prefix, status, retry
@@ -358,10 +343,7 @@ def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResp
         if status:
             attributes["http.response.status_code"] = int(status)
 
-        stats.ClientRetryHistogram.labels(
-            endpoint=endpoint,
-            status=stats.status(status) if status else "unknown",
-        ).observe(completed_retries)
+        telemetry.record_client_retries(endpoint, status, completed_retries)
 
         error_type = result.get("error")
         if error_type:
@@ -436,7 +418,7 @@ def _fetch(
 
         result = _decode(span, resp)
         status = HTTPStatus(resp.status_code)
-        status_label = stats.status(status)
+        status_label = status
         length = len(resp.content)
         retry_after = parse_retry(resp.headers.get("retry-after"))
 
@@ -444,10 +426,7 @@ def _fetch(
             span.add_event("Closing session to get new server")
             session.close()
 
-    labels = {"endpoint": endpoint, "status": status_label}
-    if length is not None:
-        stats.ClientResponseSizeHistogram.labels(**labels).observe(length)
-    stats.ClientLatencyHistogram.labels(**labels).observe(request_latency)
+    telemetry.record_client_response(endpoint, status_label, request_latency, length)
 
     return result, status, retry_after
 

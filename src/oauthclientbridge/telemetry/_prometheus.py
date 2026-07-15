@@ -13,14 +13,14 @@ from flask import Flask
 from opentelemetry import trace
 
 from oauthclientbridge.coalescing import CoalescingWorker
-from oauthclientbridge.resource_labels import build_info_labels
 from oauthclientbridge.settings import current_settings
 from oauthclientbridge.utils import utcnow
+
+from ._resources import build_info_labels
 
 registry = prometheus_client.CollectorRegistry()
 logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
-
 TIME_BUCKETS = (
     0.0001,
     0.00055,
@@ -43,7 +43,6 @@ TIME_BUCKETS = (
     10.0,
     float("inf"),
 )
-
 BYTE_BUCKETS = (
     8,
     22,
@@ -67,7 +66,6 @@ BYTE_BUCKETS = (
     204800,
     float("inf"),
 )
-
 RETRY_BUCKETS = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, float("inf"))
 
 HTTP_STATUS_LABELS: dict[HTTPStatus, str] = {}
@@ -163,6 +161,7 @@ ClientResponseSizeHistogram = prometheus_client.Histogram(
     registry=registry,
 )
 
+
 BuildInfoGauge = prometheus_client.Gauge(
     "oauth_build_info",
     "Build and deployment metadata.",
@@ -197,20 +196,20 @@ TokenGrantAgeHistogram = prometheus_client.Histogram(
     "oauth_token_grant_age_seconds",
     "Age of successfully used stored token grants.",
     buckets=(
-        3600,  # 1 hour
-        21600,  # 6 hours
-        86400,  # 1 day
-        259200,  # 3 days
-        604800,  # 7 days
-        1209600,  # 14 days
-        2592000,  # 30 days
-        5184000,  # 60 days
-        7776000,  # 90 days
-        10368000,  # 120 days
-        12960000,  # 150 days
-        15552000,  # 180 days
-        18144000,  # 210 days
-        31536000,  # 365 days
+        3600,
+        21600,
+        86400,
+        259200,
+        604800,
+        1209600,
+        2592000,
+        5184000,
+        7776000,
+        10368000,
+        12960000,
+        15552000,
+        18144000,
+        31536000,
         float("inf"),
     ),
     registry=registry,
@@ -327,11 +326,8 @@ def request_refresh(app: Flask | None = None) -> None:
 def start_background_refresh(app: Flask) -> None:
     if app.extensions.get("oauth_metrics_refresh_worker") is not None:
         return
-
-    refreshers = app.extensions.get("oauth_metrics_refreshers", [])
-    if not refreshers:
+    if not app.extensions.get("oauth_metrics_refreshers", []):
         return
-
     worker = CoalescingWorker(
         lambda: _refresh_metrics_in_app(app),
         debounce_seconds=0.5,

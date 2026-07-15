@@ -5,7 +5,7 @@ from importlib.metadata import version
 import structlog
 from flask import Flask
 
-from oauthclientbridge import db, logs, oauth, stats, telemetry, views
+from oauthclientbridge import db, logs, oauth, telemetry, views
 from oauthclientbridge.settings import Settings
 
 __version__ = version("oauthclientbridge")
@@ -32,13 +32,13 @@ def create_app(settings: Settings | None = None) -> Flask:
     _ = app.register_error_handler(oauth.Error, oauth.error_handler)
     _ = app.register_error_handler(500, oauth.fallback_error_handler)
 
-    _ = app.before_request(stats.record_metrics)
-    _ = app.after_request(stats.finalize_metrics)
+    _ = app.before_request(telemetry.record_request_metrics)
+    _ = app.after_request(telemetry.finalize_request_metrics)
 
-    stats.set_build_info(settings.otel)
-    stats.add_refresher(
+    telemetry.set_build_info(settings.otel)
+    telemetry.add_refresher(
         app,
-        lambda: stats.set_token_state_counts(db.token_state_counts()),
+        lambda: telemetry.set_token_state_counts(db.token_state_counts()),
     )
 
     app.register_blueprint(views.routes)
@@ -71,11 +71,11 @@ def start_runtime_services(app: Flask) -> None:
                 "Database must be initialized before starting runtime services"
             )
 
-    stats.start_background_refresh(app)
-    stats.request_refresh(app)
+    telemetry.start_background_refresh(app)
+    telemetry.request_refresh(app)
     app.extensions["oauth_runtime_services_started"] = True
 
 
 def stop_runtime_services(app: Flask) -> None:
-    stats.stop_background_refresh(app)
+    telemetry.stop_background_refresh(app)
     app.extensions.pop("oauth_runtime_services_started", None)

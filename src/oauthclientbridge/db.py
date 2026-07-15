@@ -10,7 +10,7 @@ from typing import Iterator
 from flask import current_app, g
 from opentelemetry import metrics, trace
 
-from oauthclientbridge import stats, types
+from oauthclientbridge import telemetry, types
 from oauthclientbridge.settings import current_settings
 from oauthclientbridge.utils import utcnow
 
@@ -134,7 +134,7 @@ def cursor(
             with source as connection:
                 c = connection.cursor()
                 with contextlib.closing(c):
-                    with stats.DBLatencyHistorgram.labels(query=name).time():
+                    with telemetry.record_database_latency(name):
                         try:
                             if transaction:
                                 c.execute("BEGIN")
@@ -150,7 +150,7 @@ def cursor(
         except sqlite3.Error as e:
             # https://www.python.org/dev/peps/pep-0249/#exceptions for values.
             error = re.sub(r"(?!^)([A-Z])", r"_\1", e.__class__.__name__).lower()
-            stats.DBErrorCounter.labels(query=name, error=error).inc()
+            telemetry.record_database_error(name, error)
 
             attributes["error.type"] = e.__class__.__name__
             raise
@@ -201,7 +201,7 @@ def insert(client_id: types.ClientId, token: types.EncryptedToken) -> None:
             ),
         )
 
-    stats.request_refresh()
+    telemetry.request_refresh()
 
 
 def lookup(client_id: types.ClientId) -> TokenRecord:
@@ -244,7 +244,7 @@ def update(client_id: types.ClientId, token: types.EncryptedToken | None) -> int
         rowcount = int(c.rowcount)
 
     if rowcount:
-        stats.request_refresh()
+        telemetry.request_refresh()
 
     return rowcount
 

@@ -7,10 +7,11 @@ from oauthclientbridge import (
     create_app,
     db,
     start_runtime_services,
-    stats,
     stop_runtime_services,
+    telemetry,
 )
 from oauthclientbridge.settings import Settings, TelemetrySettings
+from oauthclientbridge.telemetry import _prometheus as stats
 
 
 def test_metrics(client):
@@ -122,7 +123,7 @@ def test_metrics_write_paths_request_background_refresh(client, monkeypatch):
         nonlocal requested
         requested += 1
 
-    monkeypatch.setattr(stats, "request_refresh", request)
+    monkeypatch.setattr(telemetry, "request_refresh", request)
 
     db.insert("present-client", b"placeholder")
     db.update("present-client", None)

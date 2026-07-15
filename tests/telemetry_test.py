@@ -12,7 +12,7 @@ from opentelemetry import metrics, trace
 from opentelemetry.sdk.metrics.export import HistogramDataPoint, NumberDataPoint
 from requests_mock import Mocker
 
-from oauthclientbridge import db, oauth, resource_labels, telemetry
+from oauthclientbridge import db, oauth, telemetry
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.oauth import core as oauth_core
 from oauthclientbridge.settings import (
@@ -21,6 +21,7 @@ from oauthclientbridge.settings import (
     TelemetrySettings,
     current_settings,
 )
+from oauthclientbridge.telemetry import _resources as resource_labels
 from oauthclientbridge.utils import APIResult
 
 from .conftest import GetClient, PostClient, TokenTuple
@@ -88,10 +89,10 @@ def test_telemetry_metrics_otel_enabled(
 def test_init_metrics_disabled() -> None:
     # NOTE: Avoids loop with settings.
 
-    settings = telemetry.TelemetrySettings(components=set())
+    settings = TelemetrySettings(components=set())
 
     with unittest.mock.patch(
-        "oauthclientbridge.telemetry.set_meter_provider"
+        "oauthclientbridge.telemetry._otel.set_meter_provider"
     ) as mock_set_meter_provider:
         telemetry.init_metrics(settings)
 
@@ -111,7 +112,7 @@ def test_init_metrics_sets_resource_attributes() -> None:
     )
 
     with unittest.mock.patch(
-        "oauthclientbridge.telemetry.set_meter_provider"
+        "oauthclientbridge.telemetry._otel.set_meter_provider"
     ) as mock_set_meter_provider:
         telemetry.init_metrics(settings)
 
