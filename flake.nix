@@ -277,6 +277,7 @@
               --processes "''${WORKERS:-4}"
               --threads "''${THREADS:-1}"
               --master
+              --lazy-app
               --py-call-uwsgi-fork-hooks
               --die-on-term
               --show-config
