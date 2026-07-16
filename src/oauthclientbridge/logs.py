@@ -2,7 +2,7 @@ import logging
 import string
 import time
 from typing import Any, cast
-from urllib.parse import parse_qsl, quote, urlsplit, urlunsplit
+from urllib.parse import urlsplit
 
 import structlog
 from flask import Flask, Request, Response, g, request
@@ -29,6 +29,7 @@ from structlog.types import EventDict
 
 from oauthclientbridge import telemetry
 from oauthclientbridge.settings import LogSettings
+from oauthclientbridge.utils import uri
 
 access_logger: structlog.BoundLogger = structlog.get_logger("oauthclientbridge.http")
 logger: structlog.BoundLogger = structlog.get_logger()
@@ -36,7 +37,6 @@ logger: structlog.BoundLogger = structlog.get_logger()
 HTTP_SERVER_DURATION = "http.server.duration"
 HTTP_REQUEST_BODY_SIZE = "http.request.body.size"
 HTTP_RESPONSE_BODY_SIZE = "http.response.body.size"
-REDACTED_URL_VALUE = "<REDACTED>"
 
 
 class AccessLogFormatter(string.Formatter):
@@ -135,7 +135,7 @@ def add_otel_context_processor(_: Any, __: str, event_dict: EventDict) -> EventD
 
 
 def get_request_info(req: Request, duration_ns: int) -> dict[str, Any]:
-    sanitized_url = sanitize_url(str(req.url))
+    sanitized_url = uri.sanitize_url(str(req.url))
     sanitized_url_parts = urlsplit(sanitized_url) if sanitized_url is not None else None
 
     return {
@@ -157,22 +157,6 @@ def get_request_info(req: Request, duration_ns: int) -> dict[str, Any]:
         f"{HTTP_REQUEST_HEADER_TEMPLATE}.content_type": req.content_type,
         f"{HTTP_REQUEST_HEADER_TEMPLATE}.content_length": req.content_length,
     }
-
-
-def sanitize_url(url: str | None) -> str | None:
-    if url is None:
-        return None
-
-    parts = urlsplit(url)
-    if not parts.query:
-        return url
-
-    filtered_query = "&".join(
-        f"{quote(key, safe='')}={REDACTED_URL_VALUE}"
-        for key, value in parse_qsl(parts.query, keep_blank_values=True)
-    )
-
-    return urlunsplit(parts._replace(query=filtered_query))
 
 
 def get_response_info(resp: Response) -> dict[str, Any]:

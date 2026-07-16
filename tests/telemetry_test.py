@@ -302,6 +302,42 @@ def test_callback_missing_state_records_trace_error_message(
     assert error_event.attributes["exception.message"].startswith("invalid_state:")
 
 
+def test_callback_trace_redacts_query_values(
+    otel_mock: otel.OTelMocker,
+    get: GetClient,
+) -> None:
+    get("/callback?code=secret-code&state=secret-state")
+
+    spans = otel_mock.get_finished_spans()
+    request_span = otel.get_span(spans, "GET /callback")
+    assert request_span is not None
+    assert request_span.attributes is not None
+    assert request_span.attributes["http.url"] == (
+        "http://localhost/callback?code=<REDACTED>&state=<REDACTED>"
+    )
+    assert request_span.attributes["url.full"] == (
+        "http://localhost/callback?code=<REDACTED>&state=<REDACTED>"
+    )
+    assert request_span.attributes["url.query"] == "code=<REDACTED>&state=<REDACTED>"
+
+
+def test_authorize_trace_redacts_redirect_location(
+    otel_mock: otel.OTelMocker,
+    client: FlaskClient,
+) -> None:
+    response = client.get("/")
+
+    assert response.status_code == HTTPStatus.FOUND
+    spans = otel_mock.get_finished_spans()
+    request_span = otel.get_span(spans, "GET /")
+    assert request_span is not None
+    assert request_span.attributes is not None
+    location = request_span.attributes["http.response.header.location"]
+    assert location.startswith("https://provider.example.com/auth?")
+    assert "state=<REDACTED>" in location
+    assert "client_secret" not in location
+
+
 def test_unhandled_server_error_marks_span_unhandled(
     otel_mock: otel.OTelMocker,
     client: FlaskClient,

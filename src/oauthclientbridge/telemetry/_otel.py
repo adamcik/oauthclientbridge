@@ -1,5 +1,7 @@
 import importlib.util
 from typing import assert_never
+from urllib.parse import urlsplit
+from wsgiref.util import request_uri
 
 import requests
 import structlog
@@ -49,6 +51,7 @@ from oauthclientbridge.settings import (
     TelemetryExporter,
     TelemetrySettings,
 )
+from oauthclientbridge.utils import uri
 
 from . import sentry
 from ._buckets import BYTES, TIME
@@ -107,7 +110,7 @@ def _flask_response_hook(span: trace.Span, status: str, headers):
     if "Location" in headers:
         span.set_attribute(
             "http.response.header.location",
-            headers["Location"],
+            uri.sanitize_url(headers["Location"]),
         )
     if "Cache-Control" in headers:
         span.set_attribute(
@@ -124,6 +127,19 @@ def _flask_response_hook(span: trace.Span, status: str, headers):
             "http.response.header.retry_after",
             headers["Retry-After"],
         )
+
+
+def _flask_request_hook(span: trace.Span, environ) -> None:
+    if not span or not span.is_recording():
+        return
+
+    sanitized_url = uri.sanitize_url(request_uri(environ))
+    sanitized_url_parts = urlsplit(sanitized_url) if sanitized_url else None
+    # Flask instrumentation records this legacy attribute before invoking hooks.
+    span.set_attribute("http.url", sanitized_url)
+    span.set_attribute("url.full", sanitized_url)
+    if sanitized_url_parts is not None:
+        span.set_attribute("url.query", sanitized_url_parts.query)
 
 
 def _logging_log_hook(span: trace.Span, record: object):
@@ -156,6 +172,7 @@ def instrument_app(app: Flask) -> None:
     # server or tests.
     FlaskInstrumentor().instrument_app(
         app,
+        request_hook=_flask_request_hook,
         response_hook=_flask_response_hook,
     )
 
