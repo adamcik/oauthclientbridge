@@ -15,7 +15,7 @@ from requests_mock import Mocker
 from oauthclientbridge import db, oauth, telemetry
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.oauth import core as oauth_core
-from oauthclientbridge.oauth.outcome import UpstreamResult
+from oauthclientbridge.oauth.outcome import OAuthResponse, UpstreamResult
 from oauthclientbridge.settings import (
     Settings,
     TelemetryComponent,
@@ -164,7 +164,7 @@ def test_log_attributes_preserves_numeric_process_id() -> None:
 def test_requests_creates_spans(
     requests_mock: Mocker,
     otel_mock: otel.OTelMocker,
-    instrumented,
+    instrumented: None,
     tracer: trace.Tracer,
 ) -> None:
     requests_mock.get("http://example.com/test")
@@ -180,7 +180,7 @@ def test_requests_creates_spans(
 
 def test_requests_propagates_header(
     requests_mock: Mocker,
-    instrumented,
+    instrumented: None,
     tracer: trace.Tracer,
 ) -> None:
     requests_mock.get("http://example.com/test", status_code=200, json={})
@@ -198,7 +198,7 @@ def test_requests_propagates_header(
 
 def test_sqlite3_creates_spans(
     otel_mock: otel.OTelMocker,
-    instrumented,
+    instrumented: None,
     tracer: trace.Tracer,
 ) -> None:
     with tracer.start_as_current_span("parent-span") as parent_span:
@@ -339,6 +339,7 @@ def test_authorize_trace_redacts_redirect_location(
     assert request_span is not None
     assert request_span.attributes is not None
     location = request_span.attributes["http.response.header.location"]
+    assert isinstance(location, str)
     assert location.startswith("https://provider.example.com/auth?")
     assert "state=<REDACTED>" in location
     assert "client_secret" not in location
@@ -350,9 +351,10 @@ def test_unhandled_server_error_marks_span_unhandled(
 ) -> None:
     app = client.application
 
-    @app.route("/boom")
     def boom() -> str:
         raise RuntimeError("boom")
+
+    app.add_url_rule("/boom", view_func=boom)
 
     response = client.get("/boom")
 
@@ -370,7 +372,7 @@ def test_unhandled_server_error_marks_span_unhandled(
 def test_endpoint_sets_traceresponse_from_parent(
     otel_mock: otel.OTelMocker,
     client: FlaskClient,
-    instrumented,
+    instrumented: None,
 ) -> None:
     # TODO: test without parent set?
     response = client.get("/", headers={"traceparent": HEADER})
@@ -412,7 +414,7 @@ def test_outgoing_request_span_records_retry_after_header(
     requests_mock: Mocker,
     otel_mock: otel.OTelMocker,
     app_context: flask.ctx.AppContext,
-    instrumented,
+    instrumented: None,
 ) -> None:
     current_settings.fetch.total_retries = 1
     requests_mock.post(
@@ -440,7 +442,7 @@ def test_outgoing_request_span_records_retry_after_header(
 def test_endpoint_creates_sqlite3_spans(
     requests_mock: Mocker,
     otel_mock: otel.OTelMocker,
-    instrumented,
+    instrumented: None,
     post: PostClient,
     refresh_token: TokenTuple,
 ) -> None:
@@ -467,7 +469,7 @@ def test_endpoint_creates_sqlite3_spans(
 def test_token_update_records_changed_fields(
     requests_mock: Mocker,
     otel_mock: otel.OTelMocker,
-    instrumented,
+    instrumented: None,
     post: PostClient,
     refresh_token: TokenTuple,
 ) -> None:
@@ -502,7 +504,7 @@ def test_token_update_records_changed_fields(
 def test_token_insert_records_fields(
     requests_mock: Mocker,
     otel_mock: otel.OTelMocker,
-    instrumented,
+    instrumented: None,
     get: GetClient,
     state: str,
 ) -> None:
@@ -558,7 +560,7 @@ def test_revoked_grant_workaround_adds_span_event(
 
 def test_endpoint_propagates_outgoing_traceparent(
     requests_mock: Mocker,
-    instrumented,
+    instrumented: None,
     post: PostClient,
     refresh_token: TokenTuple,
 ) -> None:
@@ -598,7 +600,7 @@ def test_flask_metrics(
 def test_requests_metrics(
     requests_mock: Mocker,
     otel_mock: otel.OTelMocker,
-    instrumented,
+    instrumented: None,
 ) -> None:
     requests_mock.get("http://example.com/test", status_code=200)
 
@@ -1033,7 +1035,13 @@ def test_oauth_client_retry_metrics_record_deadline_skip(
 
     fetch_calls = 0
 
-    def fetch_side_effect(*args, **kwargs):
+    def fetch_side_effect(
+        span: trace.Span,
+        prepared: requests.PreparedRequest,
+        timeout: float,
+        endpoint: str,
+    ) -> tuple[OAuthResponse, HTTPStatus | None, int]:
+        _ = span, prepared, timeout, endpoint
         nonlocal fetch_calls
         if fetch_calls == 0:
             fetch_calls += 1
