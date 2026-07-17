@@ -155,29 +155,31 @@ def _flask_request_hook(span: trace.Span, environ: dict[str, Any]) -> None:
         span.set_attribute("url.query", sanitized_url_parts.query)
 
 
-def _logging_log_hook(span: trace.Span, record: object):
+def _logging_log_hook(span: trace.Span, record: object) -> None:
     if not span or not span.is_recording():
         return
 
     setattr(record, "telemetry_attributes", otel_log_attributes(span))
 
 
-instrumentors = [
-    (SystemMetricsInstrumentor(), {}),
-    (LoggingInstrumentor(), {"log_hook": _logging_log_hook}),
-    (SQLite3Instrumentor(), {}),
-    (RequestsInstrumentor(), {"response_hook": _requests_response_hook}),
-]
+_system_metrics_instrumentor = SystemMetricsInstrumentor()
+_logging_instrumentor = LoggingInstrumentor()
+_sqlite_instrumentor = SQLite3Instrumentor()
+_requests_instrumentor = RequestsInstrumentor()
 
 
-def instrument():
-    for inst, kwargs in instrumentors:
-        inst.instrument(**kwargs)
+def instrument() -> None:
+    _system_metrics_instrumentor.instrument()
+    _logging_instrumentor.instrument(log_hook=_logging_log_hook)
+    _sqlite_instrumentor.instrument()
+    _requests_instrumentor.instrument(response_hook=_requests_response_hook)
 
 
-def uninstrument():
-    for inst, _ in instrumentors:
-        inst.uninstrument()
+def uninstrument() -> None:
+    _system_metrics_instrumentor.uninstrument()
+    _logging_instrumentor.uninstrument()
+    _sqlite_instrumentor.uninstrument()
+    _requests_instrumentor.uninstrument()
 
 
 def instrument_app(app: Flask) -> None:

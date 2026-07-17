@@ -1,6 +1,7 @@
 import logging
 import string
 import time
+from collections.abc import Mapping, Sequence
 from typing import Any, cast
 from urllib.parse import urlsplit
 
@@ -40,7 +41,9 @@ HTTP_RESPONSE_BODY_SIZE = "http.response.body.size"
 
 
 class AccessLogFormatter(string.Formatter):
-    def get_field(self, field_name, args, kwargs):
+    def get_field(
+        self, field_name: str, args: Sequence[Any], kwargs: Mapping[str, Any]
+    ) -> tuple[Any, str]:
         if field_name in kwargs:
             value = kwargs[field_name]
             return value if value is not None else "-", field_name
@@ -171,7 +174,7 @@ def get_response_info(resp: Response) -> dict[str, Any]:
     }
 
 
-def init_access_logs(settings: LogSettings, app: Flask):
+def init_access_logs(settings: LogSettings, app: Flask) -> None:
     if app.extensions.get("oauthclientbridge_access_logs_initialized"):
         logger.warning("Access logs already initialized for app")
         return
@@ -179,12 +182,10 @@ def init_access_logs(settings: LogSettings, app: Flask):
 
     formatter = AccessLogFormatter()
 
-    @app.before_request
-    def _before_request_log_context():
+    def _before_request_log_context() -> None:
         structlog.contextvars.clear_contextvars()
         g.start_time_ns = time.perf_counter_ns()
 
-    @app.after_request
     def _after_request_log_context(response: Response) -> Response:
         data = dict(
             **get_request_info(
@@ -200,3 +201,6 @@ def init_access_logs(settings: LogSettings, app: Flask):
         )
 
         return response
+
+    _ = app.before_request(_before_request_log_context)
+    _ = app.after_request(_after_request_log_context)

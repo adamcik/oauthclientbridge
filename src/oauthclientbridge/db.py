@@ -5,7 +5,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Iterator
+from typing import IO, Generator, cast
 
 from flask import current_app, g
 from opentelemetry import metrics, trace
@@ -49,7 +49,7 @@ class TokenRecord:
 
 
 def initialize() -> None:
-    with current_app.open_resource("schema.sql", mode="r") as f:
+    with cast(IO[str], current_app.open_resource("schema.sql", mode="r")) as f:
         schema = f.read()
     with get() as c:
         c.executescript(schema)
@@ -93,10 +93,14 @@ def _connect() -> sqlite3.Connection:
         isolation_level=None,
         uri=uri,
     )
-    connection.text_factory = lambda v: v
+    connection.text_factory = _bytes_text_factory
     for pragma in current_settings.database.pragmas:
         connection.execute(pragma)
     return connection
+
+
+def _bytes_text_factory(value: bytes) -> bytes:
+    return value
 
 
 def get() -> sqlite3.Connection:
@@ -117,7 +121,7 @@ def cursor(
     name: str,
     transaction: bool = False,
     connection: sqlite3.Connection | None = None,
-) -> Iterator[sqlite3.Cursor]:
+) -> Generator[sqlite3.Cursor, None, None]:
     """Get SQLite cursor with automatic commit if no exceptions are raised."""
     start_time = time.monotonic()
     attributes = {

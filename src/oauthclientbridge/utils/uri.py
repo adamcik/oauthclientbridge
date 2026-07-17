@@ -5,16 +5,13 @@ REDACTED_URL_VALUE = "<REDACTED>"
 
 
 def _rewrite_query(original: str, params: URIParam) -> str:
-    parts = []
+    parts: list[tuple[str, str]] = []
     query = urllib.parse.parse_qs(original, keep_blank_values=True)
     for p, value in params.items():
         query[p] = [value]  # Override with new params.
     for q, values in query.items():
         for value in values:  # Turn query into list of tuples.
-            if isinstance(value, str):
-                parts.append((q, value.encode("utf-8")))
-            else:
-                parts.append((q, value))
+            parts.append((q, value))
     return urllib.parse.urlencode(parts)
 
 

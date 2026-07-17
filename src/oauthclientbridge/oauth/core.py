@@ -166,7 +166,9 @@ def _record_retry_decision(endpoint: str, decision: RetryDecision) -> None:
     telemetry.record_retry_decision(endpoint, decision.action, decision.reason)
 
 
-def fetch(uri: str, endpoint: str, auth: str | None = None, **data) -> OAuthResponse:
+def fetch(
+    uri: str, endpoint: str, auth: str | None = None, **data: str | None
+) -> OAuthResponse:
     """Perform post given URI with auth and provided data."""
     start_time = time.monotonic()
     with tracer.start_as_current_span(f"OAUTH {endpoint}") as span:

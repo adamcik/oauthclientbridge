@@ -8,7 +8,7 @@ import flask
 import prometheus_client
 import prometheus_client.multiprocess
 
-from oauthclientbridge.settings import current_settings
+from oauthclientbridge.settings import TelemetrySettings, current_settings
 from oauthclientbridge.utils import time as time_utils
 
 from ._buckets import BYTES, TIME, TOKEN_GRANT_AGE
@@ -174,8 +174,11 @@ def finalize_metrics(response: flask.Response) -> flask.Response:
     }
 
     ServerLatencyHistogram.labels(**labels).observe(request_latency)
-    if response.content_length is not None:
-        ServerResponseSizeHistogram.labels(**labels).observe(response.content_length)
+    response_content_length = response.headers.get("Content-Length")
+    if response_content_length is not None:
+        ServerResponseSizeHistogram.labels(**labels).observe(
+            int(response_content_length)
+        )
     if flask.request.content_length is not None:
         ServerRequestSizeHistogram.labels(**labels).observe(
             flask.request.content_length
@@ -207,7 +210,7 @@ def observe_token_grant_age(created_at: datetime | None) -> None:
     TokenGrantAgeHistogram.observe((time_utils.utcnow() - created_at).total_seconds())
 
 
-def set_build_info(settings) -> None:
+def set_build_info(settings: TelemetrySettings) -> None:
     BuildInfoGauge.labels(**build_info_labels(settings)).set(1)
 
 

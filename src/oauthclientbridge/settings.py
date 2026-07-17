@@ -4,6 +4,7 @@ from enum import IntEnum, StrEnum
 from http import HTTPStatus
 from importlib.metadata import PackageNotFoundError, metadata, version
 from pathlib import Path
+from typing import cast
 
 from flask import current_app
 from pydantic import Field, SecretStr, model_validator
@@ -358,7 +359,7 @@ class Settings(BaseSettings):
 
 
 current_settings: LocalProxy[Settings] = LocalProxy(
-    lambda: current_app.config["SETTINGS"]
+    lambda: cast(Settings, current_app.config["SETTINGS"])
 )
 
 

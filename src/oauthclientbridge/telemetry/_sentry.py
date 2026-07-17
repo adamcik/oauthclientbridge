@@ -1,8 +1,18 @@
+from __future__ import annotations
+
 import logging
 from collections.abc import Callable, Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any, TypeGuard
 
 from oauthclientbridge.settings import SentrySettings
+
+if TYPE_CHECKING:
+    from sentry_sdk.transport import Transport
+    from sentry_sdk.types import Event
+
+    SentryTransport = Transport | Callable[[Event], None] | None
+else:
+    SentryTransport = object
 
 logger = logging.getLogger(__name__)
 
@@ -12,9 +22,7 @@ def _traces_sampler(
 ) -> Callable[[dict[str, object]], float]:
     def sample(sampling_context: dict[str, object]) -> float:
         wsgi_environ = sampling_context.get("wsgi_environ")
-        path = (
-            wsgi_environ.get("PATH_INFO") if isinstance(wsgi_environ, Mapping) else None
-        )
+        path = wsgi_environ.get("PATH_INFO") if _is_wsgi_environ(wsgi_environ) else None
         if not isinstance(path, str):
             return settings.traces_sample_rate
         return settings.traces_sample_rate_overrides.get(
@@ -22,6 +30,10 @@ def _traces_sampler(
         )
 
     return sample
+
+
+def _is_wsgi_environ(value: object) -> TypeGuard[Mapping[str, object]]:
+    return isinstance(value, Mapping)
 
 
 try:
@@ -32,7 +44,7 @@ except ImportError:
 
 def init(
     settings: SentrySettings,
-    transport=None,
+    transport: SentryTransport = None,
 ) -> None:
     if not settings.enabled:
         return

@@ -73,6 +73,7 @@ packages = [
 [tool.pyright]
 include = ["src/oauthclientbridge"]
 stubPath = "typings"
+typeCheckingMode = "strict"
 
 [tool.ruff.lint]
 extend-select = ["I"]
