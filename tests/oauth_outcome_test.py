@@ -21,7 +21,9 @@ def test_error_handler_returns_503_for_temporarily_unavailable_retry_after(
 
     assert response.status_code == 503
     assert response.headers["Retry-After"] == "10"
-    assert response.json["error"] == "temporarily_unavailable"
+    response_data = response.json
+    assert response_data is not None
+    assert response_data["error"] == "temporarily_unavailable"
 
 
 def test_error_handler_keeps_invalid_grant_as_400_with_retry_after(
@@ -34,7 +36,9 @@ def test_error_handler_keeps_invalid_grant_as_400_with_retry_after(
 
     assert response.status_code == 400
     assert "Retry-After" not in response.headers
-    assert response.json["error"] == "invalid_grant"
+    response_data = response.json
+    assert response_data is not None
+    assert response_data["error"] == "invalid_grant"
 
 
 @dataclass(frozen=True)
