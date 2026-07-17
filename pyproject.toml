@@ -70,6 +70,10 @@ packages = [
   "src/pytest_sentry_capture",
 ]
 
+[tool.pyright]
+include = ["src/oauthclientbridge"]
+stubPath = "typings"
+
 [tool.ruff.lint]
 extend-select = ["I"]
 

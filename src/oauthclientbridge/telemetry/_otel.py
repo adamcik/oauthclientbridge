@@ -1,5 +1,6 @@
 import importlib.util
-from typing import assert_never
+from collections.abc import Mapping
+from typing import Any, assert_never
 from urllib.parse import urlsplit
 from wsgiref.util import request_uri
 
@@ -45,6 +46,8 @@ from opentelemetry.sdk.trace.export import (
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 from requests.structures import CaseInsensitiveDict
 
+# Import the leaf module directly; importing through telemetry's facade creates a cycle.
+import oauthclientbridge.telemetry.sentry as sentry
 from oauthclientbridge import types
 from oauthclientbridge.settings import (
     TelemetryComponent,
@@ -53,7 +56,6 @@ from oauthclientbridge.settings import (
 )
 from oauthclientbridge.utils import uri
 
-from . import sentry
 from ._buckets import BYTES, TIME
 from ._resources import otel_log_attributes, resource_attributes
 
@@ -102,42 +104,53 @@ def _requests_response_hook(
         )
 
 
-def _flask_response_hook(span: trace.Span, status: str, headers):
+def _flask_response_hook(
+    span: trace.Span,
+    status: str,
+    headers: Mapping[str, str] | list[tuple[str, str]],
+) -> None:
     if not span or not span.is_recording():
         return
 
-    headers = CaseInsensitiveDict(headers)
-    if "Location" in headers:
-        span.set_attribute(
-            "http.response.header.location",
-            uri.sanitize_url(headers["Location"]),
-        )
-    if "Cache-Control" in headers:
+    headers = CaseInsensitiveDict[str](headers)
+    location = headers.get("Location")
+    if location is not None:
+        sanitized_location = uri.sanitize_url(location)
+        if sanitized_location is not None:
+            span.set_attribute(
+                "http.response.header.location",
+                sanitized_location,
+            )
+    cache_control = headers.get("Cache-Control")
+    if cache_control is not None:
         span.set_attribute(
             "http.response.header.cache_control",
-            headers["Cache-Control"],
+            cache_control,
         )
-    if "Content-Type" in headers:
+    content_type = headers.get("Content-Type")
+    if content_type is not None:
         span.set_attribute(
             "http.response.header.content_type",
-            headers["Content-Type"],
+            content_type,
         )
-    if "Retry-After" in headers:
+    retry_after = headers.get("Retry-After")
+    if retry_after is not None:
         span.set_attribute(
             "http.response.header.retry_after",
-            headers["Retry-After"],
+            retry_after,
         )
 
 
-def _flask_request_hook(span: trace.Span, environ) -> None:
+def _flask_request_hook(span: trace.Span, environ: dict[str, Any]) -> None:
     if not span or not span.is_recording():
         return
 
     sanitized_url = uri.sanitize_url(request_uri(environ))
     sanitized_url_parts = urlsplit(sanitized_url) if sanitized_url else None
-    # Flask instrumentation records this legacy attribute before invoking hooks.
-    span.set_attribute("http.url", sanitized_url)
-    span.set_attribute("url.full", sanitized_url)
+    if sanitized_url is not None:
+        # Flask instrumentation records this legacy attribute before invoking hooks.
+        span.set_attribute("http.url", sanitized_url)
+        span.set_attribute("url.full", sanitized_url)
     if sanitized_url_parts is not None:
         span.set_attribute("url.query", sanitized_url_parts.query)
 
