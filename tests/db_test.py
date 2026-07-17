@@ -5,7 +5,10 @@ from unittest.mock import patch
 
 import pytest
 
-from oauthclientbridge import db
+from oauthclientbridge import db, types
+
+CLIENT_ID = types.ClientId(uuid.UUID("00000000-0000-0000-0000-000000000001"))
+ENCRYPTED_TOKEN = types.EncryptedToken(b"token")
 
 
 @pytest.mark.parametrize(
@@ -37,24 +40,30 @@ class LookupCase:
     [
         LookupCase(
             name="text token",
-            query="INSERT INTO tokens (client_id, token) VALUES ('client', 'token')",
+            query=(
+                "INSERT INTO tokens (client_id, token) VALUES "
+                "('00000000-0000-0000-0000-000000000001', 'token')"
+            ),
         ),
         LookupCase(
             name="blob token",
-            query="INSERT INTO tokens (client_id, token) VALUES ('client', X'746F6B656E')",
+            query=(
+                "INSERT INTO tokens (client_id, token) VALUES "
+                "('00000000-0000-0000-0000-000000000001', X'746F6B656E')"
+            ),
         ),
     ],
     ids=lambda case: case.name,
 )
 def test_lookup(case: LookupCase, cursor):
     cursor.execute(case.query)
-    record = db.lookup("client")
-    assert b"token" == record.encrypted_token
+    record = db.lookup(CLIENT_ID)
+    assert ENCRYPTED_TOKEN == record.encrypted_token
 
 
 def test_lookup_missing(cursor):
     with pytest.raises(LookupError):
-        db.lookup("client")
+        db.lookup(CLIENT_ID)
 
 
 def test_is_initialized_uses_check_tokens_table_operation_name(cursor):
@@ -65,8 +74,10 @@ def test_is_initialized_uses_check_tokens_table_operation_name(cursor):
 
 
 def test_lookup_revoked(cursor):
-    cursor.execute("INSERT INTO tokens (client_id) VALUES ('client')")
-    record = db.lookup("client")
+    cursor.execute(
+        "INSERT INTO tokens (client_id) VALUES ('00000000-0000-0000-0000-000000000001')"
+    )
+    record = db.lookup(CLIENT_ID)
     assert record.encrypted_token is None
 
 
@@ -79,16 +90,16 @@ def test_lookup_includes_timestamps(cursor):
             "VALUES (?, ?, ?, ?)"
         ),
         (
-            "client",
+            str(CLIENT_ID),
             "token",
             int(created_at.timestamp()),
             int(last_updated_at.timestamp()),
         ),
     )
 
-    assert db.lookup("client") == db.TokenRecord(
-        client_id="client",
-        encrypted_token=b"token",
+    assert db.lookup(CLIENT_ID) == db.TokenRecord(
+        client_id=CLIENT_ID,
+        encrypted_token=ENCRYPTED_TOKEN,
         created_at=created_at,
         last_updated_at=last_updated_at,
     )
@@ -98,12 +109,12 @@ TOKEN_TYPE_QUERY = "SELECT token, typeof(token) FROM tokens WHERE client_id = ?"
 
 
 def test_insert(cursor):
-    client_id = "test_client_id"
-    db.insert(client_id, b"token")
+    client_id = types.ClientId(uuid.UUID("00000000-0000-0000-0000-000000000002"))
+    db.insert(client_id, ENCRYPTED_TOKEN)
 
     cursor.execute(
         "SELECT token, typeof(token), created_at, last_updated_at FROM tokens WHERE client_id = ?",
-        (client_id,),
+        (str(client_id),),
     )
     result, dbtype, created_at, last_updated_at = cursor.fetchone()
     assert b"token" == result
@@ -114,14 +125,15 @@ def test_insert(cursor):
 
 def test_update(cursor):
     cursor.execute(
-        "INSERT INTO tokens (client_id, last_updated_at) VALUES ('client', 1)"
+        "INSERT INTO tokens (client_id, last_updated_at) VALUES "
+        "('00000000-0000-0000-0000-000000000001', 1)"
     )
 
-    assert 1 == db.update("client", b"token")
+    assert 1 == db.update(CLIENT_ID, ENCRYPTED_TOKEN)
 
     cursor.execute(
         "SELECT token, typeof(token), last_updated_at FROM tokens WHERE client_id = ?",
-        ("client",),
+        (str(CLIENT_ID),),
     )
     result, dbtype, last_updated_at = cursor.fetchone()
     assert b"token" == result
@@ -131,14 +143,15 @@ def test_update(cursor):
 
 def test_update_none(cursor):
     cursor.execute(
-        "INSERT INTO tokens (client_id, token, last_updated_at) VALUES ('client', 'token', 1)"
+        "INSERT INTO tokens (client_id, token, last_updated_at) VALUES "
+        "('00000000-0000-0000-0000-000000000001', 'token', 1)"
     )
 
-    assert 1 == db.update("client", None)
+    assert 1 == db.update(CLIENT_ID, None)
 
     cursor.execute(
         "SELECT token, typeof(token), last_updated_at FROM tokens WHERE client_id = ?",
-        ("client",),
+        (str(CLIENT_ID),),
     )
     result, dbtype, last_updated_at = cursor.fetchone()
     assert result is None
@@ -147,19 +160,22 @@ def test_update_none(cursor):
 
 
 def test_update_missing(app_context):
-    assert 0 == db.update("client", b"token")
+    assert 0 == db.update(CLIENT_ID, ENCRYPTED_TOKEN)
 
 
 def test_upgrade_adds_timestamp_columns_without_dropping_rows(app_context, cursor):
     cursor.execute("DROP TABLE tokens")
     cursor.execute("CREATE TABLE tokens(client_id text primary key, token blob)")
-    cursor.execute("INSERT INTO tokens (client_id, token) VALUES ('client', 'token')")
+    cursor.execute(
+        "INSERT INTO tokens (client_id, token) VALUES "
+        "('00000000-0000-0000-0000-000000000001', 'token')"
+    )
 
     db.upgrade()
 
-    assert db.lookup("client") == db.TokenRecord(
-        client_id="client",
-        encrypted_token=b"token",
+    assert db.lookup(CLIENT_ID) == db.TokenRecord(
+        client_id=CLIENT_ID,
+        encrypted_token=ENCRYPTED_TOKEN,
         created_at=None,
         last_updated_at=None,
     )
