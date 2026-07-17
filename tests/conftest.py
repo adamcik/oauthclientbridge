@@ -1,7 +1,7 @@
 import base64
 import json
 import logging
-from typing import Any, NamedTuple, Protocol
+from typing import Any, Mapping, NamedTuple, Protocol
 
 import pytest
 import structlog
@@ -127,8 +127,8 @@ class PostClient(Protocol):
         self,
         path: str,
         data: dict[str, Any],
-        auth: tuple[str, str] | None = None,
-        headers: dict[str, str] | None = None,
+        auth: tuple[types.ClientId, types.ClientSecret] | None = None,
+        headers: Mapping[str, str | bytes] | None = None,
     ) -> ResponseTuple: ...
 
 
@@ -137,17 +137,16 @@ def post(client: FlaskClient):
     def _post(
         path: str,
         data: dict[str, Any],
-        auth: tuple[str, str] | None = None,
-        headers: dict[str, str] | None = None,
+        auth: tuple[types.ClientId, types.ClientSecret] | None = None,
+        headers: Mapping[str, str | bytes] | None = None,
     ):
-        if not headers:
-            headers = {}
+        request_headers = dict(headers or {})
 
         if auth:
             encoded = base64.b64encode(("%s:%s" % auth).encode("ascii"))
-            headers["Authorization"] = "Basic %s" % encoded.decode("ascii")
+            request_headers["Authorization"] = "Basic %s" % encoded.decode("ascii")
 
-        resp = client.post(path, headers=headers, data=data)
+        resp = client.post(path, headers=request_headers, data=data)
 
         return ResponseTuple(
             json.loads(resp.text),
