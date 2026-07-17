@@ -1,4 +1,8 @@
+from typing import Any, Mapping
+
 import pytest
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.util.instrumentation import InstrumentationScope
 
 from oauthclientbridge import telemetry
 from pytest_otel_capture import CollectedLog, OTelMocker
@@ -58,17 +62,18 @@ def test_instrumented_fixture_wraps_test(
 
 def test_collected_log_uses_structural_typing_for_new_otel_versions() -> None:
     class FakeRecord:
-        resource = object()
-        attributes = {"k": "v"}
-        body = "hello"
+        attributes: Mapping[str, Any] | None = {"k": "v"}
+        body: Any = "hello"
 
         def to_json(self) -> str:
             return "{}"
 
     class FakeLogData:
-        instrumentation_scope = object()
-        resource = object()
-        log_record = FakeRecord()
+        instrumentation_scope: InstrumentationScope | None = InstrumentationScope(
+            "test"
+        )
+        resource: Resource = Resource.create()
+        log_record: FakeRecord = FakeRecord()
 
     collected = CollectedLog(FakeLogData())
 

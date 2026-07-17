@@ -22,16 +22,24 @@ DataPointType = TypeVar(
 
 
 class _LogRecordLike(typing.Protocol):
-    attributes: typing.Mapping[str, typing.Any] | None
-    body: typing.Any
+    @property
+    def attributes(self) -> typing.Mapping[str, typing.Any] | None: ...
+
+    @property
+    def body(self) -> typing.Any: ...
 
     def to_json(self) -> str: ...
 
 
 class _LogDataLike(typing.Protocol):
-    instrumentation_scope: InstrumentationScope | None
-    resource: Resource
-    log_record: _LogRecordLike
+    @property
+    def instrumentation_scope(self) -> InstrumentationScope | None: ...
+
+    @property
+    def resource(self) -> Resource: ...
+
+    @property
+    def log_record(self) -> _LogRecordLike: ...
 
 
 class CollectedSpan:
