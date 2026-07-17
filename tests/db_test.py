@@ -1,9 +1,11 @@
+import sqlite3
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pytest
+from flask.ctx import AppContext
 
 from oauthclientbridge import db, types
 
@@ -55,25 +57,25 @@ class LookupCase:
     ],
     ids=lambda case: case.name,
 )
-def test_lookup(case: LookupCase, cursor):
+def test_lookup(case: LookupCase, cursor: sqlite3.Cursor):
     cursor.execute(case.query)
     record = db.lookup(CLIENT_ID)
     assert ENCRYPTED_TOKEN == record.encrypted_token
 
 
-def test_lookup_missing(cursor):
+def test_lookup_missing(cursor: sqlite3.Cursor):
     with pytest.raises(LookupError):
         db.lookup(CLIENT_ID)
 
 
-def test_is_initialized_uses_check_tokens_table_operation_name(cursor):
+def test_is_initialized_uses_check_tokens_table_operation_name(cursor: sqlite3.Cursor):
     with patch.object(db, "cursor", wraps=db.cursor) as mocked_cursor:
         db.is_initialized()
 
     mocked_cursor.assert_called_once_with(name="check_tokens_table", connection=None)
 
 
-def test_lookup_revoked(cursor):
+def test_lookup_revoked(cursor: sqlite3.Cursor):
     cursor.execute(
         "INSERT INTO tokens (client_id) VALUES ('00000000-0000-0000-0000-000000000001')"
     )
@@ -81,7 +83,7 @@ def test_lookup_revoked(cursor):
     assert record.encrypted_token is None
 
 
-def test_lookup_includes_timestamps(cursor):
+def test_lookup_includes_timestamps(cursor: sqlite3.Cursor):
     created_at = datetime(2026, 6, 18, 12, 0, tzinfo=UTC)
     last_updated_at = datetime(2026, 6, 18, 13, 0, tzinfo=UTC)
     cursor.execute(
@@ -108,7 +110,7 @@ def test_lookup_includes_timestamps(cursor):
 TOKEN_TYPE_QUERY = "SELECT token, typeof(token) FROM tokens WHERE client_id = ?"
 
 
-def test_insert(cursor):
+def test_insert(cursor: sqlite3.Cursor):
     client_id = types.ClientId(uuid.UUID("00000000-0000-0000-0000-000000000002"))
     db.insert(client_id, ENCRYPTED_TOKEN)
 
@@ -123,7 +125,7 @@ def test_insert(cursor):
     assert last_updated_at is not None
 
 
-def test_update(cursor):
+def test_update(cursor: sqlite3.Cursor):
     cursor.execute(
         "INSERT INTO tokens (client_id, last_updated_at) VALUES "
         "('00000000-0000-0000-0000-000000000001', 1)"
@@ -141,7 +143,7 @@ def test_update(cursor):
     assert last_updated_at != 1
 
 
-def test_update_none(cursor):
+def test_update_none(cursor: sqlite3.Cursor):
     cursor.execute(
         "INSERT INTO tokens (client_id, token, last_updated_at) VALUES "
         "('00000000-0000-0000-0000-000000000001', 'token', 1)"
@@ -159,11 +161,13 @@ def test_update_none(cursor):
     assert last_updated_at != 1
 
 
-def test_update_missing(app_context):
+def test_update_missing(app_context: AppContext):
     assert 0 == db.update(CLIENT_ID, ENCRYPTED_TOKEN)
 
 
-def test_upgrade_adds_timestamp_columns_without_dropping_rows(app_context, cursor):
+def test_upgrade_adds_timestamp_columns_without_dropping_rows(
+    app_context: AppContext, cursor: sqlite3.Cursor
+):
     cursor.execute("DROP TABLE tokens")
     cursor.execute("CREATE TABLE tokens(client_id text primary key, token blob)")
     cursor.execute(

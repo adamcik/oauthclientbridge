@@ -1,6 +1,8 @@
 import base64
 import json
 import logging
+import sqlite3
+from collections.abc import Generator
 from typing import Any, Mapping, NamedTuple, Protocol
 
 import pytest
@@ -55,7 +57,7 @@ class TokenTuple(NamedTuple):
 
 
 @pytest.fixture
-def settings():
+def settings() -> Settings:
     # https://github.com/pydantic/pydantic-settings/issues/201
     return Settings(
         callback_template="{{ variables|tojson }}",
@@ -73,28 +75,28 @@ def settings():
 
 
 @pytest.fixture
-def app(settings: Settings):
+def app(settings: Settings) -> Flask:
     app = create_app(settings)
     app.secret_key = "test-secret-key"
     return app
 
 
 @pytest.fixture(scope="function")
-def app_context(app: Flask, settings: Settings):
+def app_context(app: Flask, settings: Settings) -> Generator[AppContext, None, None]:
     with app.app_context() as ctx:
         db.initialize()
         yield ctx
 
 
 @pytest.fixture
-def client(app: Flask, app_context: AppContext):
+def client(app: Flask, app_context: AppContext) -> Generator[FlaskClient, None, None]:
     _ = app_context
 
     yield app.test_client()
 
 
 @pytest.fixture
-def cursor(app_context: AppContext):
+def cursor(app_context: AppContext) -> Generator[sqlite3.Cursor, None, None]:
     _ = app_context
 
     with db.get() as connection:
@@ -111,7 +113,7 @@ class GetClient(Protocol):
 
 @pytest.fixture
 def get(client: FlaskClient) -> GetClient:
-    def _get(path: str, headers: dict[str, str] | None = None):
+    def _get(path: str, headers: dict[str, str] | None = None) -> ResponseTuple:
         resp = client.get(path, headers=None)
         return ResponseTuple(
             json.loads(resp.text),
@@ -133,13 +135,13 @@ class PostClient(Protocol):
 
 
 @pytest.fixture
-def post(client: FlaskClient):
+def post(client: FlaskClient) -> PostClient:
     def _post(
         path: str,
         data: dict[str, Any],
         auth: tuple[types.ClientId, types.ClientSecret] | None = None,
         headers: Mapping[str, str | bytes] | None = None,
-    ):
+    ) -> ResponseTuple:
         request_headers = dict(headers or {})
 
         if auth:
@@ -158,20 +160,20 @@ def post(client: FlaskClient):
 
 
 @pytest.fixture
-def state(client: FlaskClient):
+def state(client: FlaskClient) -> str:
     with client.session_transaction() as session:
         session["state"] = "abcdef"
     return "abcdef"
 
 
 @pytest.fixture
-def client_state(client: FlaskClient):
+def client_state(client: FlaskClient) -> str:
     with client.session_transaction() as session:
         session["client_state"] = "s3cret"
     return "s3cret"
 
 
-def _test_token(**data: str | int):
+def _test_token(**data: str | int) -> TokenTuple:
     client_secret = crypto.generate_key()
     token = crypto.dumps(client_secret, data)
     client_id = db.generate_id()
