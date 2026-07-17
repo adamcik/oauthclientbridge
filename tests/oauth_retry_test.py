@@ -3,12 +3,15 @@ from http import HTTPStatus
 
 import flask.ctx
 import pytest
+import requests
+from opentelemetry import trace
 from requests_mock import Mocker as RequestsMocker
 
 from oauthclientbridge import oauth
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.oauth import core as oauth_core
 from oauthclientbridge.oauth import retry as oauth_retry
+from oauthclientbridge.oauth.outcome import OAuthResponse
 from oauthclientbridge.settings import current_settings
 
 
@@ -218,7 +221,13 @@ def test_oauth_fetch_does_not_start_retry_after_sleep_exhausts_deadline(
 
     fetch_calls = 0
 
-    def fetch_side_effect(*args, **kwargs):
+    def fetch_side_effect(
+        span: trace.Span,
+        prepared: requests.PreparedRequest,
+        timeout: float,
+        endpoint: str,
+    ) -> tuple[OAuthResponse, HTTPStatus | None, int]:
+        _ = span, prepared, timeout, endpoint
         nonlocal fetch_calls
         if fetch_calls == 0:
             fetch_calls += 1
@@ -267,8 +276,13 @@ def test_oauth_fetch_total_deadline_uses_monotonic_clock(
         monotonic_time[0] += duration
         wall_time[0] += 50.0
 
-    def fetch_side_effect(*args, **kwargs):
-        timeout = args[2]
+    def fetch_side_effect(
+        span: trace.Span,
+        prepared: requests.PreparedRequest,
+        timeout: float,
+        endpoint: str,
+    ) -> tuple[OAuthResponse, HTTPStatus | None, int]:
+        _ = span, prepared, endpoint
         observed_timeouts.append(timeout)
         if len(observed_timeouts) == 1:
             monotonic_time[0] += 0.2
@@ -322,8 +336,13 @@ def test_oauth_fetch_uses_remaining_budget_for_retry_timeout(
     def sleep(duration: float) -> None:
         fake_time[0] += duration
 
-    def fetch_side_effect(*args, **kwargs):
-        timeout = args[2]
+    def fetch_side_effect(
+        span: trace.Span,
+        prepared: requests.PreparedRequest,
+        timeout: float,
+        endpoint: str,
+    ) -> tuple[OAuthResponse, HTTPStatus | None, int]:
+        _ = span, prepared, endpoint
         observed_timeouts.append(timeout)
         if len(observed_timeouts) == 1:
             fake_time[0] += 0.2
