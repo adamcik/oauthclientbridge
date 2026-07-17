@@ -10,7 +10,6 @@ from oauthclientbridge import (
     telemetry,
 )
 from oauthclientbridge.settings import Settings
-from oauthclientbridge.telemetry import sentry
 
 tracer = trace.get_tracer(__name__)
 
@@ -18,7 +17,7 @@ settings = Settings()
 
 logs.init_logging(settings.log)
 
-sentry.init(settings.sentry)
+telemetry.init_sentry(settings.sentry)
 
 telemetry.instrument()
 telemetry.init_tracing(settings.otel)

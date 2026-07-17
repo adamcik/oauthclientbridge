@@ -1,13 +1,14 @@
 from contextlib import AbstractContextManager
 from http import HTTPStatus
 
-from . import _otel, _prometheus, _refresh, _resources
+from . import _otel, _prometheus, _refresh, _resources, _sentry
 
 __all__ = [
     "add_refresher",
     "export_metrics",
     "finalize_request_metrics",
     "init_metrics",
+    "init_sentry",
     "init_tracing",
     "instrument",
     "instrument_app",
@@ -41,6 +42,7 @@ uninstrument = _otel.uninstrument
 instrument_app = _otel.instrument_app
 init_tracing = _otel.init_tracing
 init_metrics = _otel.init_metrics
+init_sentry = _sentry.init
 
 otel_log_attributes = _resources.otel_log_attributes
 

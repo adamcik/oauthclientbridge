@@ -9,7 +9,7 @@ from pydantic import SecretStr
 
 from oauthclientbridge import logs
 from oauthclientbridge.settings import LogLevel, LogSettings, SentrySettings
-from oauthclientbridge.telemetry import sentry
+from oauthclientbridge.telemetry import _sentry
 from pytest_sentry_capture import FakeTransport, SentryCapture
 
 
@@ -30,14 +30,14 @@ def capsentry(
     sentry_settings: SentrySettings,
     sentry_capture,
 ):
-    sentry.init(sentry_settings, sentry_transport)
+    _sentry.init(sentry_settings, sentry_transport)
     return sentry_capture
 
 
 def test_init_sentry_disabled() -> None:
     """If sentry is disabled, we don't initialize."""
     with patch("sentry_sdk.init") as mock_init:
-        sentry.init(SentrySettings(enabled=False))
+        _sentry.init(SentrySettings(enabled=False))
         mock_init.assert_not_called()
 
 
@@ -46,7 +46,7 @@ def test_init_sentry_sdk_installed(sentry_settings: SentrySettings) -> None:
     assert sentry_settings.dsn is not None
 
     with patch("sentry_sdk.init") as mock_init:
-        sentry.init(sentry_settings)
+        _sentry.init(sentry_settings)
 
         mock_init.assert_called_once()
         call_kwargs = mock_init.call_args[1]
@@ -57,7 +57,7 @@ def test_init_sentry_sdk_installed(sentry_settings: SentrySettings) -> None:
 
 def test_trace_sampler_uses_path_overrides(sentry_settings: SentrySettings) -> None:
     sentry_settings.traces_sample_rate_overrides = {"/metrics": 0.1}
-    sample = sentry._traces_sampler(sentry_settings)
+    sample = _sentry._traces_sampler(sentry_settings)
 
     assert sample({"wsgi_environ": {"PATH_INFO": "/metrics"}}) == 0.1
     assert sample({"wsgi_environ": {"PATH_INFO": "/authorize"}}) == 1.0
@@ -69,13 +69,13 @@ def test_init_sentry_sdk_not_installed(
     """If sentry is enabled, but not installed, we log an error."""
     try:
         with patch.dict(sys.modules, {"sentry_sdk": None}):
-            _ = importlib.reload(sentry)
-            sentry.init(sentry_settings)
+            _ = importlib.reload(_sentry)
+            _sentry.init(sentry_settings)
             assert (
                 "Sentry is enabled, but 'sentry-sdk' is not installed." in caplog.text
             )
     finally:
-        _ = importlib.reload(sentry)
+        _ = importlib.reload(_sentry)
 
 
 # TODO: Add capture message...

@@ -47,7 +47,7 @@ from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapProp
 from requests.structures import CaseInsensitiveDict
 
 # Import the leaf module directly; importing through telemetry's facade creates a cycle.
-import oauthclientbridge.telemetry.sentry as sentry
+import oauthclientbridge.telemetry._sentry as sentry
 from oauthclientbridge import types
 from oauthclientbridge.settings import (
     TelemetryComponent,
