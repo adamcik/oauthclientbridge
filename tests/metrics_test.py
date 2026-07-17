@@ -1,7 +1,11 @@
+import sqlite3
 import uuid
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
+from flask import Flask
+from flask.testing import FlaskClient
 from pydantic import SecretStr
 
 from oauthclientbridge import (
@@ -16,13 +20,15 @@ from oauthclientbridge.settings import Settings, TelemetrySettings
 from oauthclientbridge.telemetry import _prometheus as stats
 from oauthclientbridge.telemetry import _refresh
 
+from .conftest import PostClient, TokenTuple
+
 PRESENT_CLIENT_ID = types.ClientId(uuid.UUID("00000000-0000-0000-0000-000000000001"))
 REVOKED_CLIENT_ID = types.ClientId(uuid.UUID("00000000-0000-0000-0000-000000000002"))
 MISSING_CLIENT_ID = types.ClientId(uuid.UUID("00000000-0000-0000-0000-000000000003"))
 ENCRYPTED_TOKEN = types.EncryptedToken(b"placeholder")
 
 
-def test_metrics(client):
+def test_metrics(client: FlaskClient):
     resp = client.get("/metrics")
 
     assert 200 == resp.status_code
@@ -56,14 +62,17 @@ def test_metrics_requires_configured_bearer_token(settings: Settings):
 
 
 def test_metrics_reuses_multiprocess_registry(
-    client, settings: Settings, monkeypatch, tmp_path
+    client: FlaskClient,
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ):
     _ = client
     settings.prometheus.multiproc_dir = tmp_path
     stats._multiprocess_registries.clear()
     collectors: list[object] = []
 
-    def collect(registry, path: str) -> None:
+    def collect(registry: object, path: str) -> None:
         collectors.append(registry)
 
     monkeypatch.setattr(
@@ -108,7 +117,7 @@ def test_metrics_uses_max_aggregation_for_build_info():
     assert stats.BuildInfoGauge._multiprocess_mode == "max"
 
 
-def test_metrics_exposes_token_state_counts(client):
+def test_metrics_exposes_token_state_counts(client: FlaskClient):
     _ = db.insert(PRESENT_CLIENT_ID, ENCRYPTED_TOKEN)
     _ = db.insert(REVOKED_CLIENT_ID, ENCRYPTED_TOKEN)
     _ = db.update(REVOKED_CLIENT_ID, None)
@@ -126,8 +135,8 @@ def test_metrics_uses_mostrecent_aggregation_for_token_state_counts():
 
 
 def test_metrics_refreshes_token_states_when_run(
-    client,
-    monkeypatch,
+    client: FlaskClient,
+    monkeypatch: pytest.MonkeyPatch,
 ):
     called = False
 
@@ -145,10 +154,12 @@ def test_metrics_refreshes_token_states_when_run(
     assert called is True
 
 
-def test_metrics_write_paths_request_background_refresh(client, monkeypatch):
+def test_metrics_write_paths_request_background_refresh(
+    client: FlaskClient, monkeypatch: pytest.MonkeyPatch
+):
     requested = 0
 
-    def request(app=None) -> None:
+    def request(app: Flask | None = None) -> None:
         nonlocal requested
         requested += 1
 
@@ -161,7 +172,9 @@ def test_metrics_write_paths_request_background_refresh(client, monkeypatch):
     assert requested == 2
 
 
-def test_stop_runtime_services_stops_background_worker(app, monkeypatch):
+def test_stop_runtime_services_stops_background_worker(
+    app: Flask, monkeypatch: pytest.MonkeyPatch
+):
     stopped = False
 
     class Worker:
@@ -179,18 +192,21 @@ def test_stop_runtime_services_stops_background_worker(app, monkeypatch):
     assert "oauth_metrics_refresh_worker" not in app.extensions
 
 
-def test_start_runtime_services_requires_initialized_database(app):
+def test_start_runtime_services_requires_initialized_database(app: Flask):
     with pytest.raises(RuntimeError, match="Database must be initialized"):
         start_runtime_services(app)
 
 
-def test_create_app_does_not_start_runtime_services(app):
+def test_create_app_does_not_start_runtime_services(app: Flask):
     assert "oauth_runtime_services_started" not in app.extensions
     assert "oauth_metrics_refresh_worker" not in app.extensions
 
 
 def test_metrics_exposes_workaround_counter(
-    client, post, access_token, settings: Settings
+    client: FlaskClient,
+    post: PostClient,
+    access_token: TokenTuple,
+    settings: Settings,
 ):
     settings.revoked_grant_workaround_user_agents = r"^Mopidy-Spotify/4\.1\.1\b"
 
@@ -213,10 +229,10 @@ def test_metrics_exposes_workaround_counter(
 
 
 def test_metrics_exposes_token_grant_age_histogram_for_successful_token_use(
-    cursor,
-    monkeypatch,
-    post,
-    access_token,
+    cursor: sqlite3.Cursor,
+    monkeypatch: pytest.MonkeyPatch,
+    post: PostClient,
+    access_token: TokenTuple,
 ):
     created_at = int((datetime.now(UTC) - timedelta(days=200)).timestamp())
     _ = cursor.execute(
@@ -246,10 +262,10 @@ def test_metrics_exposes_token_grant_age_histogram_for_successful_token_use(
 
 
 def test_metrics_skips_token_grant_age_histogram_for_unknown_age(
-    cursor,
-    monkeypatch,
-    post,
-    access_token,
+    cursor: sqlite3.Cursor,
+    monkeypatch: pytest.MonkeyPatch,
+    post: PostClient,
+    access_token: TokenTuple,
 ):
     _ = cursor.execute(
         "UPDATE tokens SET created_at = NULL WHERE client_id = ?",
