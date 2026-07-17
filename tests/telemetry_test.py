@@ -282,7 +282,9 @@ def test_malformed_client_id_records_rejected_value(
     invalid_client_id_event = next(
         event for event in request_span.events if event.name == "invalid_client_id"
     )
-    assert invalid_client_id_event.attributes["client_id"] == malformed_client_id
+    event_attributes = invalid_client_id_event.attributes
+    assert event_attributes is not None
+    assert event_attributes["client_id"] == malformed_client_id
 
 
 def test_callback_missing_state_records_trace_error_message(
@@ -299,7 +301,11 @@ def test_callback_missing_state_records_trace_error_message(
     assert request_span is not None
 
     error_event = next(event for event in request_span.events if event.name == "error")
-    assert error_event.attributes["exception.message"].startswith("invalid_state:")
+    event_attributes = error_event.attributes
+    assert event_attributes is not None
+    error_message = event_attributes["exception.message"]
+    assert isinstance(error_message, str)
+    assert error_message.startswith("invalid_state:")
 
 
 def test_callback_trace_redacts_query_values(
