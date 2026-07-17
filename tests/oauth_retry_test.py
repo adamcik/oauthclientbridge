@@ -216,15 +216,16 @@ def test_oauth_fetch_does_not_start_retry_after_sleep_exhausts_deadline(
         0,
     )
 
+    fetch_calls = 0
+
     def fetch_side_effect(*args, **kwargs):
-        if fetch_side_effect.call_count == 0:
-            fetch_side_effect.call_count += 1
+        nonlocal fetch_calls
+        if fetch_calls == 0:
+            fetch_calls += 1
             fake_time[0] += 0.2
             return first_result
 
         raise AssertionError("unexpected retry attempt")
-
-    fetch_side_effect.call_count = 0
 
     with (
         unittest.mock.patch("random.uniform", return_value=1.25),
