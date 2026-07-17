@@ -12,5 +12,5 @@ class FakeTransport(Transport):
         super().__init__()
 
     @override
-    def capture_envelope(self, envelope):
+    def capture_envelope(self, envelope: Envelope) -> None:
         self.envelopes.append(envelope)

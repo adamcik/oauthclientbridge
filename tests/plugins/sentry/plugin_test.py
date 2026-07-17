@@ -1,10 +1,12 @@
 import importlib
 import logging
 import sys
+from typing import cast
 from unittest.mock import patch
 
 import pytest
 import sentry_sdk
+from opentelemetry import trace
 from pydantic import SecretStr
 
 from oauthclientbridge import logs
@@ -28,8 +30,8 @@ def sentry_settings() -> SentrySettings:
 def capsentry(
     sentry_transport: FakeTransport,
     sentry_settings: SentrySettings,
-    sentry_capture,
-):
+    sentry_capture: SentryCapture,
+) -> SentryCapture:
     _sentry.init(sentry_settings, sentry_transport)
     return sentry_capture
 
@@ -121,7 +123,7 @@ def test_sentry_captures_log_breadcrumbs(capsentry: SentryCapture) -> None:
 def test_sentry_captures_chained_exception(capsentry: SentryCapture) -> None:
     try:
         try:
-            1 / 0
+            raise ZeroDivisionError
         except ZeroDivisionError as e:
             raise TypeError("Something went wrong") from e
     except TypeError:
@@ -132,7 +134,9 @@ def test_sentry_captures_chained_exception(capsentry: SentryCapture) -> None:
     capsentry.find_exception_by_type("TypeError")
 
 
-def test_sentry_captures_otel_span(capsentry: SentryCapture, tracer) -> None:
+def test_sentry_captures_otel_span(
+    capsentry: SentryCapture, tracer: trace.Tracer
+) -> None:
     try:
         with tracer.start_as_current_span("parent-operation"):
             with tracer.start_as_current_span("child-operation"):
@@ -141,8 +145,12 @@ def test_sentry_captures_otel_span(capsentry: SentryCapture, tracer) -> None:
         sentry_sdk.capture_exception()
 
     event = next(capsentry.get_events())
-    trace_context = event.get("contexts", {}).get("trace")
+    contexts = event.get("contexts")
 
+    assert isinstance(contexts, dict)
+    contexts = cast(dict[str, object], contexts)
+    trace_context = contexts.get("trace")
     assert isinstance(trace_context, dict)
+    trace_context = cast(dict[str, object], trace_context)
     assert trace_context.get("trace_id") is not None
     assert trace_context.get("span_id") is not None
