@@ -227,6 +227,7 @@
       (
         system: let
           pkgs = nixpkgs.legacyPackages.${system};
+          hasNix2container = builtins.hasAttr system nix2container.packages;
           nix2containerPkgs = nix2container.packages.${system}.nix2container;
 
           pythonSet = pythonSets.${system};
@@ -293,7 +294,7 @@
             exec ${runtimeVenv}/bin/python -m flask --app oauthclientbridge "$@"
           '';
         in
-          lib.optionalAttrs pkgs.stdenv.isLinux {
+          lib.optionalAttrs (pkgs.stdenv.isLinux && hasNix2container) {
             # Expose Docker container in packages
             image = nix2containerPkgs.buildImage {
               name = "ghcr.io/adamcik/oauthclientbridge";
