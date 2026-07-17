@@ -4,7 +4,7 @@ from enum import IntEnum, StrEnum
 from http import HTTPStatus
 from importlib.metadata import PackageNotFoundError, metadata, version
 from pathlib import Path
-from typing import cast
+from typing import Callable, cast
 
 from flask import current_app
 from pydantic import Field, SecretStr, model_validator
@@ -15,6 +15,13 @@ from pydantic_settings import (
 from werkzeug.local import LocalProxy
 
 from oauthclientbridge.errors import OAuthError
+
+
+def _settings_factory[T: BaseSettings](
+    settings_type: type[T],
+) -> Callable[[], T]:
+    # BaseSettings reads required values from its configured environment source.
+    return cast(Callable[[], T], settings_type)
 
 
 class OAuthSettings(BaseSettings):
@@ -343,13 +350,19 @@ class Settings(BaseSettings):
     backoff path instead of hammering the bridge.
     """
 
-    oauth: OAuthSettings = Field(default_factory=lambda: OAuthSettings())  # pyright: ignore[reportCallIssue]
-    fetch: FetchSettings = Field(default_factory=lambda: FetchSettings())  # pyright: ignore[reportCallIssue]
-    database: DatabaseSettings = Field(default_factory=lambda: DatabaseSettings())  # pyright: ignore[reportCallIssue]
-    sentry: SentrySettings = Field(default_factory=lambda: SentrySettings())  # pyright: ignore[reportCallIssue]
-    log: LogSettings = Field(default_factory=lambda: LogSettings())  # pyright: ignore[reportCallIssue]
-    otel: TelemetrySettings = Field(default_factory=lambda: TelemetrySettings())  # pyright: ignore[reportCallIssue]
-    prometheus: PrometheusSettings = Field(default_factory=lambda: PrometheusSettings())  # pyright: ignore[reportCallIssue]
+    oauth: OAuthSettings = Field(default_factory=_settings_factory(OAuthSettings))
+    fetch: FetchSettings = Field(default_factory=_settings_factory(FetchSettings))
+    database: DatabaseSettings = Field(
+        default_factory=_settings_factory(DatabaseSettings)
+    )
+    sentry: SentrySettings = Field(default_factory=_settings_factory(SentrySettings))
+    log: LogSettings = Field(default_factory=_settings_factory(LogSettings))
+    otel: TelemetrySettings = Field(
+        default_factory=_settings_factory(TelemetrySettings)
+    )
+    prometheus: PrometheusSettings = Field(
+        default_factory=_settings_factory(PrometheusSettings)
+    )
 
     @model_validator(mode="after")
     def load_callback_template_file(self) -> "Settings":

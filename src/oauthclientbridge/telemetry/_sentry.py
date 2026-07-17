@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Mapping
+from types import ModuleType
 from typing import TYPE_CHECKING, Any, TypeGuard
 
 from oauthclientbridge.settings import SentrySettings
@@ -36,10 +37,13 @@ def _is_wsgi_environ(value: object) -> TypeGuard[Mapping[str, object]]:
     return isinstance(value, Mapping)
 
 
+sentry_sdk: ModuleType | None
 try:
-    import sentry_sdk
+    import sentry_sdk as _sentry_sdk
 except ImportError:
     sentry_sdk = None
+else:
+    sentry_sdk = _sentry_sdk
 
 
 def init(
