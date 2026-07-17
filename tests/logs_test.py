@@ -4,6 +4,7 @@ import os
 import threading
 from typing import cast
 
+import pytest
 import structlog
 from flask import Flask, Request
 from opentelemetry import trace
@@ -37,12 +38,14 @@ from oauthclientbridge.settings import LogLevel, LogSettings
 
 tracer = trace.get_tracer(__name__)
 
+type LogRecord = dict[str, object]
+
 
 # TODO: Add a test using stdlib logging, with extra=... to make sure that also works.
 
 
 # TODO: Split this into two tests
-def test_configure_structlog_json_output(capsys):
+def test_configure_structlog_json_output(capsys: pytest.CaptureFixture[str]):
     logs.init_logging(
         LogSettings(
             level=LogLevel.DEBUG,
@@ -78,7 +81,7 @@ def test_configure_structlog_json_output(capsys):
     assert struct_log_json["struct_key"] == "struct_value"
 
 
-def test_flask_request_logging(capsys):
+def test_flask_request_logging(capsys: pytest.CaptureFixture[str]):
     log_settings = LogSettings(
         level=LogLevel.DEBUG,
         colors=False,
@@ -89,10 +92,11 @@ def test_flask_request_logging(capsys):
     app = Flask(__name__)
     logs.init_access_logs(log_settings, app)
 
-    @app.route("/")
     def index():
         app.logger.info("Inside Flask app route.")
         return "Hello, World!"
+
+    app.add_url_rule("/", view_func=index)
 
     with app.test_client() as client:
         response = client.get("/")
@@ -112,7 +116,7 @@ def test_flask_request_logging(capsys):
     assert record[HTTP_RESPONSE_STATUS_CODE] == 200
     assert record[HTTP_ROUTE] == "/"
     assert record[SERVER_ADDRESS] == "localhost"
-    assert record[URL_FULL].endswith("/")
+    assert cast(str, record[URL_FULL]).endswith("/")
     assert record[URL_QUERY] == ""
     assert record[URL_SCHEME] == "http"
     assert record[f"{HTTP_REQUEST_HEADER_TEMPLATE}.content_type"] is None
@@ -132,7 +136,9 @@ def test_flask_request_logging(capsys):
     assert record["event"] == expected_access_log
 
 
-def test_access_log_not_duplicated_if_initialized_twice(capsys):
+def test_access_log_not_duplicated_if_initialized_twice(
+    capsys: pytest.CaptureFixture[str],
+):
     log_settings = LogSettings(
         level=LogLevel.DEBUG,
         colors=False,
@@ -144,9 +150,10 @@ def test_access_log_not_duplicated_if_initialized_twice(capsys):
     logs.init_access_logs(log_settings, app)
     logs.init_access_logs(log_settings, app)
 
-    @app.route("/")
     def index():
         return "Hello, World!"
+
+    app.add_url_rule("/", view_func=index)
 
     with app.test_client() as client:
         response = client.get("/")
@@ -157,7 +164,7 @@ def test_access_log_not_duplicated_if_initialized_twice(capsys):
     assert len(access_logs) == 1
 
 
-def test_access_log_includes_oauth_error(capsys):
+def test_access_log_includes_oauth_error(capsys: pytest.CaptureFixture[str]):
     log_settings = LogSettings(
         level=LogLevel.DEBUG,
         colors=False,
@@ -169,9 +176,10 @@ def test_access_log_includes_oauth_error(capsys):
     logs.init_access_logs(log_settings, app)
     _ = app.register_error_handler(oauth.Error, oauth.error_handler)
 
-    @app.route("/token", methods=["POST"])
     def token():
         raise oauth.Error(OAuthError.INVALID_GRANT, "Grant has been revoked.")
+
+    app.add_url_rule("/token", view_func=token, methods=["POST"])
 
     with app.test_client() as client:
         response = client.post("/token")
@@ -258,7 +266,7 @@ def test_get_response_info():
     assert info[f"{HTTP_RESPONSE_HEADER_TEMPLATE}.cache_control"] is None
 
 
-def test_configure_structlog_console_colors(capsys):
+def test_configure_structlog_console_colors(capsys: pytest.CaptureFixture[str]):
     logs.init_logging(
         LogSettings(
             level=LogLevel.DEBUG,
@@ -278,7 +286,9 @@ def test_configure_structlog_console_colors(capsys):
     assert "This is a colored structlog message." in captured.err
 
 
-def test_structlog_logging_trace_id_injection(instrumented, capsys) -> None:
+def test_structlog_logging_trace_id_injection(
+    instrumented: None, capsys: pytest.CaptureFixture[str]
+) -> None:
     logs.init_logging(LogSettings())
 
     with tracer.start_as_current_span("test") as span:
@@ -289,7 +299,9 @@ def test_structlog_logging_trace_id_injection(instrumented, capsys) -> None:
     assert_has_otel_records(records[0], span)
 
 
-def test_stdlib_logging_trace_id_injection(instrumented, capsys) -> None:
+def test_stdlib_logging_trace_id_injection(
+    instrumented: None, capsys: pytest.CaptureFixture[str]
+) -> None:
     logs.init_logging(LogSettings())
 
     with tracer.start_as_current_span("test") as span:
@@ -300,11 +312,14 @@ def test_stdlib_logging_trace_id_injection(instrumented, capsys) -> None:
     assert_has_otel_records(records[0], span)
 
 
-def parse_logs(capsys):
-    return [json.loads(line) for line in capsys.readouterr().err.splitlines()]
+def parse_logs(capsys: pytest.CaptureFixture[str]) -> list[LogRecord]:
+    return [
+        cast(LogRecord, json.loads(line))
+        for line in capsys.readouterr().err.splitlines()
+    ]
 
 
-def assert_has_otel_records(record, span: trace.Span):
+def assert_has_otel_records(record: LogRecord, span: trace.Span) -> None:
     assert "trace_id" in record
     assert "span_id" in record
     assert "trace_sampled" in record
@@ -319,8 +334,8 @@ def assert_has_otel_records(record, span: trace.Span):
     assert record["process.thread.id"] == threading.get_ident()
     assert record["process.thread.name"] == threading.current_thread().name
 
-    assert int(record["trace_id"], 16) == span.get_span_context().trace_id
-    assert int(record["span_id"], 16) == span.get_span_context().span_id
+    assert int(cast(str, record["trace_id"]), 16) == span.get_span_context().trace_id
+    assert int(cast(str, record["span_id"]), 16) == span.get_span_context().span_id
 
 
 def test_access_log_formatter():
