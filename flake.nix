@@ -203,6 +203,11 @@
           touch "$out"
         '';
 
+        ty = mkCheck "ty-check" ''
+          ${pkgs.ty}/bin/ty check src/oauthclientbridge --python "$UV_PYTHON" --output-format concise
+          touch "$out"
+        '';
+
         pytest = mkCheck "pytest-check" ''
           export COVERAGE_FILE="$TMPDIR/.coverage"
           mkdir -p "$out"
