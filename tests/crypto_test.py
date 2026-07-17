@@ -1,6 +1,6 @@
 import pytest
 
-from oauthclientbridge import crypto
+from oauthclientbridge import crypto, types
 
 
 def test_validate_key_accepts_padded_and_unpadded_fernet_keys():
@@ -19,4 +19,4 @@ def test_loads_rejects_client_secret_with_impossible_base64_padding():
     token = crypto.dumps(crypto.generate_key(), {"access_token": "123"})
 
     with pytest.raises(crypto.InvalidToken):
-        _ = crypto.loads("a", token)
+        _ = crypto.loads(types.ClientSecret("a"), token)
