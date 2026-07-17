@@ -3,6 +3,8 @@ import time
 
 from oauthclientbridge.utils.coalescing import CoalescingWorker
 
+from .plugins import otel
+
 
 def test_worker_respects_startup_delay_for_initial_request() -> None:
     ran = threading.Event()
@@ -83,7 +85,7 @@ def test_worker_runs_again_for_request_during_work() -> None:
     worker.stop(timeout=1.0)
 
 
-def test_worker_emits_root_span_for_each_run(otel_mock) -> None:
+def test_worker_emits_root_span_for_each_run(otel_mock: otel.OTelMocker) -> None:
     ran = threading.Event()
 
     worker = CoalescingWorker(
