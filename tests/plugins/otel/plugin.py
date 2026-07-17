@@ -1,4 +1,4 @@
-from typing import Generator
+from collections.abc import Generator
 
 import pytest
 from opentelemetry import metrics, trace
@@ -40,19 +40,19 @@ def fixture_otel_mock() -> Generator[OTelMocker, None, None]:
 
 
 @pytest.fixture(name="tracer")
-def fixture_tracer(otel_mock: OTelMocker):
+def fixture_tracer(otel_mock: OTelMocker) -> trace.Tracer:
     _ = otel_mock
     return trace.get_tracer("tests")
 
 
 @pytest.fixture(name="meter")
-def fixture_meter(otel_mock: OTelMocker):
+def fixture_meter(otel_mock: OTelMocker) -> metrics.Meter:
     _ = otel_mock
     return metrics.get_meter("tests")
 
 
 @pytest.fixture
-def instrumented(otel_mock: OTelMocker):
+def instrumented(otel_mock: OTelMocker) -> Generator[None, None, None]:
     _ = otel_mock
     telemetry.instrument()
     try:
