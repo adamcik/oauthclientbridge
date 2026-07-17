@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -9,10 +10,16 @@ from oauthclientbridge import (
     start_runtime_services,
     stop_runtime_services,
     telemetry,
+    types,
 )
 from oauthclientbridge.settings import Settings, TelemetrySettings
 from oauthclientbridge.telemetry import _prometheus as stats
 from oauthclientbridge.telemetry import _refresh
+
+PRESENT_CLIENT_ID = types.ClientId(uuid.UUID("00000000-0000-0000-0000-000000000001"))
+REVOKED_CLIENT_ID = types.ClientId(uuid.UUID("00000000-0000-0000-0000-000000000002"))
+MISSING_CLIENT_ID = types.ClientId(uuid.UUID("00000000-0000-0000-0000-000000000003"))
+ENCRYPTED_TOKEN = types.EncryptedToken(b"placeholder")
 
 
 def test_metrics(client):
@@ -102,9 +109,9 @@ def test_metrics_uses_max_aggregation_for_build_info():
 
 
 def test_metrics_exposes_token_state_counts(client):
-    _ = db.insert("present-client", b"placeholder")
-    _ = db.insert("revoked-client", b"placeholder")
-    _ = db.update("revoked-client", None)
+    _ = db.insert(PRESENT_CLIENT_ID, ENCRYPTED_TOKEN)
+    _ = db.insert(REVOKED_CLIENT_ID, ENCRYPTED_TOKEN)
+    _ = db.update(REVOKED_CLIENT_ID, None)
     _refresh.refresh_once(client.application)
 
     resp = client.get("/metrics")
@@ -147,9 +154,9 @@ def test_metrics_write_paths_request_background_refresh(client, monkeypatch):
 
     monkeypatch.setattr(telemetry, "request_refresh", request)
 
-    db.insert("present-client", b"placeholder")
-    db.update("present-client", None)
-    db.update("missing-client", None)
+    db.insert(PRESENT_CLIENT_ID, ENCRYPTED_TOKEN)
+    db.update(PRESENT_CLIENT_ID, None)
+    db.update(MISSING_CLIENT_ID, None)
 
     assert requested == 2
 
