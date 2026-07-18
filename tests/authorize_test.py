@@ -79,7 +79,7 @@ def test_callback_csp_can_be_disabled(client: FlaskClient, settings: Settings):
     assert "Content-Security-Policy" not in response.headers
 
 
-def test_callback_security_header_helper(app):
+def test_callback_security_header_helper(app: flask.Flask):
     with app.app_context():
         response = _set_callback_security_headers(
             flask.Response(), "default-src 'none'"
