@@ -59,7 +59,7 @@ def test_init_sentry_sdk_installed(sentry_settings: SentrySettings) -> None:
 
 def test_trace_sampler_uses_path_overrides(sentry_settings: SentrySettings) -> None:
     sentry_settings.traces_sample_rate_overrides = {"/metrics": 0.1}
-    sample = _sentry._traces_sampler(sentry_settings)
+    sample = _sentry._traces_sampler(sentry_settings)  # pyright: ignore[reportPrivateUsage] # Direct implementation test.
 
     assert sample({"wsgi_environ": {"PATH_INFO": "/metrics"}}) == 0.1
     assert sample({"wsgi_environ": {"PATH_INFO": "/authorize"}}) == 1.0

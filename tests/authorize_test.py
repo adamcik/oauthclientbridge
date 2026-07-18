@@ -12,8 +12,8 @@ from oauthclientbridge import crypto, db
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import Settings
 from oauthclientbridge.views import (
-    _requested_scope_is_allowed,
-    _set_callback_security_headers,
+    _requested_scope_is_allowed,  # pyright: ignore[reportPrivateUsage] # Direct helper test.
+    _set_callback_security_headers,  # pyright: ignore[reportPrivateUsage] # Direct helper test.
 )
 from tests.conftest import GetClient
 

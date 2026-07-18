@@ -69,7 +69,7 @@ def test_metrics_reuses_multiprocess_registry(
 ):
     _ = client
     settings.prometheus.multiproc_dir = tmp_path
-    stats._multiprocess_registries.clear()
+    stats._multiprocess_registries.clear()  # pyright: ignore[reportPrivateUsage] # Direct implementation test.
     collectors: list[object] = []
 
     def collect(registry: object, path: str) -> None:
@@ -114,7 +114,7 @@ def test_metrics_exposes_build_info(settings: Settings):
 
 
 def test_metrics_uses_max_aggregation_for_build_info():
-    assert stats.BuildInfoGauge._multiprocess_mode == "max"
+    assert stats.BuildInfoGauge._multiprocess_mode == "max"  # pyright: ignore[reportPrivateUsage] # Direct implementation test.
 
 
 def test_metrics_exposes_token_state_counts(client: FlaskClient):
@@ -131,7 +131,7 @@ def test_metrics_exposes_token_state_counts(client: FlaskClient):
 
 
 def test_metrics_uses_mostrecent_aggregation_for_token_state_counts():
-    assert stats.TokenStateGauge._multiprocess_mode == "mostrecent"
+    assert stats.TokenStateGauge._multiprocess_mode == "mostrecent"  # pyright: ignore[reportPrivateUsage] # Direct implementation test.
 
 
 def test_metrics_refreshes_token_states_when_run(
