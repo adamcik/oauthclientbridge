@@ -1,7 +1,9 @@
 import urllib.parse
 from dataclasses import dataclass
+from typing import Callable, Protocol, cast
 
 import pytest
+import requests
 from flask.testing import FlaskClient
 from requests_mock import Mocker
 
@@ -10,6 +12,10 @@ from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import Settings
 
 from .conftest import PostClient, ResponseTuple, TokenTuple
+
+
+class RequestWithBody(Protocol):
+    body: str | bytes | None
 
 
 @dataclass(frozen=True)
@@ -373,20 +379,27 @@ def test_token_refresh_post_data(
 ):
     """Test that expected data gets POSTed to provider."""
 
-    def match(request):
+    def match(request: requests.Request) -> bool:
         expected: dict[str, list[str]] = {
             "client_id": [settings.oauth.client_id],
             "client_secret": [settings.oauth.client_secret.get_secret_value()],
             "grant_type": [settings.oauth.grant_type],
             "refresh_token": [refresh_token.value["refresh_token"]],
         }
-        assert expected == urllib.parse.parse_qs(request.body)
+        request_with_body = cast(RequestWithBody, request)
+        body = request_with_body.body
+        assert isinstance(body, (str, bytes))
+        if isinstance(body, str):
+            parsed_body = urllib.parse.parse_qs(body)
+        else:
+            parsed_body = urllib.parse.parse_qs(body)
+        assert expected == parsed_body
         return True
 
     _ = requests_mock.post(
         settings.oauth.token_uri,
         json={"access_token": "abc", "grant_type": "test"},
-        additional_matcher=match,
+        additional_matcher=cast(Callable[..., bool], match),
     )
 
     data = {
