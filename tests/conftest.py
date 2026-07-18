@@ -25,8 +25,11 @@ pytest_plugins = ["tests.plugins.sentry", "tests.plugins.otel"]
 
 
 @pytest.fixture(autouse=True)
-def _isolate_sentry(sentry_isolation_scope):
+def _isolate_sentry(sentry_isolation_scope: object) -> None:
     _ = sentry_isolation_scope
+
+
+_ = _isolate_sentry
 
 
 @pytest.fixture(autouse=True)
