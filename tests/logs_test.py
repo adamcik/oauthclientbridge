@@ -38,7 +38,10 @@ from oauthclientbridge.settings import LogLevel, LogSettings
 
 tracer = trace.get_tracer(__name__)
 
-type LogRecord = dict[str, object]
+type JsonValue = (
+    None | bool | int | float | str | list[JsonValue] | dict[str, JsonValue]
+)
+type JsonDict = dict[str, JsonValue]
 
 
 # TODO: Add a test using stdlib logging, with extra=... to make sure that also works.
@@ -67,14 +70,14 @@ def test_configure_structlog_json_output(capsys: pytest.CaptureFixture[str]):
     captured = capsys.readouterr()
 
     # Assertions for standard log message (JSON)
-    std_log_json = json.loads(captured.err.splitlines()[0])
+    std_log_json = parse_log_record(captured.err.splitlines()[0])
     assert std_log_json["event"] == "This is a standard log message."
     assert std_log_json["level"] == "info"
     assert std_log_json["logger"] == "test_std_logger"
     assert std_log_json["std_key"] == "std_value"
 
     # Assertions for structlog message (JSON)
-    struct_log_json = json.loads(captured.err.splitlines()[1])
+    struct_log_json = parse_log_record(captured.err.splitlines()[1])
     assert struct_log_json["event"] == "This is a structlog message."
     assert struct_log_json["level"] == "info"
     assert struct_log_json["logger"] == "tests.logs_test"
@@ -116,7 +119,9 @@ def test_flask_request_logging(capsys: pytest.CaptureFixture[str]):
     assert record[HTTP_RESPONSE_STATUS_CODE] == 200
     assert record[HTTP_ROUTE] == "/"
     assert record[SERVER_ADDRESS] == "localhost"
-    assert cast(str, record[URL_FULL]).endswith("/")
+    url = record[URL_FULL]
+    assert isinstance(url, str)
+    assert url.endswith("/")
     assert record[URL_QUERY] == ""
     assert record[URL_SCHEME] == "http"
     assert record[f"{HTTP_REQUEST_HEADER_TEMPLATE}.content_type"] is None
@@ -312,14 +317,17 @@ def test_stdlib_logging_trace_id_injection(
     assert_has_otel_records(records[0], span)
 
 
-def parse_logs(capsys: pytest.CaptureFixture[str]) -> list[LogRecord]:
-    return [
-        cast(LogRecord, json.loads(line))
-        for line in capsys.readouterr().err.splitlines()
-    ]
+def parse_logs(capsys: pytest.CaptureFixture[str]) -> list[JsonDict]:
+    return [parse_log_record(line) for line in capsys.readouterr().err.splitlines()]
 
 
-def assert_has_otel_records(record: LogRecord, span: trace.Span) -> None:
+def parse_log_record(line: str) -> JsonDict:
+    value: object = json.loads(line)
+    assert isinstance(value, dict)
+    return cast(JsonDict, value)
+
+
+def assert_has_otel_records(record: JsonDict, span: trace.Span) -> None:
     assert "trace_id" in record
     assert "span_id" in record
     assert "trace_sampled" in record
@@ -334,8 +342,12 @@ def assert_has_otel_records(record: LogRecord, span: trace.Span) -> None:
     assert record["process.thread.id"] == threading.get_ident()
     assert record["process.thread.name"] == threading.current_thread().name
 
-    assert int(cast(str, record["trace_id"]), 16) == span.get_span_context().trace_id
-    assert int(cast(str, record["span_id"]), 16) == span.get_span_context().span_id
+    trace_id = record["trace_id"]
+    assert isinstance(trace_id, str)
+    assert int(trace_id, 16) == span.get_span_context().trace_id
+    span_id = record["span_id"]
+    assert isinstance(span_id, str)
+    assert int(span_id, 16) == span.get_span_context().span_id
 
 
 def test_access_log_formatter():

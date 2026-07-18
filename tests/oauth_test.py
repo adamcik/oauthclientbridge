@@ -94,12 +94,11 @@ def test_oauth_fetch_uses_configured_jitter_bounds(
         ],
     )
 
-    def upper_jitter_bound(low: float, high: float) -> float:
-        _ = low
-        return high
-
     with (
-        unittest.mock.patch("random.uniform", side_effect=upper_jitter_bound),
+        unittest.mock.patch(
+            "random.uniform",
+            side_effect=lambda low, high: high,  # pyright: ignore[reportUnknownLambdaType] # Select the configured upper bound.
+        ),
         unittest.mock.patch("time.sleep") as mock_sleep,
     ):
         oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")

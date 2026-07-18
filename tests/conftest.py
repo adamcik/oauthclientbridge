@@ -25,11 +25,10 @@ pytest_plugins = ["tests.plugins.sentry", "tests.plugins.otel"]
 
 
 @pytest.fixture(autouse=True)
-def _isolate_sentry(sentry_isolation_scope: object) -> None:
-    _ = sentry_isolation_scope
-
-
-_ = _isolate_sentry
+def _isolate_sentry(  # pyright: ignore[reportUnusedFunction] # Used by pytest.
+    sentry_isolation_scope: None,
+) -> None:
+    pass
 
 
 @pytest.fixture(autouse=True)
@@ -164,6 +163,7 @@ def post(client: FlaskClient) -> PostClient:
 
 @pytest.fixture
 def state(client: FlaskClient) -> str:
+    """Populate the OAuth state used by callback-flow tests."""
     with client.session_transaction() as session:
         session["state"] = "abcdef"
     return "abcdef"
@@ -171,6 +171,7 @@ def state(client: FlaskClient) -> str:
 
 @pytest.fixture
 def client_state(client: FlaskClient) -> str:
+    """Populate client-provided state stored alongside OAuth state."""
     with client.session_transaction() as session:
         session["client_state"] = "s3cret"
     return "s3cret"

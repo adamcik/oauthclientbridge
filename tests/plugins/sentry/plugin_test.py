@@ -1,7 +1,7 @@
 import importlib
 import logging
 import sys
-from typing import cast
+from typing import TypeGuard
 from unittest.mock import patch
 
 import pytest
@@ -13,6 +13,8 @@ from oauthclientbridge import logs
 from oauthclientbridge.settings import LogLevel, LogSettings, SentrySettings
 from oauthclientbridge.telemetry import _sentry
 from pytest_sentry_capture import FakeTransport, SentryCapture
+
+type SentryEvent = dict[str, object]
 
 
 @pytest.fixture
@@ -144,13 +146,19 @@ def test_sentry_captures_otel_span(
     except ValueError:
         sentry_sdk.capture_exception()
 
-    event = next(capsentry.get_events())
-    contexts = event.get("contexts")
-
-    assert isinstance(contexts, dict)
-    contexts = cast(dict[str, object], contexts)
-    trace_context = contexts.get("trace")
-    assert isinstance(trace_context, dict)
-    trace_context = cast(dict[str, object], trace_context)
+    trace_context = sentry_trace_context(next(capsentry.get_events()))
     assert trace_context.get("trace_id") is not None
     assert trace_context.get("span_id") is not None
+
+
+def sentry_trace_context(event: object) -> SentryEvent:
+    assert _is_sentry_event(event)
+    contexts = event.get("contexts")
+    assert _is_sentry_event(contexts)
+    trace_context = contexts.get("trace")
+    assert _is_sentry_event(trace_context)
+    return trace_context
+
+
+def _is_sentry_event(value: object) -> TypeGuard[SentryEvent]:
+    return isinstance(value, dict)
