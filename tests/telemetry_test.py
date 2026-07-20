@@ -15,8 +15,13 @@ from requests_mock import Mocker
 
 from oauthclientbridge import db, oauth, telemetry
 from oauthclientbridge.errors import OAuthError
-from oauthclientbridge.oauth import core as oauth_core
-from oauthclientbridge.oauth.outcome import OAuthResponse, UpstreamResult
+from oauthclientbridge.oauth import (
+    _core as oauth_core,  # pyright: ignore[reportPrivateUsage] # Direct implementation test.
+)
+from oauthclientbridge.oauth._outcome import (  # pyright: ignore[reportPrivateUsage] # Direct implementation test.
+    OAuthResponse,
+    UpstreamResult,
+)
 from oauthclientbridge.settings import (
     Settings,
     TelemetryComponent,
@@ -1084,16 +1089,16 @@ def test_oauth_client_retry_metrics_record_deadline_skip(
         unittest.mock.patch.object(
             oauth_core, "_get_retry_limiter", return_value=FakeRetryLimiter()
         ),
-        unittest.mock.patch("oauthclientbridge.oauth.core.time.time", side_effect=now),
+        unittest.mock.patch("oauthclientbridge.oauth._core.time.time", side_effect=now),
         unittest.mock.patch(
-            "oauthclientbridge.oauth.core.time.monotonic", side_effect=now
+            "oauthclientbridge.oauth._core.time.monotonic", side_effect=now
         ),
         unittest.mock.patch(
-            "oauthclientbridge.oauth.core.time.sleep", side_effect=sleep
+            "oauthclientbridge.oauth._core.time.sleep", side_effect=sleep
         ),
         unittest.mock.patch("random.uniform", return_value=1.25),
         unittest.mock.patch(
-            "oauthclientbridge.oauth.core._fetch", side_effect=fetch_side_effect
+            "oauthclientbridge.oauth._core._fetch", side_effect=fetch_side_effect
         ),
     ):
         oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")

@@ -6,8 +6,12 @@ import pytest
 
 from oauthclientbridge import oauth
 from oauthclientbridge.errors import OAuthError
-from oauthclientbridge.oauth import outcome as oauth_outcome
-from oauthclientbridge.oauth.retry import RetryReason
+from oauthclientbridge.oauth import (
+    _outcome as oauth_outcome,  # pyright: ignore[reportPrivateUsage] # Direct implementation test.
+)
+from oauthclientbridge.oauth._retry import (
+    RetryReason,  # pyright: ignore[reportPrivateUsage] # Direct implementation test.
+)
 from oauthclientbridge.settings import current_settings
 
 

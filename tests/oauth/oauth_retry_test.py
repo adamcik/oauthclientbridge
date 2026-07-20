@@ -9,9 +9,15 @@ from requests_mock import Mocker as RequestsMocker
 
 from oauthclientbridge import oauth
 from oauthclientbridge.errors import OAuthError
-from oauthclientbridge.oauth import core as oauth_core
-from oauthclientbridge.oauth import retry as oauth_retry
-from oauthclientbridge.oauth.outcome import OAuthResponse
+from oauthclientbridge.oauth import (
+    _core as oauth_core,  # pyright: ignore[reportPrivateUsage] # Direct implementation test.
+)
+from oauthclientbridge.oauth import (
+    _retry as oauth_retry,  # pyright: ignore[reportPrivateUsage] # Direct implementation test.
+)
+from oauthclientbridge.oauth._outcome import (
+    OAuthResponse,  # pyright: ignore[reportPrivateUsage] # Direct implementation test.
+)
 from oauthclientbridge.settings import current_settings
 
 
@@ -238,15 +244,15 @@ def test_oauth_fetch_does_not_start_retry_after_sleep_exhausts_deadline(
 
     with (
         unittest.mock.patch("random.uniform", return_value=1.25),
-        unittest.mock.patch("oauthclientbridge.oauth.core.time.time", side_effect=now),
+        unittest.mock.patch("oauthclientbridge.oauth._core.time.time", side_effect=now),
         unittest.mock.patch(
-            "oauthclientbridge.oauth.core.time.monotonic", side_effect=now
+            "oauthclientbridge.oauth._core.time.monotonic", side_effect=now
         ),
         unittest.mock.patch(
-            "oauthclientbridge.oauth.core.time.sleep", side_effect=sleep
+            "oauthclientbridge.oauth._core.time.sleep", side_effect=sleep
         ),
         unittest.mock.patch(
-            "oauthclientbridge.oauth.core._fetch", side_effect=fetch_side_effect
+            "oauthclientbridge.oauth._core._fetch", side_effect=fetch_side_effect
         ),
     ):
         result = oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
@@ -302,16 +308,16 @@ def test_oauth_fetch_total_deadline_uses_monotonic_clock(
     with (
         unittest.mock.patch("random.uniform", return_value=0.75),
         unittest.mock.patch(
-            "oauthclientbridge.oauth.core.time.time", side_effect=wall_now
+            "oauthclientbridge.oauth._core.time.time", side_effect=wall_now
         ),
         unittest.mock.patch(
-            "oauthclientbridge.oauth.core.time.monotonic", side_effect=monotonic_now
+            "oauthclientbridge.oauth._core.time.monotonic", side_effect=monotonic_now
         ),
         unittest.mock.patch(
-            "oauthclientbridge.oauth.core.time.sleep", side_effect=sleep
+            "oauthclientbridge.oauth._core.time.sleep", side_effect=sleep
         ),
         unittest.mock.patch(
-            "oauthclientbridge.oauth.core._fetch", side_effect=fetch_side_effect
+            "oauthclientbridge.oauth._core._fetch", side_effect=fetch_side_effect
         ),
     ):
         result = oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
@@ -361,15 +367,15 @@ def test_oauth_fetch_uses_remaining_budget_for_retry_timeout(
 
     with (
         unittest.mock.patch("random.uniform", return_value=0.75),
-        unittest.mock.patch("oauthclientbridge.oauth.core.time.time", side_effect=now),
+        unittest.mock.patch("oauthclientbridge.oauth._core.time.time", side_effect=now),
         unittest.mock.patch(
-            "oauthclientbridge.oauth.core.time.monotonic", side_effect=now
+            "oauthclientbridge.oauth._core.time.monotonic", side_effect=now
         ),
         unittest.mock.patch(
-            "oauthclientbridge.oauth.core.time.sleep", side_effect=sleep
+            "oauthclientbridge.oauth._core.time.sleep", side_effect=sleep
         ),
         unittest.mock.patch(
-            "oauthclientbridge.oauth.core._fetch", side_effect=fetch_side_effect
+            "oauthclientbridge.oauth._core._fetch", side_effect=fetch_side_effect
         ),
     ):
         result = oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")

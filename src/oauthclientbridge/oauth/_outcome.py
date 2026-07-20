@@ -8,7 +8,7 @@ import structlog
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import current_settings
 
-from .retry import RetryReason, retry_reason_for_status
+from ._retry import RetryReason, retry_reason_for_status
 
 # TODO: This should be a stricter type or a pydantic model
 OAuthResponse = dict[str, Any]

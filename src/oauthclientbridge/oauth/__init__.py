@@ -1,4 +1,4 @@
-from .core import (
+from ._core import (
     Error,
     error_handler,
     fallback_error_handler,
@@ -8,7 +8,7 @@ from .core import (
     sanitize_for_logging,
     scrub_refresh_token,
 )
-from .outcome import (
+from ._outcome import (
     AUTHORIZATION_ERRORS,
     TOKEN_ERRORS,
     normalize_error,

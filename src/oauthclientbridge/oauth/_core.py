@@ -17,13 +17,13 @@ from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import current_settings
 from oauthclientbridge.utils import uri as uri_utils
 
-from .outcome import (
+from ._outcome import (
     OAuthResponse,
     UpstreamResult,
     token_endpoint_outcome,
     upstream_result_for_status,
 )
-from .retry import (
+from ._retry import (
     RetryAttemptKind,
     RetryDecision,
     RetryDecisionAction,
