@@ -1089,17 +1089,11 @@ def test_oauth_client_retry_metrics_record_deadline_skip(
         unittest.mock.patch.object(
             oauth_core, "_get_retry_limiter", return_value=FakeRetryLimiter()
         ),
-        unittest.mock.patch("oauthclientbridge.oauth._core.time.time", side_effect=now),
-        unittest.mock.patch(
-            "oauthclientbridge.oauth._core.time.monotonic", side_effect=now
-        ),
-        unittest.mock.patch(
-            "oauthclientbridge.oauth._core.time.sleep", side_effect=sleep
-        ),
-        unittest.mock.patch("random.uniform", return_value=1.25),
-        unittest.mock.patch(
-            "oauthclientbridge.oauth._core._fetch", side_effect=fetch_side_effect
-        ),
+        unittest.mock.patch.object(oauth_core.time, "time", side_effect=now),
+        unittest.mock.patch.object(oauth_core.time, "monotonic", side_effect=now),
+        unittest.mock.patch.object(oauth_core.time, "sleep", side_effect=sleep),
+        unittest.mock.patch.object(oauth_core.random, "uniform", return_value=1.25),
+        unittest.mock.patch.object(oauth_core, "_fetch", side_effect=fetch_side_effect),
     ):
         oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
 
