@@ -118,7 +118,7 @@ class GetClient(Protocol):
 @pytest.fixture
 def get(client: FlaskClient) -> GetClient:
     def _get(path: str, headers: dict[str, str] | None = None) -> ResponseTuple:
-        resp = client.get(path, headers=None)
+        resp = client.get(path, headers=headers)
         return ResponseTuple(
             json.loads(resp.text),
             resp.status_code,
