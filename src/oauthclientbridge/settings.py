@@ -292,10 +292,6 @@ class Settings(BaseSettings):
     Grant type: <input name="grant_type" value="client_credentials" />
     <button>Fetch token</button>
   </form>
-  <form action="revoke" method="POST">
-    Client ID: <input name="client_id" value="{{ client_id }}" />
-    <button>Revoke token</button>
-  </form>
 {% endif %}
 """
     """
