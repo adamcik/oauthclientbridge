@@ -19,6 +19,7 @@ from oauthclientbridge.oauth._outcome import (
     OAuthResponse,  # pyright: ignore[reportPrivateUsage] # Direct implementation test.
 )
 from oauthclientbridge.settings import current_settings
+from tests.oauth.conftest import MockTime
 
 
 def test_retry_limiter_factory_is_cached(app_context: flask.ctx.AppContext) -> None:
@@ -207,18 +208,11 @@ def test_oauth_fetch_total_retries_allows_one_retry(
 def test_oauth_fetch_does_not_start_retry_after_sleep_exhausts_deadline(
     app_context: flask.ctx.AppContext,
     monkeypatch: pytest.MonkeyPatch,
+    mock_time: MockTime,
 ) -> None:
     current_settings.fetch.total_timeout = 1.0
     current_settings.fetch.total_retries = 2
     current_settings.fetch.backoff_factor = 0.8
-
-    fake_time = [0.0]
-
-    def now() -> float:
-        return fake_time[0]
-
-    def sleep(duration: float) -> None:
-        fake_time[0] += duration
 
     first_result = (
         {"error": "temporarily_unavailable"},
@@ -238,44 +232,31 @@ def test_oauth_fetch_does_not_start_retry_after_sleep_exhausts_deadline(
         nonlocal fetch_calls
         if fetch_calls == 0:
             fetch_calls += 1
-            fake_time[0] += 0.2
+            mock_time.advance(monotonic=0.2)
             return first_result
 
         raise AssertionError("unexpected retry attempt")
 
     monkeypatch.setattr(oauth_core.random, "uniform", lambda _low, _high: 1.25)
-    monkeypatch.setattr(oauth_core.time, "time", now)
-    monkeypatch.setattr(oauth_core.time, "monotonic", now)
-    monkeypatch.setattr(oauth_core.time, "sleep", sleep)
     monkeypatch.setattr(oauth_core, "_fetch", fetch_side_effect)
 
     result = oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
 
     assert result["error"] == "temporarily_unavailable"
-    assert fake_time[0] == pytest.approx(0.2)
+    assert mock_time.monotonic_seconds == pytest.approx(0.2)
 
 
 def test_oauth_fetch_total_deadline_uses_monotonic_clock(
     app_context: flask.ctx.AppContext,
     monkeypatch: pytest.MonkeyPatch,
+    mock_time: MockTime,
 ) -> None:
     current_settings.fetch.total_timeout = 1.0
     current_settings.fetch.total_retries = 1
     current_settings.fetch.backoff_factor = 0.3
 
-    monotonic_time = [0.0]
-    wall_time = [100.0]
     observed_timeouts: list[float] = []
-
-    def monotonic_now() -> float:
-        return monotonic_time[0]
-
-    def wall_now() -> float:
-        return wall_time[0]
-
-    def sleep(duration: float) -> None:
-        monotonic_time[0] += duration
-        wall_time[0] += 50.0
+    mock_time.advance(monotonic=0.0, wall=100.0)
 
     def fetch_side_effect(
         span: trace.Span,
@@ -286,8 +267,7 @@ def test_oauth_fetch_total_deadline_uses_monotonic_clock(
         _ = span, prepared, endpoint
         observed_timeouts.append(timeout)
         if len(observed_timeouts) == 1:
-            monotonic_time[0] += 0.2
-            wall_time[0] += 500.0
+            mock_time.advance(monotonic=0.2, wall=500.0)
             return (
                 {"error": "temporarily_unavailable"},
                 HTTPStatus.SERVICE_UNAVAILABLE,
@@ -301,9 +281,6 @@ def test_oauth_fetch_total_deadline_uses_monotonic_clock(
         )
 
     monkeypatch.setattr(oauth_core.random, "uniform", lambda _low, _high: 0.75)
-    monkeypatch.setattr(oauth_core.time, "time", wall_now)
-    monkeypatch.setattr(oauth_core.time, "monotonic", monotonic_now)
-    monkeypatch.setattr(oauth_core.time, "sleep", sleep)
     monkeypatch.setattr(oauth_core, "_fetch", fetch_side_effect)
 
     result = oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
@@ -315,19 +292,13 @@ def test_oauth_fetch_total_deadline_uses_monotonic_clock(
 def test_oauth_fetch_uses_remaining_budget_for_retry_timeout(
     app_context: flask.ctx.AppContext,
     monkeypatch: pytest.MonkeyPatch,
+    mock_time: MockTime,
 ) -> None:
     current_settings.fetch.total_timeout = 1.0
     current_settings.fetch.total_retries = 2
     current_settings.fetch.backoff_factor = 0.3
 
-    fake_time = [0.0]
     observed_timeouts: list[float] = []
-
-    def now() -> float:
-        return fake_time[0]
-
-    def sleep(duration: float) -> None:
-        fake_time[0] += duration
 
     def fetch_side_effect(
         span: trace.Span,
@@ -338,14 +309,14 @@ def test_oauth_fetch_uses_remaining_budget_for_retry_timeout(
         _ = span, prepared, endpoint
         observed_timeouts.append(timeout)
         if len(observed_timeouts) == 1:
-            fake_time[0] += 0.2
+            mock_time.advance(monotonic=0.2)
             return (
                 {"error": "temporarily_unavailable"},
                 HTTPStatus.SERVICE_UNAVAILABLE,
                 0,
             )
 
-        fake_time[0] += timeout
+        mock_time.advance(monotonic=timeout)
         return (
             {"access_token": "mock_token", "token_type": "Bearer"},
             HTTPStatus.OK,
@@ -353,9 +324,6 @@ def test_oauth_fetch_uses_remaining_budget_for_retry_timeout(
         )
 
     monkeypatch.setattr(oauth_core.random, "uniform", lambda _low, _high: 0.75)
-    monkeypatch.setattr(oauth_core.time, "time", now)
-    monkeypatch.setattr(oauth_core.time, "monotonic", now)
-    monkeypatch.setattr(oauth_core.time, "sleep", sleep)
     monkeypatch.setattr(oauth_core, "_fetch", fetch_side_effect)
 
     result = oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
