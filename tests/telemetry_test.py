@@ -1044,6 +1044,7 @@ def test_oauth_client_retry_metrics_do_not_count_skipped_retry_attempts(
 
 def test_oauth_client_retry_metrics_record_deadline_skip(
     client: FlaskClient,
+    monkeypatch: pytest.MonkeyPatch,
 ):
     current_settings.fetch.total_timeout = 1.0
     current_settings.fetch.total_retries = 2
@@ -1085,17 +1086,16 @@ def test_oauth_client_retry_metrics_record_deadline_skip(
 
         raise AssertionError("unexpected retry attempt")
 
-    with (
-        unittest.mock.patch.object(
-            oauth_core, "_get_retry_limiter", return_value=FakeRetryLimiter()
-        ),
-        unittest.mock.patch.object(oauth_core.time, "time", side_effect=now),
-        unittest.mock.patch.object(oauth_core.time, "monotonic", side_effect=now),
-        unittest.mock.patch.object(oauth_core.time, "sleep", side_effect=sleep),
-        unittest.mock.patch.object(oauth_core.random, "uniform", return_value=1.25),
-        unittest.mock.patch.object(oauth_core, "_fetch", side_effect=fetch_side_effect),
-    ):
-        oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+    monkeypatch.setattr(
+        oauth_core, "_get_retry_limiter", lambda _capacity, _refill: FakeRetryLimiter()
+    )
+    monkeypatch.setattr(oauth_core.time, "time", now)
+    monkeypatch.setattr(oauth_core.time, "monotonic", now)
+    monkeypatch.setattr(oauth_core.time, "sleep", sleep)
+    monkeypatch.setattr(oauth_core.random, "uniform", lambda _low, _high: 1.25)
+    monkeypatch.setattr(oauth_core, "_fetch", fetch_side_effect)
+
+    oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
 
     metrics_resp = client.get("/metrics")
 
