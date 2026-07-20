@@ -1,4 +1,5 @@
 import unittest.mock
+from dataclasses import dataclass
 from http import HTTPStatus
 
 import flask.ctx
@@ -19,7 +20,34 @@ from oauthclientbridge.oauth._outcome import (
     OAuthResponse,  # pyright: ignore[reportPrivateUsage] # Direct implementation test.
 )
 from oauthclientbridge.settings import current_settings
-from tests.oauth.conftest import MockTime
+
+
+@dataclass
+class MockTime:
+    wall_seconds: float = 0.0
+    monotonic_seconds: float = 0.0
+
+    def time(self) -> float:
+        return self.wall_seconds
+
+    def monotonic(self) -> float:
+        return self.monotonic_seconds
+
+    def sleep(self, seconds: float) -> None:
+        self.advance(monotonic=seconds)
+
+    def advance(self, *, monotonic: float, wall: float | None = None) -> None:
+        self.monotonic_seconds += monotonic
+        self.wall_seconds += monotonic if wall is None else wall
+
+
+@pytest.fixture
+def mock_time(monkeypatch: pytest.MonkeyPatch) -> MockTime:
+    clock = MockTime()
+    monkeypatch.setattr(oauth_core.time, "time", clock.time)
+    monkeypatch.setattr(oauth_core.time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(oauth_core.time, "sleep", clock.sleep)
+    return clock
 
 
 def test_retry_limiter_factory_is_cached(app_context: flask.ctx.AppContext) -> None:
