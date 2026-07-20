@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import sys
 import unittest.mock
 from http import HTTPStatus
 
@@ -128,11 +129,11 @@ def test_init_metrics_sets_resource_attributes() -> None:
     assert attrs["process.pid"] == os.getpid()
 
 
-def test_init_metrics_derives_default_instance_id_in_worker_process(
+def test_init_metrics_derives_default_instance_id_outside_uwsgi(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(resource_labels.socket, "gethostname", lambda: "delta")
-    monkeypatch.setattr(resource_labels.os, "getpid", lambda: 2002)
+    monkeypatch.setattr(resource_labels, "_uwsgi_worker_id", lambda: None)
     settings = TelemetrySettings(
         components={TelemetryComponent.METRICS},
         deployment_environment="testing",
@@ -146,7 +147,32 @@ def test_init_metrics_derives_default_instance_id_in_worker_process(
 
     provider = mock_set_meter_provider.call_args.args[0]
     attrs = provider._sdk_config.resource.attributes
-    assert attrs["service.instance.id"] == "delta-spotify-testing-2002"
+    assert attrs["service.instance.id"] == "delta-spotify-testing"
+
+
+def test_init_metrics_uses_uwsgi_worker_id_for_default_instance_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(resource_labels.socket, "gethostname", lambda: "delta")
+    monkeypatch.setitem(
+        sys.modules,
+        "uwsgi",
+        unittest.mock.Mock(worker_id=unittest.mock.Mock(return_value=3)),
+    )
+    settings = TelemetrySettings(
+        components={TelemetryComponent.METRICS},
+        deployment_environment="testing",
+        oauth_provider="spotify",
+    )
+
+    with unittest.mock.patch(
+        "oauthclientbridge.telemetry._otel.set_meter_provider"
+    ) as mock_set_meter_provider:
+        telemetry.init_metrics(settings)
+
+    provider = mock_set_meter_provider.call_args.args[0]
+    attrs = provider._sdk_config.resource.attributes
+    assert attrs["service.instance.id"] == "delta-spotify-testing-3"
 
 
 def test_log_attributes_preserves_numeric_process_id() -> None:

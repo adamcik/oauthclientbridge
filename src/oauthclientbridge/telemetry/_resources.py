@@ -1,3 +1,4 @@
+import importlib
 import os
 import socket
 from collections.abc import Mapping
@@ -16,8 +17,22 @@ def service_instance_id(settings: TelemetrySettings) -> str:
     parts = [socket.gethostname()]
     if settings.oauth_provider:
         parts.append(settings.oauth_provider)
-    parts.extend((settings.deployment_environment, str(os.getpid())))
+    parts.append(settings.deployment_environment)
+    worker_id = _uwsgi_worker_id()
+    if worker_id is not None:
+        parts.append(str(worker_id))
     return "-".join(parts)
+
+
+def _uwsgi_worker_id() -> int | None:
+    try:
+        uwsgi = importlib.import_module("uwsgi")
+    except ImportError:
+        return None
+
+    worker_id = getattr(uwsgi, "worker_id", None)
+    value = worker_id() if callable(worker_id) else None
+    return value if isinstance(value, int) else None
 
 
 def resource_attributes(settings: TelemetrySettings) -> dict[str, str | int]:
