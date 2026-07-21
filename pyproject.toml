@@ -76,6 +76,12 @@ include = ["src/oauthclientbridge"]
 stubPath = "typings"
 typeCheckingMode = "strict"
 
+[tool.pytest.ini_options]
+addopts = "-n auto"
+filterwarnings = [
+  "ignore:The '__version__' attribute is deprecated and will be removed in Flask 3\\.2.*:DeprecationWarning:opentelemetry\\.instrumentation\\.flask",
+]
+
 [tool.ruff.lint]
 extend-select = ["I"]
 
