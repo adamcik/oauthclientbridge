@@ -84,6 +84,11 @@ filterwarnings = [
 
 [tool.ruff.lint]
 extend-select = ["I"]
+ignore = [
+  # These rules conflict with ruff format, which is the formatting authority.
+  "COM812",  # missing-trailing-comma
+  "ISC001",  # single-line-implicit-string-concatenation
+]
 
 [tool.ruff.lint.isort]
 known-local-folder = ["src"]
