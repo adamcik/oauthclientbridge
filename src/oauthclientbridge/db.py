@@ -82,7 +82,7 @@ def _database_connect_args() -> tuple[str, bool]:
     database = current_settings.database.database
     if database == ":memory:":
         return ("file:oauthclientbridge?mode=memory&cache=shared", True)
-    return (database, False)
+    return (database, database.startswith("file:"))
 
 
 def _connect() -> sqlite3.Connection:
