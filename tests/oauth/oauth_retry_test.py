@@ -1,3 +1,4 @@
+import asyncio
 import unittest.mock
 from dataclasses import dataclass
 from http import HTTPStatus
@@ -20,6 +21,10 @@ from oauthclientbridge.oauth._outcome import (
     OAuthResponse,  # pyright: ignore[reportPrivateUsage] # Direct implementation test.
 )
 from oauthclientbridge.settings import current_settings
+
+
+def run_fetch(*args: str, **data: str | None) -> OAuthResponse:
+    return asyncio.run(oauth.fetch(*args, **data))
 
 
 @dataclass
@@ -73,110 +78,6 @@ def test_retry_limiter_factory_refreshes_when_settings_change() -> None:
     assert limiter2.refill_amount == 1.0
 
 
-def test_oauth_fetch_skips_retry_when_retry_budget_exhausted(
-    app_context: flask.ctx.AppContext,
-    requests_mock: RequestsMocker,
-) -> None:
-    requests_mock.post(
-        current_settings.oauth.token_uri,
-        [
-            {"status_code": 503, "json": {"error": "temporarily_unavailable"}},
-            {
-                "json": {"access_token": "mock_token", "token_type": "Bearer"},
-                "status_code": 200,
-            },
-        ],
-    )
-
-    class FakeRetryLimiter:
-        def add(self, tokens: float) -> None:
-            self.add_calls = getattr(self, "add_calls", []) + [tokens]
-
-        def consume(self, tokens: float = 1) -> bool:
-            self.consume_calls = getattr(self, "consume_calls", []) + [tokens]
-            return False
-
-    fake_limiter = FakeRetryLimiter()
-
-    with (
-        unittest.mock.patch.object(
-            oauth_core, "_get_retry_limiter", return_value=fake_limiter
-        ),
-        unittest.mock.patch("time.sleep") as mock_sleep,
-    ):
-        result = oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
-
-    mock_sleep.assert_not_called()
-    assert result["error"] == "temporarily_unavailable"
-    assert getattr(fake_limiter, "add_calls", []) == [0.25]
-    assert getattr(fake_limiter, "consume_calls", []) == [1]
-
-
-def test_oauth_fetch_still_runs_first_attempt_when_retry_budget_exhausted(
-    app_context: flask.ctx.AppContext,
-    requests_mock: RequestsMocker,
-) -> None:
-    requests_mock.post(
-        current_settings.oauth.token_uri,
-        json={"access_token": "mock_token", "token_type": "Bearer"},
-        status_code=200,
-    )
-
-    class FakeRetryLimiter:
-        def add(self, tokens: float) -> None:
-            self.add_calls = getattr(self, "add_calls", []) + [tokens]
-
-        def consume(self, tokens: float = 1) -> bool:
-            self.consume_calls = getattr(self, "consume_calls", []) + [tokens]
-            return False
-
-    fake_limiter = FakeRetryLimiter()
-
-    with unittest.mock.patch.object(
-        oauth_core, "_get_retry_limiter", return_value=fake_limiter
-    ):
-        result = oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
-
-    assert result["access_token"] == "mock_token"
-    assert getattr(fake_limiter, "add_calls", []) == [0.25]
-    assert getattr(fake_limiter, "consume_calls", []) == []
-
-
-def test_oauth_fetch_retries_when_retry_budget_is_available(
-    app_context: flask.ctx.AppContext,
-    requests_mock: RequestsMocker,
-) -> None:
-    requests_mock.post(
-        current_settings.oauth.token_uri,
-        [
-            {"status_code": 503, "json": {"error": "temporarily_unavailable"}},
-            {
-                "json": {"access_token": "mock_token", "token_type": "Bearer"},
-                "status_code": 200,
-            },
-        ],
-    )
-
-    class FakeRetryLimiter:
-        def add(self, tokens: float) -> None:
-            self.add_calls = getattr(self, "add_calls", []) + [tokens]
-
-        def consume(self, tokens: float = 1) -> bool:
-            self.consume_calls = getattr(self, "consume_calls", []) + [tokens]
-            return True
-
-    fake_limiter = FakeRetryLimiter()
-
-    with unittest.mock.patch.object(
-        oauth_core, "_get_retry_limiter", return_value=fake_limiter
-    ):
-        result = oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
-
-    assert result["access_token"] == "mock_token"
-    assert getattr(fake_limiter, "add_calls", []) == [0.25]
-    assert getattr(fake_limiter, "consume_calls", []) == [1]
-
-
 def test_oauth_fetch_normalizes_retryable_invalid_client_to_temporarily_unavailable(
     app_context: flask.ctx.AppContext,
     requests_mock: RequestsMocker,
@@ -188,7 +89,7 @@ def test_oauth_fetch_normalizes_retryable_invalid_client_to_temporarily_unavaila
         json={"error": OAuthError.INVALID_CLIENT},
     )
 
-    result = oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+    result = run_fetch(current_settings.oauth.token_uri, "test_endpoint")
 
     assert result["error"] == OAuthError.TEMPORARILY_UNAVAILABLE
 
@@ -204,7 +105,7 @@ def test_oauth_fetch_still_runs_initial_attempt_when_total_retries_is_zero(
         status_code=200,
     )
 
-    result = oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+    result = run_fetch(current_settings.oauth.token_uri, "test_endpoint")
 
     assert result["access_token"] == "mock_token"
     assert len(requests_mock.request_history) == 1
@@ -227,7 +128,7 @@ def test_oauth_fetch_total_retries_allows_one_retry(
     )
 
     with unittest.mock.patch("time.sleep"):
-        result = oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+        result = run_fetch(current_settings.oauth.token_uri, "test_endpoint")
 
     assert result["access_token"] == "mock_token"
     assert len(requests_mock.request_history) == 2
@@ -255,6 +156,7 @@ def test_oauth_fetch_does_not_start_retry_after_sleep_exhausts_deadline(
         prepared: requests.PreparedRequest,
         timeout: float,
         endpoint: str,
+        *_: object,
     ) -> tuple[OAuthResponse, HTTPStatus | None, int]:
         _ = span, prepared, timeout, endpoint
         nonlocal fetch_calls
@@ -268,7 +170,7 @@ def test_oauth_fetch_does_not_start_retry_after_sleep_exhausts_deadline(
     monkeypatch.setattr(oauth_core.random, "uniform", lambda _low, _high: 1.25)
     monkeypatch.setattr(oauth_core, "_fetch", fetch_side_effect)
 
-    result = oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+    result = run_fetch(current_settings.oauth.token_uri, "test_endpoint")
 
     assert result["error"] == "temporarily_unavailable"
     assert mock_time.monotonic_seconds == pytest.approx(0.2)
@@ -291,6 +193,7 @@ def test_oauth_fetch_total_deadline_uses_monotonic_clock(
         prepared: requests.PreparedRequest,
         timeout: float,
         endpoint: str,
+        *_: object,
     ) -> tuple[OAuthResponse, HTTPStatus | None, int]:
         _ = span, prepared, endpoint
         observed_timeouts.append(timeout)
@@ -311,7 +214,7 @@ def test_oauth_fetch_total_deadline_uses_monotonic_clock(
     monkeypatch.setattr(oauth_core.random, "uniform", lambda _low, _high: 0.75)
     monkeypatch.setattr(oauth_core, "_fetch", fetch_side_effect)
 
-    result = oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+    result = run_fetch(current_settings.oauth.token_uri, "test_endpoint")
 
     assert result["access_token"] == "mock_token"
     assert observed_timeouts == pytest.approx([1.0, 0.575])
@@ -333,6 +236,7 @@ def test_oauth_fetch_uses_remaining_budget_for_retry_timeout(
         prepared: requests.PreparedRequest,
         timeout: float,
         endpoint: str,
+        *_: object,
     ) -> tuple[OAuthResponse, HTTPStatus | None, int]:
         _ = span, prepared, endpoint
         observed_timeouts.append(timeout)
@@ -354,7 +258,7 @@ def test_oauth_fetch_uses_remaining_budget_for_retry_timeout(
     monkeypatch.setattr(oauth_core.random, "uniform", lambda _low, _high: 0.75)
     monkeypatch.setattr(oauth_core, "_fetch", fetch_side_effect)
 
-    result = oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+    result = run_fetch(current_settings.oauth.token_uri, "test_endpoint")
 
     assert result["access_token"] == "mock_token"
     assert observed_timeouts[0] == pytest.approx(1.0)

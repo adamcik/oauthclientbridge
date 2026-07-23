@@ -1,3 +1,4 @@
+import asyncio
 import os
 import sqlite3
 import sys
@@ -32,6 +33,11 @@ from oauthclientbridge.telemetry import _resources as resource_labels
 
 from .conftest import GetClient, PostClient, TokenTuple
 from .plugins import otel
+
+
+def run_fetch(*args: str, **data: str | None) -> OAuthResponse:
+    return asyncio.run(oauth.fetch(*args, **data))
+
 
 logger: structlog.BoundLogger = structlog.get_logger()
 
@@ -455,7 +461,7 @@ def test_outgoing_request_span_records_retry_after_header(
         json={"error": "temporarily_unavailable"},
     )
 
-    oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+    run_fetch(current_settings.oauth.token_uri, "test_endpoint")
 
     spans = otel_mock.get_finished_spans()
     outgoing_request_spans = otel.find_spans(spans, "POST")
@@ -845,7 +851,7 @@ def test_oauth_client_retries_metric_prometheus_uses_final_status(
     )
 
     with unittest.mock.patch("time.sleep"):
-        oauth.fetch(current_settings.oauth.token_uri, "retry-metric-test")
+        run_fetch(current_settings.oauth.token_uri, "retry-metric-test")
 
     metrics_resp = client.get("/metrics")
     body = metrics_resp.data.decode()
@@ -930,45 +936,11 @@ def test_oauth_client_retry_metrics_bucket_429_as_resource_exhausted(
         unittest.mock.patch("random.uniform", return_value=1.0),
         unittest.mock.patch("time.sleep"),
     ):
-        oauth.fetch(current_settings.oauth.token_uri, endpoint)
+        run_fetch(current_settings.oauth.token_uri, endpoint)
 
     metrics_resp = client.get("/metrics")
     assert b"oauth_client_retry_decisions_total" in metrics_resp.data
     assert b'decision="retry"' in metrics_resp.data
-    assert b'reason="resource_exhausted"' in metrics_resp.data
-
-
-def test_oauth_client_retry_metrics_record_budget_skip(
-    requests_mock: Mocker,
-    client: FlaskClient,
-):
-    requests_mock.post(
-        current_settings.oauth.token_uri,
-        [
-            {"status_code": 503, "json": {"error": "temporarily_unavailable"}},
-            {
-                "json": {"access_token": "mock_token", "token_type": "Bearer"},
-                "status_code": 200,
-            },
-        ],
-    )
-
-    class FakeRetryLimiter:
-        def add(self, tokens: float) -> None:
-            pass
-
-        def consume(self, tokens: float = 1) -> bool:
-            return False
-
-    with unittest.mock.patch.object(
-        oauth_core, "_get_retry_limiter", return_value=FakeRetryLimiter()
-    ):
-        oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
-
-    metrics_resp = client.get("/metrics")
-
-    assert b"oauth_client_retry_decisions_total" in metrics_resp.data
-    assert b'decision="skip"' in metrics_resp.data
     assert b'reason="resource_exhausted"' in metrics_resp.data
 
 
@@ -983,7 +955,7 @@ def test_oauth_client_error_metric_uses_normalized_retryable_invalid_grant(
         json={"error": OAuthError.INVALID_GRANT},
     )
 
-    oauth.fetch(current_settings.oauth.token_uri, endpoint)
+    run_fetch(current_settings.oauth.token_uri, endpoint)
 
     metrics_resp = client.get("/metrics")
 
@@ -997,51 +969,6 @@ def test_oauth_client_error_metric_uses_normalized_retryable_invalid_grant(
     )
 
 
-def test_oauth_client_retry_metrics_do_not_count_skipped_retry_attempts(
-    requests_mock: Mocker,
-    otel_mock: otel.OTelMocker,
-    client: FlaskClient,
-):
-    endpoint = "budget-skip-retry-count-test"
-    requests_mock.post(
-        current_settings.oauth.token_uri,
-        [
-            {"status_code": 503, "json": {"error": "temporarily_unavailable"}},
-            {
-                "json": {"access_token": "mock_token", "token_type": "Bearer"},
-                "status_code": 200,
-            },
-        ],
-    )
-
-    class FakeRetryLimiter:
-        def add(self, tokens: float) -> None:
-            pass
-
-        def consume(self, tokens: float = 1) -> bool:
-            return False
-
-    with unittest.mock.patch.object(
-        oauth_core, "_get_retry_limiter", return_value=FakeRetryLimiter()
-    ):
-        oauth.fetch(current_settings.oauth.token_uri, endpoint)
-
-    retries_data = otel.latest_metric_data(
-        otel_mock.get_metrics_data(),
-        "oauth.client.retries",
-        HistogramDataPoint,
-        attributes={"operation": endpoint},
-        scope="oauthclientbridge.oauth",
-    )
-    assert retries_data.sum == 0
-
-    metrics_resp = client.get("/metrics")
-    assert (
-        f'oauth_client_attempts_total{{endpoint="{endpoint}",kind="retry"}}'.encode()
-        not in metrics_resp.data
-    )
-
-
 def test_oauth_client_retry_metrics_record_deadline_skip(
     client: FlaskClient,
     monkeypatch: pytest.MonkeyPatch,
@@ -1049,13 +976,6 @@ def test_oauth_client_retry_metrics_record_deadline_skip(
     current_settings.fetch.total_timeout = 1.0
     current_settings.fetch.total_retries = 2
     current_settings.fetch.backoff_factor = 0.8
-
-    class FakeRetryLimiter:
-        def add(self, tokens: float) -> None:
-            pass
-
-        def consume(self, tokens: float = 1) -> bool:
-            return True
 
     fake_time = [0.0]
 
@@ -1072,6 +992,7 @@ def test_oauth_client_retry_metrics_record_deadline_skip(
         prepared: requests.PreparedRequest,
         timeout: float,
         endpoint: str,
+        *_: object,
     ) -> tuple[OAuthResponse, HTTPStatus | None, int]:
         _ = span, prepared, timeout, endpoint
         nonlocal fetch_calls
@@ -1086,16 +1007,13 @@ def test_oauth_client_retry_metrics_record_deadline_skip(
 
         raise AssertionError("unexpected retry attempt")
 
-    monkeypatch.setattr(
-        oauth_core, "_get_retry_limiter", lambda _capacity, _refill: FakeRetryLimiter()
-    )
     monkeypatch.setattr(oauth_core.time, "time", now)
     monkeypatch.setattr(oauth_core.time, "monotonic", now)
     monkeypatch.setattr(oauth_core.time, "sleep", sleep)
     monkeypatch.setattr(oauth_core.random, "uniform", lambda _low, _high: 1.25)
     monkeypatch.setattr(oauth_core, "_fetch", fetch_side_effect)
 
-    oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+    run_fetch(current_settings.oauth.token_uri, "test_endpoint")
 
     metrics_resp = client.get("/metrics")
 
@@ -1117,7 +1035,7 @@ def test_oauth_client_retry_metrics_record_attempt_limit_skip(
     )
 
     with unittest.mock.patch("time.sleep"):
-        oauth.fetch(current_settings.oauth.token_uri, endpoint)
+        run_fetch(current_settings.oauth.token_uri, endpoint)
 
     metrics_resp = client.get("/metrics")
 

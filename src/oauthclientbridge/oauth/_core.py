@@ -7,6 +7,7 @@ import time
 from http import HTTPStatus
 from typing import Any, override
 
+import anyio
 import flask
 import requests
 import structlog
@@ -14,7 +15,7 @@ from opentelemetry import metrics, trace
 
 from oauthclientbridge import telemetry
 from oauthclientbridge.errors import OAuthError
-from oauthclientbridge.settings import current_settings
+from oauthclientbridge.settings import FetchSettings, current_settings
 from oauthclientbridge.utils import uri as uri_utils
 
 from ._outcome import (
@@ -58,15 +59,6 @@ _oauth_client_retries_histogram = meter.create_histogram(
 )
 
 URIParam = dict[str, str]
-
-
-@functools.lru_cache()
-def get_session():
-    session = requests.Session()
-    session.headers["User-Agent"] = "oauthclientbridge %s" % importlib.metadata.version(
-        "oauthclientbridge"
-    )
-    return session
 
 
 class Error(Exception):
@@ -166,21 +158,40 @@ def _record_retry_decision(endpoint: str, decision: RetryDecision) -> None:
     telemetry.record_retry_decision(endpoint, decision.action, decision.reason)
 
 
-def fetch(
+async def fetch(
     uri: str, endpoint: str, auth: str | None = None, **data: str | None
 ) -> OAuthResponse:
-    """Perform post given URI with auth and provided data."""
+    """Perform an upstream OAuth request without blocking the event loop."""
+    settings = current_settings.fetch.model_copy(deep=True)
+    return await anyio.to_thread.run_sync(  # pyright: ignore[reportUnknownMemberType, reportAttributeAccessIssue, reportUnknownVariableType] # AnyIO's local stub omits worker-thread support.
+        _fetch_sync, uri, endpoint, auth, data, settings
+    )
+
+
+def fetch_sync(
+    uri: str, endpoint: str, auth: str | None = None, **data: str | None
+) -> OAuthResponse:
+    """Run the asynchronous upstream fetch from a synchronous adapter."""
+    return anyio.run(functools.partial(fetch, uri, endpoint, auth, **data))
+
+
+# TODO: Reintroduce a shared retry budget with the future httpx transport.
+_get_retry_limiter = get_retry_limiter
+
+
+def _fetch_sync(
+    uri: str,
+    endpoint: str,
+    auth: str | None,
+    data: dict[str, str | None],
+    settings: FetchSettings,
+) -> OAuthResponse:
     start_time = time.monotonic()
     with tracer.start_as_current_span(f"OAUTH {endpoint}") as span:
         req = requests.Request("POST", uri, data=data, auth=auth)
         prepared = req.prepare()
-        retry_budget = _get_retry_limiter(
-            current_settings.fetch.retry_budget_capacity,
-            current_settings.fetch.retry_budget_refill_per_initial,
-        )
-        retry_budget.add(current_settings.fetch.retry_budget_refill_per_initial)
 
-        deadline = time.monotonic() + current_settings.fetch.total_timeout
+        deadline = time.monotonic() + settings.total_timeout
         retry = 0
         completed_retries = 0
         status: HTTPStatus | None = None
@@ -190,9 +201,9 @@ def fetch(
             description="An unknown error occurred talking to provider."
         )
 
-        for i in range(current_settings.fetch.total_retries + 1):
+        for i in range(settings.total_retries + 1):
             prefix = "attempt #%d %s" % (i + 1, uri)
-            backoff = (2**i - 1) * current_settings.fetch.backoff_factor
+            backoff = (2**i - 1) * settings.backoff_factor
             remaining_timeout = deadline - time.monotonic()
 
             if pending_retry_decision is not None:
@@ -208,20 +219,10 @@ def fetch(
                     logger.debug("Abort %s no timeout remaining.", prefix)
                     break
                 elif (retry or backoff) > 0:
-                    if not retry_budget.consume():
-                        _record_retry_decision(
-                            endpoint,
-                            RetryDecision(
-                                RetryDecisionAction.SKIP,
-                                RetryReason.RESOURCE_EXHAUSTED,
-                            ),
-                        )
-                        span.add_event("Retry budget exhausted")
-                        logger.debug("Abort %s retry budget exhausted.", prefix)
-                        break
-
                     base_delay = retry if retry else backoff
-                    sleep_for = jitter_delay(base_delay, preserve_floor=retry > 0)
+                    sleep_for = jitter_delay(
+                        base_delay, settings, preserve_floor=retry > 0
+                    )
                     if retry:
                         sleep_for = max(retry, sleep_for)
                     if sleep_for > remaining_timeout:
@@ -281,13 +282,14 @@ def fetch(
                 prepared,
                 remaining_timeout,
                 endpoint,
+                settings,
             )
 
             outcome = token_endpoint_outcome(
                 status,
                 result,
-                retry_status_codes=current_settings.fetch.retry_status_codes,
-                error_types=current_settings.fetch.error_types,
+                retry_status_codes=settings.retry_status_codes,
+                error_types=settings.error_types,
                 logger=logger,
                 endpoint=endpoint,
             )
@@ -318,8 +320,8 @@ def fetch(
 
             if status is not None and "error" in result:
                 error_code = result["error"]
-                if error_code in current_settings.fetch.error_types:
-                    error_label = current_settings.fetch.error_types[error_code].value
+                if error_code in settings.error_types:
+                    error_label = settings.error_types[error_code].value
                 elif error_code in OAuthError:
                     error_label = OAuthError(error_code).value
                 else:
@@ -378,21 +380,30 @@ def _fetch(
     prepared: requests.PreparedRequest,
     timeout: float,
     endpoint: str,
+    settings: FetchSettings,
 ) -> tuple[OAuthResponse, HTTPStatus | None, int]:
-    timeout = min(current_settings.fetch.timeout, timeout)
+    timeout = min(settings.timeout, timeout)
     start_time = time.time()
+    assert prepared.method is not None
+    assert prepared.url is not None
 
-    session = get_session()
     status = None
 
     try:
-        resp = session.send(prepared, timeout=timeout)
+        resp = requests.request(
+            prepared.method,
+            prepared.url,
+            data=prepared.body,
+            headers={
+                **prepared.headers,
+                "User-Agent": "oauthclientbridge %s"
+                % importlib.metadata.version("oauthclientbridge"),
+            },
+            timeout=timeout,
+        )
     except requests.exceptions.RequestException as e:
         request_latency = time.time() - start_time
         span.record_exception(e)
-        span.add_event("Closing session to get new server")
-        session.close()
-
         status_label = "unknown_exception"
         description = "An unknown error occurred while talking to provider."
         if isinstance(e, requests.exceptions.Timeout):
@@ -425,22 +436,20 @@ def _fetch(
     else:
         request_latency = time.time() - start_time
 
-        result = _decode(span, resp)
+        result = _decode(span, resp, settings)
         status = HTTPStatus(resp.status_code)
         status_label = status
         length = len(resp.content)
         retry_after = parse_retry(resp.headers.get("retry-after"))
-
-        if status in current_settings.fetch.retry_status_codes:
-            span.add_event("Closing session to get new server")
-            session.close()
 
     telemetry.record_client_response(endpoint, status_label, request_latency, length)
 
     return result, status, retry_after
 
 
-def _decode(span: trace.Span, resp: requests.Response) -> OAuthResponse:
+def _decode(
+    span: trace.Span, resp: requests.Response, settings: FetchSettings
+) -> OAuthResponse:
     try:
         return resp.json()
     except ValueError as e:
@@ -454,7 +463,7 @@ def _decode(span: trace.Span, resp: requests.Response) -> OAuthResponse:
             e,
         )
 
-    if resp.status_code in current_settings.fetch.unavailable_status_codes:
+    if resp.status_code in settings.unavailable_status_codes:
         error = OAuthError.TEMPORARILY_UNAVAILABLE
         description = "Provider is unavailable."
     else:
@@ -478,19 +487,21 @@ def parse_retry(value: str | None) -> int:
     return max(0, seconds)
 
 
-def jitter_delay(delay: float, preserve_floor: bool = False) -> float:
+def jitter_delay(
+    delay: float, settings: FetchSettings, preserve_floor: bool = False
+) -> float:
     """Apply jitter around a base delay.
 
     When preserving a provider-supplied floor like `Retry-After`, clamp the
     lower jitter bound to 1.0 so the full sampled range remains usable.
     """
-    lower_bound = current_settings.fetch.backoff_jitter_min
+    lower_bound = settings.backoff_jitter_min
     if preserve_floor:
         lower_bound = max(1.0, lower_bound)
 
     return delay * random.uniform(
         lower_bound,
-        current_settings.fetch.backoff_jitter_max,
+        settings.backoff_jitter_max,
     )
 
 
@@ -499,7 +510,3 @@ def redirect(uri: str, **params: str) -> flask.Response:
         status=HTTPStatus.FOUND,
         headers={"Location": uri_utils.rewrite_uri(uri, params)},
     )
-
-
-# Preserve existing import/test seam while moving implementation to retry.py.
-_get_retry_limiter = get_retry_limiter
