@@ -1,6 +1,5 @@
 import asyncio
 import unittest.mock
-from http import HTTPStatus
 
 import flask.ctx
 import requests
@@ -18,20 +17,17 @@ def run_fetch(*args: str, **data: str | None):
     return asyncio.run(oauth.fetch(*args, **data))
 
 
-def test_oauth_fetch_is_async(app_context: flask.ctx.AppContext) -> None:
-    current_settings.fetch.total_retries = 0
+def test_oauth_fetch_is_async(
+    app_context: flask.ctx.AppContext, requests_mock: RequestsMocker
+) -> None:
+    requests_mock.post(
+        current_settings.oauth.token_uri,
+        json={"access_token": "mock_token", "token_type": "Bearer"},
+    )
 
-    with unittest.mock.patch.object(
-        oauth_core,
-        "_fetch",
-        return_value=({"error": "server_error"}, HTTPStatus.BAD_REQUEST, 0),
-    ) as mock_fetch:
-        result = asyncio.run(
-            oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
-        )
+    result = asyncio.run(oauth.fetch(current_settings.oauth.token_uri, "test_endpoint"))
 
-    assert result["error"] == "server_error"
-    mock_fetch.assert_called_once()
+    assert result["access_token"] == "mock_token"
 
 
 def test_oauth_fetch_does_not_call_requests_with_expired_deadline(
