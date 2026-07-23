@@ -14,6 +14,9 @@ from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.oauth import (
     _core as oauth_core,  # pyright: ignore[reportPrivateUsage] # Direct implementation test.
 )
+from oauthclientbridge.oauth import (
+    _retry as oauth_retry,  # pyright: ignore[reportPrivateUsage] # Direct implementation test.
+)
 from oauthclientbridge.oauth._outcome import (
     OAuthResponse,  # pyright: ignore[reportPrivateUsage] # Direct implementation test.
 )
@@ -50,6 +53,29 @@ def mock_time(monkeypatch: pytest.MonkeyPatch) -> MockTime:
     monkeypatch.setattr(oauth_core.time, "monotonic", clock.monotonic)
     monkeypatch.setattr(oauth_core.time, "sleep", clock.sleep)
     return clock
+
+
+def test_retry_limiter_factory_is_cached(app_context: flask.ctx.AppContext) -> None:
+    oauth_retry.get_retry_limiter.cache_clear()
+    current_settings.fetch.retry_budget_capacity = 8
+    current_settings.fetch.retry_budget_refill_per_initial = 0.5
+
+    limiter1 = oauth_retry.get_retry_limiter(8, 0.5)
+    limiter2 = oauth_retry.get_retry_limiter(8, 0.5)
+
+    assert limiter1 is limiter2
+    assert limiter1.capacity == 8
+    assert limiter1.refill_amount == 0.5
+
+
+def test_retry_limiter_factory_refreshes_when_settings_change() -> None:
+    oauth_retry.get_retry_limiter.cache_clear()
+    limiter1 = oauth_retry.get_retry_limiter(8, 0.5)
+    limiter2 = oauth_retry.get_retry_limiter(3, 1.0)
+
+    assert limiter2 is not limiter1
+    assert limiter2.capacity == 3
+    assert limiter2.refill_amount == 1.0
 
 
 def test_oauth_fetch_normalizes_retryable_invalid_client_to_temporarily_unavailable(
