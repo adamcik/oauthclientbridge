@@ -3,6 +3,7 @@ import re
 from http import HTTPStatus
 from typing import Any
 
+import anyio
 import flask
 import structlog
 from flask import Blueprint
@@ -110,14 +111,16 @@ def callback() -> flask.Response:
 
         return _error(error, desc, client_state)
 
-    result = oauth.fetch_sync(
-        current_settings.oauth.token_uri,
-        client_id=current_settings.oauth.client_id,
-        client_secret=current_settings.oauth.client_secret.get_secret_value(),
-        code=flask.request.args.get("code"),
-        grant_type="authorization_code",
-        redirect_uri=current_settings.oauth.redirect_uri,
-        endpoint="token",
+    result = anyio.run(
+        lambda: oauth.fetch(
+            current_settings.oauth.token_uri,
+            client_id=current_settings.oauth.client_id,
+            client_secret=current_settings.oauth.client_secret.get_secret_value(),
+            code=flask.request.args.get("code"),
+            grant_type="authorization_code",
+            redirect_uri=current_settings.oauth.redirect_uri,
+            endpoint="token",
+        )
     )
 
     if "error" in result:
@@ -240,13 +243,15 @@ def token() -> flask.Response:
         telemetry.observe_token_grant_age(record.created_at)
         return flask.jsonify(result)
 
-    refresh_result = oauth.fetch_sync(
-        current_settings.oauth.refresh_uri or current_settings.oauth.token_uri,
-        client_id=current_settings.oauth.client_id,
-        client_secret=current_settings.oauth.client_secret.get_secret_value(),
-        grant_type=current_settings.oauth.grant_type,
-        refresh_token=result["refresh_token"],
-        endpoint="refresh",
+    refresh_result = anyio.run(
+        lambda: oauth.fetch(
+            current_settings.oauth.refresh_uri or current_settings.oauth.token_uri,
+            client_id=current_settings.oauth.client_id,
+            client_secret=current_settings.oauth.client_secret.get_secret_value(),
+            grant_type=current_settings.oauth.grant_type,
+            refresh_token=result["refresh_token"],
+            endpoint="refresh",
+        )
     )
     refresh_outcome = oauth.token_endpoint_outcome(
         HTTPStatus.BAD_REQUEST if "error" in refresh_result else HTTPStatus.OK,
