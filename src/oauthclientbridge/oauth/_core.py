@@ -29,7 +29,6 @@ from ._retry import (
     RetryDecision,
     RetryDecisionAction,
     RetryReason,
-    get_retry_limiter,
 )
 
 logger: structlog.BoundLogger = structlog.get_logger()
@@ -173,10 +172,6 @@ def fetch_sync(
 ) -> OAuthResponse:
     """Run the asynchronous upstream fetch from a synchronous adapter."""
     return anyio.run(functools.partial(fetch, uri, endpoint, auth, **data))
-
-
-# TODO: Reintroduce a shared retry budget with the future httpx transport.
-_get_retry_limiter = get_retry_limiter
 
 
 def _fetch_sync(

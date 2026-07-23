@@ -879,17 +879,7 @@ def test_oauth_client_retry_metrics_record_attempts_and_reasons(
         ],
     )
 
-    class FakeRetryLimiter:
-        def add(self, tokens: float) -> None:
-            self.add_calls = getattr(self, "add_calls", []) + [tokens]
-
-        def consume(self, tokens: float = 1) -> bool:
-            return True
-
     with (
-        unittest.mock.patch.object(
-            oauth_core, "_get_retry_limiter", return_value=FakeRetryLimiter()
-        ),
         unittest.mock.patch("random.uniform", return_value=1.0),
         unittest.mock.patch("time.sleep"),
     ):
@@ -922,17 +912,7 @@ def test_oauth_client_retry_metrics_bucket_429_as_resource_exhausted(
         ],
     )
 
-    class FakeRetryLimiter:
-        def add(self, tokens: float) -> None:
-            pass
-
-        def consume(self, tokens: float = 1) -> bool:
-            return True
-
     with (
-        unittest.mock.patch.object(
-            oauth_core, "_get_retry_limiter", return_value=FakeRetryLimiter()
-        ),
         unittest.mock.patch("random.uniform", return_value=1.0),
         unittest.mock.patch("time.sleep"),
     ):
