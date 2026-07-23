@@ -14,9 +14,6 @@ from pydantic import SecretStr
 from werkzeug.datastructures import Headers
 
 from oauthclientbridge import create_app, crypto, db, types
-from oauthclientbridge.oauth import (
-    _retry as oauth_retry,  # pyright: ignore[reportPrivateUsage] # Global retry limiter reset.
-)
 from oauthclientbridge.settings import (
     DatabaseSettings,
     OAuthSettings,
@@ -41,11 +38,6 @@ def reset_logging_handlers():
         root_logger.removeHandler(handler)
 
     structlog.reset_defaults()
-
-
-@pytest.fixture(autouse=True)
-def reset_retry_limiter():
-    oauth_retry.get_retry_limiter.cache_clear()
 
 
 class ResponseTuple(NamedTuple):
