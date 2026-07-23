@@ -372,7 +372,7 @@ def test_callback_preserves_retry_after_for_temporarily_unavailable(
     state: str,
 ):
     with unittest.mock.patch(
-        "oauthclientbridge.views.oauth.fetch",
+            "oauthclientbridge.views.oauth.fetch_sync",
         return_value={"error": "temporarily_unavailable", "retry_after": 10},
     ):
         resp = get("/callback?state={state}&code=abc".format(state=state))

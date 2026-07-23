@@ -110,7 +110,7 @@ def callback() -> flask.Response:
 
         return _error(error, desc, client_state)
 
-    result = oauth.fetch(
+    result = oauth.fetch_sync(
         current_settings.oauth.token_uri,
         client_id=current_settings.oauth.client_id,
         client_secret=current_settings.oauth.client_secret.get_secret_value(),
@@ -240,7 +240,7 @@ def token() -> flask.Response:
         telemetry.observe_token_grant_age(record.created_at)
         return flask.jsonify(result)
 
-    refresh_result = oauth.fetch(
+    refresh_result = oauth.fetch_sync(
         current_settings.oauth.refresh_uri or current_settings.oauth.token_uri,
         client_id=current_settings.oauth.client_id,
         client_secret=current_settings.oauth.client_secret.get_secret_value(),

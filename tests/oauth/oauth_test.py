@@ -1,4 +1,6 @@
+import asyncio
 import unittest.mock
+from http import HTTPStatus
 
 import flask.ctx
 import requests
@@ -12,19 +14,37 @@ from oauthclientbridge.oauth import (
 from oauthclientbridge.settings import current_settings
 
 
+def run_fetch(*args: str, **data: str | None):
+    return asyncio.run(oauth.fetch(*args, **data))
+
+
+def test_oauth_fetch_is_async(app_context: flask.ctx.AppContext) -> None:
+    current_settings.fetch.total_retries = 0
+
+    with unittest.mock.patch.object(
+        oauth_core,
+        "_fetch",
+        return_value=({"error": "server_error"}, HTTPStatus.BAD_REQUEST, 0),
+    ) as mock_fetch:
+        result = asyncio.run(
+            oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+        )
+
+    assert result["error"] == "server_error"
+    mock_fetch.assert_called_once()
+
+
 def test_oauth_fetch_does_not_call_requests_with_expired_deadline(
     app_context: flask.ctx.AppContext,
 ) -> None:
     current_settings.fetch.total_timeout = 0.0
     current_settings.fetch.total_retries = 1
 
-    with unittest.mock.patch(
-        "oauthclientbridge.oauth._core.get_session"
-    ) as mock_get_session:
-        result = oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+    with unittest.mock.patch("requests.request") as mock_request:
+        result = run_fetch(current_settings.oauth.token_uri, "test_endpoint")
 
     assert result["error"] == "server_error"
-    assert mock_get_session.call_count == 0
+    mock_request.assert_not_called()
 
 
 def test_oauth_fetch_jitters_retry_after_sleep(
@@ -46,7 +66,7 @@ def test_oauth_fetch_jitters_retry_after_sleep(
         unittest.mock.patch("random.uniform", return_value=0.75) as mock_uniform,
         unittest.mock.patch("time.sleep") as mock_sleep,
     ):
-        oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+        run_fetch(current_settings.oauth.token_uri, "test_endpoint")
 
     mock_uniform.assert_called_once_with(1.0, 1.25)
     mock_sleep.assert_called_once_with(10)
@@ -71,7 +91,7 @@ def test_oauth_fetch_jitters_retry_backoff_within_bounds(
         unittest.mock.patch("random.uniform", return_value=1.25) as mock_uniform,
         unittest.mock.patch("time.sleep") as mock_sleep,
     ):
-        oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+        run_fetch(current_settings.oauth.token_uri, "test_endpoint")
 
     mock_uniform.assert_called_once_with(0.75, 1.25)
     mock_sleep.assert_called_once_with(0.125)
@@ -102,7 +122,7 @@ def test_oauth_fetch_uses_configured_jitter_bounds(
         ),
         unittest.mock.patch("time.sleep") as mock_sleep,
     ):
-        oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+        run_fetch(current_settings.oauth.token_uri, "test_endpoint")
 
     mock_sleep.assert_called_once_with(0.2)
 
@@ -127,7 +147,7 @@ def test_oauth_fetch_jitters_retry_after_sleeps_independently(
         unittest.mock.patch("random.uniform", side_effect=[0.75, 1.25]) as mock_uniform,
         unittest.mock.patch("time.sleep") as mock_sleep,
     ):
-        oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+        run_fetch(current_settings.oauth.token_uri, "test_endpoint")
 
     assert mock_uniform.call_args_list[0].args == (1.0, 1.25)
     assert mock_uniform.call_args_list[1].args == (1.0, 1.25)
@@ -155,7 +175,7 @@ def test_oauth_fetch_retries_on_failure_then_success(
     )
 
     with unittest.mock.patch("time.sleep") as mock_sleep:
-        oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+        run_fetch(current_settings.oauth.token_uri, "test_endpoint")
         assert mock_sleep.call_count == 2
 
 
@@ -178,7 +198,7 @@ def test_oauth_fetch_retries_on_exception_then_success(
     )
 
     with unittest.mock.patch("time.sleep") as mock_sleep:
-        oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+        run_fetch(current_settings.oauth.token_uri, "test_endpoint")
         assert mock_sleep.call_count == 2
 
 
@@ -199,7 +219,7 @@ def test_oauth_fetch_fails_after_all_retries_exhausted(
     )
 
     with unittest.mock.patch("time.sleep") as mock_sleep:
-        result = oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+        result = run_fetch(current_settings.oauth.token_uri, "test_endpoint")
         assert mock_sleep.call_count == 2
 
     assert "error" in result
@@ -227,7 +247,7 @@ def test_oauth_fetch_respects_retry_after_header(
         unittest.mock.patch("random.uniform", return_value=0.75),
         unittest.mock.patch("time.sleep") as mock_sleep,
     ):
-        oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+        run_fetch(current_settings.oauth.token_uri, "test_endpoint")
         mock_sleep.assert_called_once_with(10)
 
 
@@ -249,7 +269,7 @@ def test_oauth_fetch_does_not_retry_on_non_retryable_status_code(
     )
 
     with unittest.mock.patch("time.sleep") as mock_sleep:
-        oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+        run_fetch(current_settings.oauth.token_uri, "test_endpoint")
         mock_sleep.assert_not_called()
 
 
@@ -269,7 +289,7 @@ def test_oauth_fetch_does_not_retry_on_500_status_code(
     )
 
     with unittest.mock.patch("time.sleep") as mock_sleep:
-        result = oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+        result = run_fetch(current_settings.oauth.token_uri, "test_endpoint")
 
     mock_sleep.assert_not_called()
     assert result["error"] == "server_error"
@@ -291,7 +311,7 @@ def test_oauth_fetch_retries_on_502_status_code(
     )
 
     with unittest.mock.patch("time.sleep") as mock_sleep:
-        result = oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+        result = run_fetch(current_settings.oauth.token_uri, "test_endpoint")
 
     mock_sleep.assert_called_once()
     assert result["access_token"] == "mock_token"
@@ -310,43 +330,14 @@ def test_oauth_fetch_does_not_retry_on_success(
     )
 
     with unittest.mock.patch("time.sleep") as mock_sleep:
-        oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+        run_fetch(current_settings.oauth.token_uri, "test_endpoint")
         mock_sleep.assert_not_called()
 
-
-def test_oauth_fetch_closes_session_before_retrying_retryable_status(
-    app_context: flask.ctx.AppContext,
-) -> None:
-    """Verify that retryable HTTP responses reset the pooled session."""
-
-    first_response = unittest.mock.Mock(spec=requests.Response)
-    first_response.json.return_value = {"error": "temporarily_unavailable"}
-    first_response.status_code = 503
-    first_response.content = b'{"error": "temporarily_unavailable"}'
-    first_response.headers = {}
-
-    second_response = unittest.mock.Mock(spec=requests.Response)
-    second_response.json.return_value = {
-        "access_token": "mock_token",
-        "token_type": "Bearer",
-    }
-    second_response.status_code = 200
-    second_response.content = b'{"access_token": "mock_token", "token_type": "Bearer"}'
-    second_response.headers = {}
-
-    session = unittest.mock.Mock(spec=requests.Session)
-    session.send.side_effect = [first_response, second_response]
-
-    with (
-        unittest.mock.patch(
-            "oauthclientbridge.oauth._core.get_session", return_value=session
-        ),
-        unittest.mock.patch("time.sleep"),
-    ):
-        result = oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
-
-    assert result["access_token"] == "mock_token"
-    session.close.assert_called_once_with()
+    assert (
+        requests_mock.request_history[0]
+        .headers["User-Agent"]
+        .startswith("oauthclientbridge")
+    )
 
 
 def test_parse_retry_with_seconds() -> None:
@@ -380,22 +371,6 @@ def test_parse_retry_with_invalid_string() -> None:
 def test_parse_retry_with_multiple_headers() -> None:
     assert oauth_core.parse_retry("10, 20") == 0
     assert oauth_core.parse_retry("10, Wed, 01 Jan 2025 00:00:10 GMT") == 0
-
-
-def test_oauth_session_sets_user_agent(
-    app_context: flask.ctx.AppContext,
-    requests_mock: RequestsMocker,
-) -> None:
-    """Verify that oauth.session sets the User-Agent header correctly."""
-
-    requests_mock.get("http://example.com/", status_code=200)
-
-    oauth_core.get_session().get("http://example.com/")
-
-    history = requests_mock.request_history
-    assert len(history) == 1
-    assert "User-Agent" in history[0].headers
-    assert history[0].headers["User-Agent"].startswith("oauthclientbridge")
 
 
 def test_sanitize_for_logging_redacts_fields_outside_allowlist() -> None:
