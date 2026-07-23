@@ -5,7 +5,7 @@ from importlib.metadata import version
 import structlog
 from flask import Flask
 
-from oauthclientbridge import db, logs, oauth, telemetry, views
+from oauthclientbridge import bridge, db, logs, oauth, telemetry, views
 from oauthclientbridge.settings import Settings
 
 __version__ = version("oauthclientbridge")
@@ -21,6 +21,7 @@ def create_app(settings: Settings | None = None) -> Flask:
     app = Flask(__name__)
     app.config["SETTINGS"] = settings
     _ = app.config.from_prefixed_env()
+    app.extensions["oauth_bridge"] = bridge.Bridge(settings, oauth.fetch)
 
     telemetry.instrument_app(app)
 

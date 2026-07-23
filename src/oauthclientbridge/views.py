@@ -1,7 +1,7 @@
 import hmac
 import re
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 
 import anyio
 import flask
@@ -13,7 +13,7 @@ from opentelemetry.semconv.attributes.exception_attributes import (
     EXCEPTION_TYPE,
 )
 
-from oauthclientbridge import client, crypto, db, oauth, telemetry
+from oauthclientbridge import bridge, client, crypto, db, oauth, telemetry
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import LogLevel, current_settings
 
@@ -37,35 +37,27 @@ def _updated_fields(
 @routes.route("/")
 def authorize() -> flask.Response:
     """Store random state in session cookie and redirect to auth endpoint."""
-    redirect_uri: str | None = flask.request.args.get("redirect_uri")
-    if redirect_uri and redirect_uri != current_settings.oauth.redirect_uri:
-        return _error(OAuthError.INVALID_REQUEST, "Wrong redirect_uri.")
-
-    default_scope = " ".join(current_settings.oauth.scopes)
-    scope = flask.request.args.get("scope", default_scope)
-    if not _requested_scope_is_allowed(scope, current_settings.oauth.allowed_scopes):
-        return _error(OAuthError.INVALID_SCOPE, "Requested scope is not allowed.")
-    state = crypto.generate_key()
-
-    flask.session["client_state"] = flask.request.args.get("state")
-    flask.session["state"] = state
-
-    return oauth.redirect(
-        current_settings.oauth.authorization_uri,
-        client_id=current_settings.oauth.client_id,
-        response_type="code",
-        redirect_uri=current_settings.oauth.redirect_uri,
-        scope=scope,
-        state=state,
+    response = anyio.run(
+        cast(bridge.Bridge, flask.current_app.extensions["oauth_bridge"]).authorize,
+        bridge.AuthorizationRequest(query=flask.request.args),
     )
+    return _flask_response(response)
 
 
-def _requested_scope_is_allowed(
-    requested_scope: str, allowed_scopes: set[str] | None
-) -> bool:
-    return allowed_scopes is None or set(requested_scope.split()).issubset(
-        allowed_scopes
-    )
+def _flask_response(bridge_response: bridge.BridgeResponse) -> flask.Response:
+    if bridge_response.session is not None:
+        flask.session.clear()
+        flask.session.update(bridge_response.session)
+    if isinstance(bridge_response.body, bytes):
+        return flask.Response(
+            bridge_response.body,
+            status=bridge_response.status,
+            headers=bridge_response.headers,
+        )
+    response = flask.jsonify(bridge_response.body)
+    response.status_code = bridge_response.status
+    response.headers.update(bridge_response.headers)
+    return response
 
 
 @routes.route("/callback")

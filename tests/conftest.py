@@ -3,7 +3,10 @@ import json
 import logging
 import sqlite3
 from collections.abc import Generator
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Mapping, NamedTuple, Protocol
+from uuid import uuid4
 
 import pytest
 import structlog
@@ -13,7 +16,7 @@ from flask.testing import FlaskClient
 from pydantic import SecretStr
 from werkzeug.datastructures import Headers
 
-from oauthclientbridge import create_app, crypto, db, types
+from oauthclientbridge import bridge, create_app, crypto, db, types
 from oauthclientbridge.oauth import (
     _retry as oauth_retry,  # pyright: ignore[reportPrivateUsage] # Global retry limiter reset.
 )
@@ -58,6 +61,54 @@ class TokenTuple(NamedTuple):
     client_id: types.ClientId
     client_secret: types.ClientSecret
     value: dict[str, Any]
+
+
+@dataclass
+class ScriptedOAuth:
+    """Strict async upstream seam for direct Bridge tests."""
+
+    results: list[dict[str, Any]] = field(default_factory=list)
+    calls: list[tuple[str, str, dict[str, str | None]]] = field(default_factory=list)
+
+    async def fetch(
+        self, uri: str, endpoint: str, **data: str | None
+    ) -> dict[str, Any]:
+        self.calls.append((uri, endpoint, data))
+        if not self.results:
+            raise AssertionError("scripted OAuth received an unexpected request")
+        return self.results.pop(0)
+
+
+@dataclass(frozen=True)
+class BridgeHarness:
+    bridge: bridge.Bridge
+    oauth: ScriptedOAuth
+    database: sqlite3.Connection
+
+
+@pytest.fixture
+def scripted_oauth() -> ScriptedOAuth:
+    return ScriptedOAuth()
+
+
+@pytest.fixture
+def bridge_harness(
+    settings: Settings, scripted_oauth: ScriptedOAuth
+) -> Generator[BridgeHarness, None, None]:
+    database_uri = f"file:oauthclientbridge-{uuid4()}?mode=memory&cache=shared"
+    settings.database.database = database_uri
+    database = sqlite3.connect(database_uri, uri=True)
+    database.executescript(
+        Path("src/oauthclientbridge/schema.sql").read_text(encoding="ascii")
+    )
+    try:
+        yield BridgeHarness(
+            bridge.Bridge(settings, scripted_oauth.fetch),
+            scripted_oauth,
+            database,
+        )
+    finally:
+        database.close()
 
 
 @pytest.fixture
