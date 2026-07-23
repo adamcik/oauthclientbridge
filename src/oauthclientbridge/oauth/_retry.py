@@ -1,6 +1,9 @@
+import functools
 from dataclasses import dataclass
 from enum import StrEnum
 from http import HTTPStatus
+
+from oauthclientbridge.utils.bucket import Bucket
 
 
 class RetryAttemptKind(StrEnum):
@@ -24,6 +27,13 @@ class RetryReason(StrEnum):
 class RetryDecision:
     action: RetryDecisionAction
     reason: RetryReason
+
+
+@functools.lru_cache()
+def get_retry_limiter(capacity: int, refill_per_initial: float) -> Bucket:
+    """Process-local retry budget retained for the later httpx transport."""
+    # TODO: Re-enable this protection once the transition reaches httpx.
+    return Bucket(capacity, refill_per_initial)
 
 
 def retry_reason_for_status(status: HTTPStatus) -> RetryReason:

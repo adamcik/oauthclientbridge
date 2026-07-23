@@ -1,5 +1,4 @@
 import email.utils
-import functools
 import importlib.metadata
 import random
 import re
@@ -165,13 +164,6 @@ async def fetch(
     return await anyio.to_thread.run_sync(  # pyright: ignore[reportUnknownMemberType, reportAttributeAccessIssue, reportUnknownVariableType] # AnyIO's local stub omits worker-thread support.
         _fetch_sync, uri, endpoint, auth, data, settings
     )
-
-
-def fetch_sync(
-    uri: str, endpoint: str, auth: str | None = None, **data: str | None
-) -> OAuthResponse:
-    """Run the asynchronous upstream fetch from a synchronous adapter."""
-    return anyio.run(functools.partial(fetch, uri, endpoint, auth, **data))
 
 
 def _fetch_sync(
