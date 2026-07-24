@@ -50,6 +50,14 @@ def test_database_connect_args_supports_sqlite_uris(
     assert db._database_connect_args() == case.expected  # pyright: ignore[reportPrivateUsage] # Direct connection configuration test.
 
 
+def test_connect_closes_connection_after_operation(app_context: AppContext) -> None:
+    with db._connect() as connection:  # pyright: ignore[reportPrivateUsage] # Direct connection lifetime test.
+        connection.execute("SELECT 1")
+
+    with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
+        connection.execute("SELECT 1")
+
+
 @pytest.mark.parametrize(
     "value",
     [
