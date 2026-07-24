@@ -87,7 +87,7 @@ def _database_connect_args(
     return (database, database.startswith("file:"))
 
 
-def _connect(settings: DatabaseSettings | None = None) -> sqlite3.Connection:
+def _open_connection(settings: DatabaseSettings | None = None) -> sqlite3.Connection:
     if settings is None:
         settings = current_settings.database
     assert settings is not None
@@ -104,6 +104,16 @@ def _connect(settings: DatabaseSettings | None = None) -> sqlite3.Connection:
     return connection
 
 
+@contextlib.contextmanager
+def _connect(
+    settings: DatabaseSettings | None = None,
+) -> Generator[sqlite3.Connection, None, None]:
+    """Open a connection that is closed when its operation finishes."""
+
+    with contextlib.closing(_open_connection(settings)) as connection:
+        yield connection
+
+
 def _bytes_text_factory(value: bytes) -> bytes:
     return value
 
@@ -111,7 +121,7 @@ def _bytes_text_factory(value: bytes) -> bytes:
 def get() -> sqlite3.Connection:
     """Get singleton SQLite database connection."""
     if getattr(g, "_oauth_database", None) is None:
-        g._oauth_database = _connect()
+        g._oauth_database = _open_connection()
 
     return g._oauth_database
 
@@ -203,7 +213,7 @@ def insert(
     """Store encrypted token and return what client_id it was stored under."""
 
     now = time_utils.utcnow()
-    with contextlib.closing(_connect(database)) as connection:
+    with _connect(database) as connection:
         with cursor(
             name="insert_token",
             transaction=True,
@@ -239,7 +249,7 @@ def lookup(
     Raises a LookupError if client_id is not found.
     Returns the encrypted token or None if token is revoked.
     """
-    with contextlib.closing(_connect(database)) as connection:
+    with _connect(database) as connection:
         with cursor(
             name="lookup_token",
             connection=connection,
@@ -273,7 +283,7 @@ def update(
     """Update a client_id with a new encrypted token."""
 
     now = time_utils.utcnow()
-    with contextlib.closing(_connect(database)) as connection:
+    with _connect(database) as connection:
         with cursor(
             name="update_token",
             transaction=True,
@@ -297,7 +307,7 @@ def update(
 def token_state_counts() -> dict[str, int]:
     """Count stored token records by coarse database state."""
 
-    with contextlib.closing(_connect()) as connection:
+    with _connect() as connection:
         return _token_state_counts(connection)
 
 
