@@ -144,7 +144,7 @@ def cursor(
             with source as connection:
                 c = connection.cursor()
                 with contextlib.closing(c):
-                    with telemetry.record_database_latency(name):
+                    with telemetry.record_database_latency_metric(name):
                         try:
                             if transaction:
                                 c.execute("BEGIN")
@@ -160,7 +160,7 @@ def cursor(
         except sqlite3.Error as e:
             # https://www.python.org/dev/peps/pep-0249/#exceptions for values.
             error = re.sub(r"(?!^)([A-Z])", r"_\1", e.__class__.__name__).lower()
-            telemetry.record_database_error(name, error)
+            telemetry.record_database_error_metric(name, error)
 
             attributes["error.type"] = e.__class__.__name__
             raise

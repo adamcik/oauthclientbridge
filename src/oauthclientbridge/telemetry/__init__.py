@@ -13,18 +13,18 @@ __all__ = [
     "instrument",
     "instrument_app",
     "observe_token_grant_age",
-    "record_client_attempt",
-    "record_client_error",
-    "record_client_response",
-    "record_client_retries",
-    "record_database_error",
-    "record_database_latency",
+    "record_client_attempt_metric",
+    "record_client_error_metric",
+    "record_client_response_metric",
+    "record_client_retries_metric",
+    "record_database_error_metric",
+    "record_database_latency_metric",
     "record_invalid_client_id",
-    "record_refresh_token_invalidation",
+    "record_refresh_token_invalidation_metric",
     "record_request_metrics",
-    "record_retry_decision",
+    "record_retry_decision_metric",
     "record_server_error_metric",
-    "record_workaround",
+    "record_workaround_metric",
     "request_refresh",
     "set_build_info",
     "set_client_id",
@@ -58,11 +58,11 @@ start_background_refresh = _refresh.start_background_refresh
 stop_background_refresh = _refresh.stop_background_refresh
 
 
-def record_database_latency(name: str) -> AbstractContextManager[object]:
+def record_database_latency_metric(name: str) -> AbstractContextManager[object]:
     return _prometheus.DBLatencyHistorgram.labels(query=name).time()
 
 
-def record_database_error(name: str, error: str) -> None:
+def record_database_error_metric(name: str, error: str) -> None:
     _prometheus.DBErrorCounter.labels(query=name, error=error).inc()
 
 
@@ -76,17 +76,19 @@ def record_server_error_metric(
     ).inc()
 
 
-def record_client_attempt(endpoint: str, kind: str) -> None:
+def record_client_attempt_metric(endpoint: str, kind: str) -> None:
     _prometheus.ClientAttemptCounter.labels(endpoint=endpoint, kind=kind).inc()
 
 
-def record_retry_decision(endpoint: str, decision: str, reason: str) -> None:
+def record_retry_decision_metric(endpoint: str, decision: str, reason: str) -> None:
     _prometheus.ClientRetryDecisionCounter.labels(
         endpoint=endpoint, decision=decision, reason=reason
     ).inc()
 
 
-def record_client_error(endpoint: str, status: HTTPStatus | None, error: str) -> None:
+def record_client_error_metric(
+    endpoint: str, status: HTTPStatus | None, error: str
+) -> None:
     _prometheus.ClientErrorCounter.labels(
         endpoint=endpoint,
         status=_prometheus.status(status) if status else "unknown",
@@ -94,14 +96,16 @@ def record_client_error(endpoint: str, status: HTTPStatus | None, error: str) ->
     ).inc()
 
 
-def record_client_retries(endpoint: str, status: HTTPStatus | None, count: int) -> None:
+def record_client_retries_metric(
+    endpoint: str, status: HTTPStatus | None, count: int
+) -> None:
     _prometheus.ClientRetryHistogram.labels(
         endpoint=endpoint,
         status=_prometheus.status(status) if status else "unknown",
     ).observe(count)
 
 
-def record_client_response(
+def record_client_response_metric(
     endpoint: str, status: HTTPStatus | str, duration: float, size: int | None
 ) -> None:
     status_label = (
@@ -113,9 +117,9 @@ def record_client_response(
     _prometheus.ClientLatencyHistogram.labels(**labels).observe(duration)
 
 
-def record_refresh_token_invalidation(reason: str) -> None:
+def record_refresh_token_invalidation_metric(reason: str) -> None:
     _prometheus.RefreshTokenInvalidationCounter.labels(reason=reason).inc()
 
 
-def record_workaround(workaround: str) -> None:
+def record_workaround_metric(workaround: str) -> None:
     _prometheus.WorkaroundCounter.labels(workaround=workaround).inc()

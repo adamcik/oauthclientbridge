@@ -127,7 +127,7 @@ def token() -> flask.Response:
         workaround_response = _revoked_grant_workaround_response()
         if workaround_response is not None:
             logger.warning("Serving revoked grant workaround token")
-            telemetry.record_workaround("revoked_grant")
+            telemetry.record_workaround_metric("revoked_grant")
             trace.get_current_span().add_event("Served revoked grant workaround token")
             return flask.jsonify(workaround_response)
 
@@ -169,7 +169,7 @@ def token() -> flask.Response:
             # repeatedly sending the same dead refresh token upstream.
             # Spotify refresh token expiry: https://developer.spotify.com/blog/2026-06-18-refresh-token-expiration
             db.update(client_id, None)
-            telemetry.record_refresh_token_invalidation(error.value)
+            telemetry.record_refresh_token_invalidation_metric(error.value)
             logger.warning("Revoking stored token after upstream invalid_grant")
         elif error == OAuthError.TEMPORARILY_UNAVAILABLE:
             logger.warning(
