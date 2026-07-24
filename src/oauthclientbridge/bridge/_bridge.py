@@ -1,21 +1,35 @@
+import re
 from collections.abc import Awaitable, Callable, Mapping
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 
 import anyio
 import structlog
 from opentelemetry import trace
 
-from oauthclientbridge import crypto, db, oauth, telemetry
+from oauthclientbridge import client, crypto, db, oauth, telemetry, types
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import LogLevel, Settings
 from oauthclientbridge.utils import uri as uri_utils
 
+from . import _basic_auth
 from ._template import render_template
 from ._types import BridgeResponse, Session
 
 Fetch = Callable[..., Awaitable[dict[str, Any]]]
 logger: structlog.BoundLogger = structlog.get_logger()
+
+
+def _updated_fields(
+    original: dict[str, Any], modified: dict[str, Any]
+) -> tuple[str, ...]:
+    return tuple(
+        sorted(
+            key
+            for key in set(original).union(modified)
+            if original.get(key) != modified.get(key)
+        )
+    )
 
 
 class Bridge:
@@ -175,6 +189,196 @@ class Bridge:
             state=client_state,
             session=cleared_session,
         )
+
+    async def token(
+        self,
+        *,
+        form: Mapping[str, str],
+        authorization: str | None,
+        user_agent: str,
+    ) -> BridgeResponse:
+        if form.get("grant_type") != "client_credentials":
+            return self._token_error(
+                OAuthError.UNSUPPORTED_GRANT_TYPE,
+                'Only "client_credentials" is supported.',
+            )
+        if "scope" in form:
+            return self._token_error(
+                OAuthError.INVALID_SCOPE, "Setting scope is not supported."
+            )
+
+        client_id_value = form.get("client_id")
+        client_secret_value = form.get("client_secret")
+        basic_credentials = _basic_auth.credentials(authorization)
+        if basic_credentials is None and authorization is not None:
+            return self._token_error(
+                OAuthError.INVALID_CLIENT, "Only Basic Auth is supported."
+            )
+        if (client_id_value or client_secret_value) and basic_credentials is not None:
+            return self._token_error(
+                OAuthError.INVALID_REQUEST,
+                "More than one mechanism for authenticating set.",
+            )
+        if basic_credentials is not None:
+            client_id_value, client_secret_value = basic_credentials
+
+        try:
+            credentials = client.validate_credentials(
+                client_id_value, client_secret_value
+            )
+        except client.ClientIdValidationError:
+            if client_id_value is not None:
+                telemetry.bind_invalid_client_id_log_context(client_id_value)
+                telemetry.record_invalid_client_id_trace(client_id_value)
+            return self._token_error(OAuthError.INVALID_CLIENT, "Malformed client_id.")
+        except client.ClientSecretValidationError:
+            return self._token_error(OAuthError.INVALID_CLIENT, "Client not known.")
+        except client.CredentialValidationError as error:
+            return self._token_error(OAuthError.INVALID_CLIENT, str(error))
+
+        telemetry.set_client_id_context(credentials.client_id)
+        try:
+            record = cast(
+                db.TokenRecord,
+                await anyio.to_thread.run_sync(  # pyright: ignore[reportUnknownMemberType, reportAttributeAccessIssue] # AnyIO's local stub omits worker-thread support.
+                    db.lookup, credentials.client_id, self._settings.database
+                ),
+            )
+        except LookupError:
+            return self._token_error(OAuthError.INVALID_CLIENT, "Client not known.")
+
+        if record.encrypted_token is None:
+            workaround_response = self._revoked_grant_workaround_response(user_agent)
+            if workaround_response is not None:
+                logger.warning("Serving revoked grant workaround token")
+                telemetry.record_workaround_metric("revoked_grant")
+                trace.get_current_span().add_event(
+                    "Served revoked grant workaround token"
+                )
+                return BridgeResponse(status=HTTPStatus.OK, body=workaround_response)
+            return self._token_error(
+                OAuthError.INVALID_GRANT, "Grant has been revoked."
+            )
+
+        try:
+            result = crypto.loads(credentials.client_secret, record.encrypted_token)
+        except (crypto.InvalidToken, TypeError, ValueError):
+            return self._token_error(OAuthError.INVALID_CLIENT, "Client not known.")
+
+        if "refresh_token" not in result:
+            telemetry.observe_token_grant_age_metric(record.created_at)
+            return BridgeResponse(status=HTTPStatus.OK, body=result)
+
+        refresh_result = await self._fetch(
+            self._settings.oauth.refresh_uri or self._settings.oauth.token_uri,
+            client_id=self._settings.oauth.client_id,
+            client_secret=self._settings.oauth.client_secret.get_secret_value(),
+            grant_type=self._settings.oauth.grant_type,
+            refresh_token=result["refresh_token"],
+            endpoint="refresh",
+        )
+        if "error" in refresh_result:
+            return await self._handle_refresh_error(credentials, refresh_result)
+
+        if not oauth.validate_token(refresh_result):
+            return self._token_error(
+                OAuthError.INVALID_REQUEST, "Invalid response from provider."
+            )
+
+        if "scope" not in refresh_result and "scope" in result:
+            refresh_result["scope"] = result["scope"]
+        modified = oauth.scrub_refresh_token(result)
+        if "refresh_token" in refresh_result:
+            modified["refresh_token"] = refresh_result["refresh_token"]
+            del refresh_result["refresh_token"]
+        if result != modified:
+            updated_fields = _updated_fields(result, modified)
+            logger.warning("Updating token", updated_fields=updated_fields)
+            trace.get_current_span().add_event(
+                "Updating token", {"updated_fields": updated_fields}
+            )
+            await anyio.to_thread.run_sync(  # pyright: ignore[reportUnknownMemberType, reportAttributeAccessIssue] # AnyIO's local stub omits worker-thread support.
+                db.update,
+                credentials.client_id,
+                crypto.dumps(credentials.client_secret, modified),
+                self._settings.database,
+            )
+
+        telemetry.observe_token_grant_age_metric(record.created_at)
+        return BridgeResponse(status=HTTPStatus.OK, body=refresh_result)
+
+    async def _handle_refresh_error(
+        self,
+        credentials: client.ClientCredentials,
+        refresh_result: dict[str, Any],
+    ) -> BridgeResponse:
+        refresh_outcome = oauth.token_endpoint_outcome(
+            HTTPStatus.BAD_REQUEST,
+            refresh_result,
+            retry_status_codes=self._settings.fetch.retry_status_codes,
+            error_types=self._settings.fetch.error_types,
+        )
+        error = refresh_outcome.normalized_error or OAuthError.SERVER_ERROR
+        if refresh_outcome.invalidate_refresh_token:
+            await anyio.to_thread.run_sync(  # pyright: ignore[reportUnknownMemberType, reportAttributeAccessIssue] # AnyIO's local stub omits worker-thread support.
+                db.update, credentials.client_id, None, self._settings.database
+            )
+            telemetry.record_refresh_token_invalidation_metric(error.value)
+            logger.warning("Revoking stored token after upstream invalid_grant")
+        elif error == OAuthError.TEMPORARILY_UNAVAILABLE:
+            logger.warning(
+                "Token refresh failed",
+                refresh_result=oauth.sanitize_for_logging(refresh_result),
+            )
+        else:
+            logger.error(
+                "Token refresh failed",
+                refresh_result=oauth.sanitize_for_logging(refresh_result),
+            )
+        trace.get_current_span().add_event(
+            "refresh_error", oauth.sanitize_for_logging(refresh_result)
+        )
+        return self._token_error(
+            error,
+            refresh_result.get("error_description"),
+            refresh_result.get("error_uri"),
+            refresh_result.get("retry_after"),
+        )
+
+    def _token_error(
+        self,
+        error: OAuthError,
+        description: str | None = None,
+        uri: str | None = None,
+        retry_after: Any = None,
+    ) -> BridgeResponse:
+        body = error.json(description=description)
+        if uri is not None:
+            body["error_uri"] = uri
+        headers: dict[str, str] = {}
+        status = HTTPStatus.BAD_REQUEST
+        if error == OAuthError.INVALID_CLIENT:
+            status = HTTPStatus.UNAUTHORIZED
+            headers["WWW-Authenticate"] = f'Basic realm="{self._settings.auth_realm}"'
+        elif error == OAuthError.TEMPORARILY_UNAVAILABLE:
+            status = HTTPStatus.SERVICE_UNAVAILABLE
+            if retry_after is not None:
+                headers["Retry-After"] = str(retry_after)
+        return BridgeResponse(
+            status=status, headers=headers, body=cast(types.JsonDict, body)
+        )
+
+    def _revoked_grant_workaround_response(
+        self, user_agent: str
+    ) -> dict[str, Any] | None:
+        user_agents = self._settings.revoked_grant_workaround_user_agents
+        if not user_agents or not user_agent or not re.search(user_agents, user_agent):
+            return None
+        return {
+            "access_token": self._settings.revoked_grant_workaround_access_token,
+            "token_type": "Bearer",
+            "expires_in": self._settings.revoked_grant_workaround_expires_in,
+        }
 
     def _callback_error(
         self,
