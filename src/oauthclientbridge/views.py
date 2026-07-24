@@ -33,10 +33,7 @@ def _updated_fields(
 @routes.route("/")
 def authorize() -> flask.Response:
     """Store random state in session cookie and redirect to auth endpoint."""
-    response = anyio.run(
-        _get_bridge().authorize,
-        bridge.AuthorizationRequest(query=flask.request.args),
-    )
+    response = anyio.run(lambda: _get_bridge().authorize(query=flask.request.args))
     return _flask_response(response)
 
 
@@ -61,8 +58,9 @@ def _flask_response(bridge_response: bridge.BridgeResponse) -> flask.Response:
 def callback() -> flask.Response:
     """Validate callback and trade in code for a token."""
     response = anyio.run(
-        _get_bridge().callback,
-        bridge.CallbackRequest(query=flask.request.args, session=dict(flask.session)),
+        lambda: _get_bridge().callback(
+            query=flask.request.args, session=dict(flask.session)
+        )
     )
     return _flask_response(response)
 
