@@ -9,11 +9,11 @@ from flask.testing import FlaskClient
 from requests_mock import Mocker
 
 from oauthclientbridge import bridge, crypto, db
+from oauthclientbridge.bridge import _template
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import Settings
 from oauthclientbridge.views import (
     _flask_response,  # pyright: ignore[reportPrivateUsage] # Adapter translation test.
-    _set_callback_security_headers,  # pyright: ignore[reportPrivateUsage] # Direct helper test.
 )
 from tests.conftest import GetClient
 
@@ -105,11 +105,10 @@ def test_callback_csp_can_be_disabled(client: FlaskClient, settings: Settings):
     assert "Content-Security-Policy" not in response.headers
 
 
-def test_callback_security_header_helper(app: flask.Flask):
-    with app.app_context():
-        response = _set_callback_security_headers(
-            flask.Response(), "default-src 'none'"
-        )
+def test_callback_template_adds_security_headers():
+    response = _template.render_template(
+        "callback", {}, "default-src 'none'", HTTPStatus.OK
+    )
 
     assert response.headers["Referrer-Policy"] == "no-referrer"
     assert response.headers["X-Content-Type-Options"] == "nosniff"
@@ -262,9 +261,13 @@ def test_callback_preserves_retry_after_for_temporarily_unavailable(
     client_state: str,
     get: GetClient,
     state: str,
+    app: flask.Flask,
 ):
-    with unittest.mock.patch(
-        "oauthclientbridge.views.oauth.fetch",
+    subject = app.extensions["oauth_bridge"]
+    assert isinstance(subject, bridge.Bridge)
+    with unittest.mock.patch.object(
+        subject,
+        "_fetch",
         new_callable=unittest.mock.AsyncMock,
         return_value={"error": "temporarily_unavailable", "retry_after": 10},
     ):

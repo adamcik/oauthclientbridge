@@ -8,14 +8,10 @@ import flask
 import structlog
 from flask import Blueprint
 from opentelemetry import trace
-from opentelemetry.semconv.attributes.exception_attributes import (
-    EXCEPTION_MESSAGE,
-    EXCEPTION_TYPE,
-)
 
 from oauthclientbridge import bridge, client, crypto, db, oauth, telemetry
 from oauthclientbridge.errors import OAuthError
-from oauthclientbridge.settings import LogLevel, current_settings
+from oauthclientbridge.settings import current_settings
 
 logger: structlog.BoundLogger = structlog.get_logger()
 
@@ -38,7 +34,7 @@ def _updated_fields(
 def authorize() -> flask.Response:
     """Store random state in session cookie and redirect to auth endpoint."""
     response = anyio.run(
-        cast(bridge.Bridge, flask.current_app.extensions["oauth_bridge"]).authorize,
+        _get_bridge().authorize,
         bridge.AuthorizationRequest(query=flask.request.args),
     )
     return _flask_response(response)
@@ -49,11 +45,12 @@ def _flask_response(bridge_response: bridge.BridgeResponse) -> flask.Response:
         flask.session.clear()
         flask.session.update(bridge_response.session)
     if isinstance(bridge_response.body, bytes):
-        return flask.Response(
+        response = flask.Response(
             bridge_response.body,
             status=bridge_response.status,
             headers=bridge_response.headers,
         )
+        return response
     response = flask.jsonify(bridge_response.body)
     response.status_code = bridge_response.status
     response.headers.update(bridge_response.headers)
@@ -63,101 +60,15 @@ def _flask_response(bridge_response: bridge.BridgeResponse) -> flask.Response:
 @routes.route("/callback")
 def callback() -> flask.Response:
     """Validate callback and trade in code for a token."""
-
-    error: str | None = None
-    desc: str | None = None
-    client_state: str | None = flask.session.pop("client_state", None)
-    state: str | None = flask.session.pop("state", None)
-
-    if not flask.request.args:
-        error = OAuthError.INVALID_REQUEST
-        desc = "No arguments provided, request is invalid."
-    elif state is None:
-        error = OAuthError.INVALID_STATE
-        desc = "State is not set, this page was probably refreshed."
-    elif state != flask.request.args.get("state"):
-        error = OAuthError.INVALID_STATE
-        desc = "State does not match callback state."
-    elif "error" in flask.request.args:
-        error = oauth.normalize_error(
-            flask.request.args["error"],
-            allowed_types=oauth.AUTHORIZATION_ERRORS,
-            fallback_type=OAuthError.SERVER_ERROR,
-        )
-        desc = error.description
-    elif not flask.request.args.get("code"):
-        error = OAuthError.INVALID_REQUEST
-        desc = "Authorization code missing from provider callback."
-
-    if error is not None:
-        msg = f"Callback failed {error}: {desc}"
-
-        # TODO: Consider just logging the request args as extra?
-        if error == OAuthError.INVALID_SCOPE:
-            msg += " - %r" % flask.request.args.get("scope")
-
-        logger.log(
-            current_settings.error_levels.get(error, LogLevel.ERROR),
-            msg,
-        )
-
-        return _error(error, desc, client_state)
-
-    result = anyio.run(
-        lambda: oauth.fetch(
-            current_settings.oauth.token_uri,
-            client_id=current_settings.oauth.client_id,
-            client_secret=current_settings.oauth.client_secret.get_secret_value(),
-            code=flask.request.args.get("code"),
-            grant_type="authorization_code",
-            redirect_uri=current_settings.oauth.redirect_uri,
-            endpoint="token",
-        )
+    response = anyio.run(
+        _get_bridge().callback,
+        bridge.CallbackRequest(query=flask.request.args, session=dict(flask.session)),
     )
+    return _flask_response(response)
 
-    if "error" in result:
-        error = oauth.normalize_error(
-            result["error"],
-            allowed_types=oauth.TOKEN_ERRORS,
-            fallback_type=OAuthError.SERVER_ERROR,
-        )
-        desc = error.description
-    elif not oauth.validate_token(result):
-        error = "invalid_response"
-        desc = "Invalid response from provider."
 
-    if error is not None:
-        sanitized_result = oauth.sanitize_for_logging(result)
-        logger.warning("Retrieving token failed", result=sanitized_result)
-
-        current_span = trace.get_current_span()
-        current_span.add_event("token_error", sanitized_result)
-
-        return _error(error, desc, client_state, result.get("retry_after"))
-
-    if "refresh_token" in result:
-        result = oauth.scrub_refresh_token(result)
-
-    client_secret = crypto.generate_key()
-    token = crypto.dumps(client_secret, result)
-
-    client_id = db.generate_id()
-    telemetry.set_client_id(client_id)
-    inserted_fields = tuple(sorted(result.keys()))
-    logger.warning("Inserting token", inserted_fields=inserted_fields)
-    trace.get_current_span().add_event(
-        "Inserting token", {"inserted_fields": inserted_fields}
-    )
-
-    try:
-        db.insert(client_id, token)
-    except db.IntegrityError:
-        logger.warning("Could not get unique client id.")
-        return _error("integrity_error", "Database integrity error.", client_state)
-
-    return _render(
-        client_id=str(client_id), client_secret=client_secret, state=client_state
-    )
+def _get_bridge() -> bridge.Bridge:
+    return cast(bridge.Bridge, flask.current_app.extensions["oauth_bridge"])
 
 
 @routes.route("/token", methods=["POST"])
@@ -338,43 +249,6 @@ def metrics() -> flask.Response:
     return telemetry.export_metrics()
 
 
-def _error(
-    error: OAuthError | str,
-    description: str | None = None,
-    state: str | None = None,
-    retry_after: int | None = None,
-) -> flask.Response:
-    if error == OAuthError.INVALID_CLIENT:
-        status = HTTPStatus.UNAUTHORIZED
-    elif error == OAuthError.TEMPORARILY_UNAVAILABLE:
-        status = HTTPStatus.SERVICE_UNAVAILABLE
-    else:
-        status = HTTPStatus.BAD_REQUEST
-
-    if isinstance(error, OAuthError):
-        description = description or error.description
-        error_code = error.value
-    else:
-        error_code = error
-
-    current_span = trace.get_current_span()
-    current_span.set_status(
-        trace.Status(trace.StatusCode.ERROR, f"{error_code}: {description}")
-    )
-    current_span.add_event(
-        "error",
-        {EXCEPTION_MESSAGE: f"{error_code}: {description}", EXCEPTION_TYPE: error_code},
-    )
-
-    telemetry.record_server_error(status, str(error))
-
-    response = _render(error=error_code, description=description, state=state)
-    response.status_code = status
-    if retry_after is not None and status == HTTPStatus.SERVICE_UNAVAILABLE:
-        response.headers["Retry-After"] = int(retry_after)
-    return response
-
-
 def _revoked_grant_workaround_response() -> dict[str, Any] | None:
     user_agents = current_settings.revoked_grant_workaround_user_agents
     if not user_agents:
@@ -389,43 +263,3 @@ def _revoked_grant_workaround_response() -> dict[str, Any] | None:
         "token_type": "Bearer",
         "expires_in": current_settings.revoked_grant_workaround_expires_in,
     }
-
-
-# TODO: Pass in the template string instead of settings.
-def _render(
-    client_id: str | None = None,
-    client_secret: str | None = None,
-    state: str | None = None,
-    error: str | None = None,
-    description: str | None = None,
-) -> flask.Response:
-    # Keep all the vars in something we can dump for tests with tojson.
-    variables = {
-        "client_id": client_id,
-        "client_secret": client_secret,
-        "state": state,
-        "error": error,
-        "description": description,
-    }
-    response = flask.Response(
-        flask.render_template_string(
-            current_settings.callback_template,
-            variables=variables,
-            **variables,
-        ).encode("utf-8"),
-        content_type="text/html; charset=UTF-8",
-    )
-    return _set_callback_security_headers(
-        response, current_settings.callback_content_security_policy
-    )
-
-
-def _set_callback_security_headers(
-    response: flask.Response, content_security_policy: str | None
-) -> flask.Response:
-    response.headers["Referrer-Policy"] = "no-referrer"
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
-    if content_security_policy:
-        response.headers["Content-Security-Policy"] = content_security_policy
-    return response

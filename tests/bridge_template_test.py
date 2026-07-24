@@ -19,6 +19,8 @@ def test_render_template_includes_variables_and_security_headers():
         "X-Content-Type-Options": "nosniff",
         "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
         "Content-Security-Policy": "default-src 'none'",
+        "Cache-Control": "no-store",
+        "Pragma": "no-cache",
     }
 
 

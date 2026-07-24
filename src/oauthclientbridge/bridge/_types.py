@@ -14,6 +14,12 @@ class AuthorizationRequest:
 
 
 @dataclass(frozen=True)
+class CallbackRequest:
+    query: Mapping[str, str]
+    session: Session
+
+
+@dataclass(frozen=True)
 class BridgeResponse:
     status: HTTPStatus
     headers: Mapping[str, str] = field(default_factory=dict[str, str])

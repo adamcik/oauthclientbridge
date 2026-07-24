@@ -66,9 +66,11 @@ def record_database_error(name: str, error: str) -> None:
     _prometheus.DBErrorCounter.labels(query=name, error=error).inc()
 
 
-def record_server_error(status: HTTPStatus, error: str) -> None:
+def record_server_error(
+    status: HTTPStatus, error: str, endpoint: str | None = None
+) -> None:
     _prometheus.ServerErrorCounter.labels(
-        endpoint=_prometheus.endpoint(),
+        endpoint=endpoint or _prometheus.endpoint(),
         status=_prometheus.status(status),
         error=error,
     ).inc()

@@ -21,6 +21,7 @@ def create_app(settings: Settings | None = None) -> Flask:
     app = Flask(__name__)
     app.config["SETTINGS"] = settings
     _ = app.config.from_prefixed_env()
+
     app.extensions["oauth_bridge"] = bridge.Bridge(settings, oauth.fetch)
 
     telemetry.instrument_app(app)
