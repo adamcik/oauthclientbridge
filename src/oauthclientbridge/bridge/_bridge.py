@@ -197,13 +197,32 @@ class Bridge:
         authorization: str | None,
         user_agent: str,
     ) -> BridgeResponse:
+        try:
+            return await self._token(
+                form=form,
+                authorization=authorization,
+                user_agent=user_agent,
+            )
+        except Exception as exception:
+            return self._token_error_response(
+                OAuthError.SERVER_ERROR,
+                unhandled_exception=exception,
+            )
+
+    async def _token(
+        self,
+        *,
+        form: Mapping[str, str],
+        authorization: str | None,
+        user_agent: str,
+    ) -> BridgeResponse:
         if form.get("grant_type") != "client_credentials":
-            return self._token_error(
+            return self._token_error_response(
                 OAuthError.UNSUPPORTED_GRANT_TYPE,
                 'Only "client_credentials" is supported.',
             )
         if "scope" in form:
-            return self._token_error(
+            return self._token_error_response(
                 OAuthError.INVALID_SCOPE, "Setting scope is not supported."
             )
 
@@ -211,11 +230,11 @@ class Bridge:
         client_secret_value = form.get("client_secret")
         basic_credentials = _basic_auth.credentials(authorization)
         if basic_credentials is None and authorization is not None:
-            return self._token_error(
+            return self._token_error_response(
                 OAuthError.INVALID_CLIENT, "Only Basic Auth is supported."
             )
         if (client_id_value or client_secret_value) and basic_credentials is not None:
-            return self._token_error(
+            return self._token_error_response(
                 OAuthError.INVALID_REQUEST,
                 "More than one mechanism for authenticating set.",
             )
@@ -230,11 +249,15 @@ class Bridge:
             if client_id_value is not None:
                 telemetry.bind_invalid_client_id_log_context(client_id_value)
                 telemetry.record_invalid_client_id_trace(client_id_value)
-            return self._token_error(OAuthError.INVALID_CLIENT, "Malformed client_id.")
+            return self._token_error_response(
+                OAuthError.INVALID_CLIENT, "Malformed client_id."
+            )
         except client.ClientSecretValidationError:
-            return self._token_error(OAuthError.INVALID_CLIENT, "Client not known.")
+            return self._token_error_response(
+                OAuthError.INVALID_CLIENT, "Client not known."
+            )
         except client.CredentialValidationError as error:
-            return self._token_error(OAuthError.INVALID_CLIENT, str(error))
+            return self._token_error_response(OAuthError.INVALID_CLIENT, str(error))
 
         telemetry.set_client_id_context(credentials.client_id)
         try:
@@ -242,7 +265,9 @@ class Bridge:
                 "db.lookup", db.lookup, credentials.client_id, self._settings.database
             )
         except LookupError:
-            return self._token_error(OAuthError.INVALID_CLIENT, "Client not known.")
+            return self._token_error_response(
+                OAuthError.INVALID_CLIENT, "Client not known."
+            )
 
         if record.encrypted_token is None:
             workaround_response = self._revoked_grant_workaround_response(user_agent)
@@ -253,14 +278,16 @@ class Bridge:
                     "Served revoked grant workaround token"
                 )
                 return BridgeResponse(status=HTTPStatus.OK, body=workaround_response)
-            return self._token_error(
+            return self._token_error_response(
                 OAuthError.INVALID_GRANT, "Grant has been revoked."
             )
 
         try:
             result = crypto.loads(credentials.client_secret, record.encrypted_token)
         except (crypto.InvalidToken, TypeError, ValueError):
-            return self._token_error(OAuthError.INVALID_CLIENT, "Client not known.")
+            return self._token_error_response(
+                OAuthError.INVALID_CLIENT, "Client not known."
+            )
 
         if "refresh_token" not in result:
             telemetry.observe_token_grant_age_metric(record.created_at)
@@ -278,7 +305,7 @@ class Bridge:
             return await self._handle_refresh_error(credentials, refresh_result)
 
         if not oauth.validate_token(refresh_result):
-            return self._token_error(
+            return self._token_error_response(
                 OAuthError.INVALID_REQUEST, "Invalid response from provider."
             )
 
@@ -340,20 +367,23 @@ class Bridge:
         trace.get_current_span().add_event(
             "refresh_error", oauth.sanitize_for_logging(refresh_result)
         )
-        return self._token_error(
+        return self._token_error_response(
             error,
             refresh_result.get("error_description"),
             refresh_result.get("error_uri"),
             refresh_result.get("retry_after"),
         )
 
-    def _token_error(
+    def _token_error_response(
         self,
         error: OAuthError,
         description: str | None = None,
         uri: str | None = None,
         retry_after: Any = None,
+        *,
+        unhandled_exception: BaseException | None = None,
     ) -> BridgeResponse:
+        description = description or error.description
         body = error.json(description=description)
         if uri is not None:
             body["error_uri"] = uri
@@ -366,8 +396,19 @@ class Bridge:
             status = HTTPStatus.SERVICE_UNAVAILABLE
             if retry_after is not None:
                 headers["Retry-After"] = str(retry_after)
+        if unhandled_exception is not None:
+            status = HTTPStatus.INTERNAL_SERVER_ERROR
+            telemetry.capture_unhandled_exception(unhandled_exception)
+        error_exception = unhandled_exception or oauth.Error(error, description)
+        structlog.contextvars.bind_contextvars(oauth_error=error.value)
+        telemetry.record_oauth_error_trace(
+            error.value, description, error_exception, status=status
+        )
+        telemetry.record_server_error_metric(status, error.value, endpoint="token")
         return BridgeResponse(
-            status=status, headers=headers, body=cast(types.JsonDict, body)
+            status=status,
+            headers=headers,
+            body=cast(types.JsonDict, body),
         )
 
     def _revoked_grant_workaround_response(
@@ -457,9 +498,10 @@ class Bridge:
             "error": error.value,
             "description": description,
         }
-        return render_template(
+        response = render_template(
             self._settings.callback_template,
             variables,
             status=HTTPStatus.BAD_REQUEST,
             content_security_policy=self._settings.callback_content_security_policy,
         )
+        return response

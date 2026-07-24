@@ -21,6 +21,7 @@ __all__ = [
     "record_database_latency_metric",
     "record_oauth_error_trace",
     "bind_invalid_client_id_log_context",
+    "capture_unhandled_exception",
     "record_invalid_client_id_trace",
     "record_refresh_token_invalidation_metric",
     "record_retry_decision_metric",
@@ -39,6 +40,7 @@ __all__ = [
 
 set_client_id_context = _otel.set_client_id_context
 bind_invalid_client_id_log_context = _otel.bind_invalid_client_id_log_context
+capture_unhandled_exception = _sentry.capture_unhandled_exception
 record_invalid_client_id_trace = _otel.record_invalid_client_id_trace
 record_oauth_error_trace = _otel.record_oauth_error_trace
 instrument = _otel.instrument
