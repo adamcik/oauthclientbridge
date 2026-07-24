@@ -358,9 +358,9 @@ async def test_token_accepts_basic_authentication(
         crypto.dumps(client_secret, {"access_token": "stored", "token_type": "Bearer"}),
         settings.database,
     )
-    authorization = "Basic " + b64encode(
-        f"{client_id}:{client_secret}".encode()
-    ).decode()
+    authorization = (
+        "Basic " + b64encode(f"{client_id}:{client_secret}".encode()).decode()
+    )
 
     response = await bridge_harness.bridge.token(
         form={"grant_type": "client_credentials"},

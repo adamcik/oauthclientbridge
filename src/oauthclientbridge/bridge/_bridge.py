@@ -167,7 +167,8 @@ class Bridge:
         client_secret = crypto.generate_key()
         client_id = db.generate_id()
         try:
-            await anyio.to_thread.run_sync(  # pyright: ignore[reportUnknownMemberType, reportAttributeAccessIssue] # AnyIO's local stub omits worker-thread support.
+            # AnyIO's local stub omits worker-thread support.
+            await anyio.to_thread.run_sync(  # pyright: ignore # ty: ignore[unresolved-attribute]
                 db.insert,
                 client_id,
                 crypto.dumps(client_secret, result),
@@ -240,7 +241,8 @@ class Bridge:
         try:
             record = cast(
                 db.TokenRecord,
-                await anyio.to_thread.run_sync(  # pyright: ignore[reportUnknownMemberType, reportAttributeAccessIssue] # AnyIO's local stub omits worker-thread support.
+                # AnyIO's local stub omits worker-thread support.
+                await anyio.to_thread.run_sync(  # pyright: ignore # ty: ignore[unresolved-attribute]
                     db.lookup, credentials.client_id, self._settings.database
                 ),
             )
@@ -297,7 +299,8 @@ class Bridge:
             trace.get_current_span().add_event(
                 "Updating token", {"updated_fields": updated_fields}
             )
-            await anyio.to_thread.run_sync(  # pyright: ignore[reportUnknownMemberType, reportAttributeAccessIssue] # AnyIO's local stub omits worker-thread support.
+            # AnyIO's local stub omits worker-thread support.
+            await anyio.to_thread.run_sync(  # pyright: ignore # ty: ignore[unresolved-attribute]
                 db.update,
                 credentials.client_id,
                 crypto.dumps(credentials.client_secret, modified),
@@ -320,7 +323,8 @@ class Bridge:
         )
         error = refresh_outcome.normalized_error or OAuthError.SERVER_ERROR
         if refresh_outcome.invalidate_refresh_token:
-            await anyio.to_thread.run_sync(  # pyright: ignore[reportUnknownMemberType, reportAttributeAccessIssue] # AnyIO's local stub omits worker-thread support.
+            # AnyIO's local stub omits worker-thread support.
+            await anyio.to_thread.run_sync(  # pyright: ignore # ty: ignore[unresolved-attribute]
                 db.update, credentials.client_id, None, self._settings.database
             )
             telemetry.record_refresh_token_invalidation_metric(error.value)
