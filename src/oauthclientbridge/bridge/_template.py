@@ -13,19 +13,24 @@ def render_template(
     variables: Mapping[str, str | None],
     content_security_policy: str | None,
     status: HTTPStatus,
+    headers: Mapping[str, str] | None = None,
 ) -> BridgeResponse:
-    headers = {
+    response_headers = {
         "Content-Type": "text/html; charset=UTF-8",
         "Referrer-Policy": "no-referrer",
         "X-Content-Type-Options": "nosniff",
         "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
+        "Cache-Control": "no-store",
+        "Pragma": "no-cache",
     }
     if content_security_policy is not None:
-        headers["Content-Security-Policy"] = content_security_policy
+        response_headers["Content-Security-Policy"] = content_security_policy
+    if headers is not None:
+        response_headers.update(headers)
 
     return BridgeResponse(
         status=status,
-        headers=headers,
+        headers=response_headers,
         body=environment.from_string(template)
         .render(variables=variables, **variables)
         .encode("utf-8"),
