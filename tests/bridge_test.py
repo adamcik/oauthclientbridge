@@ -20,9 +20,7 @@ class AuthorizationCase:
 async def test_authorization_returns_redirect_and_complete_session(
     settings: Settings, bridge_harness: BridgeHarness
 ):
-    response = await bridge_harness.bridge.authorize(
-        bridge.AuthorizationRequest(query={"state": "caller-state"})
-    )
+    response = await bridge_harness.bridge.authorize(query={"state": "caller-state"})
 
     location = urllib.parse.urlsplit(response.headers["Location"])
     query = urllib.parse.parse_qs(location.query)
@@ -40,10 +38,8 @@ async def test_authorization_returns_redirect_and_complete_session(
 
 @pytest.mark.anyio
 async def test_authorization_generates_a_unique_state(bridge_harness: BridgeHarness):
-    first = await bridge_harness.bridge.authorize(bridge.AuthorizationRequest(query={}))
-    second = await bridge_harness.bridge.authorize(
-        bridge.AuthorizationRequest(query={})
-    )
+    first = await bridge_harness.bridge.authorize(query={})
+    second = await bridge_harness.bridge.authorize(query={})
 
     assert first.session is not None
     assert second.session is not None
@@ -71,9 +67,7 @@ async def test_authorization_validates_scope(
     )
     subject = bridge.Bridge(settings, bridge_harness.oauth.fetch)
 
-    response = await subject.authorize(
-        bridge.AuthorizationRequest(query={"scope": case.scope})
-    )
+    response = await subject.authorize(query={"scope": case.scope})
 
     assert response.status == case.status
     if response.status == 400:
@@ -84,9 +78,7 @@ async def test_authorization_validates_scope(
 @pytest.mark.anyio
 async def test_authorization_rejects_wrong_redirect_uri(bridge_harness: BridgeHarness):
     response = await bridge_harness.bridge.authorize(
-        bridge.AuthorizationRequest(
-            query={"redirect_uri": "https://wrong.example.com/callback"}
-        )
+        query={"redirect_uri": "https://wrong.example.com/callback"}
     )
 
     assert response.status == 400
@@ -101,7 +93,7 @@ async def test_authorization_uses_configured_scopes_when_omitted(
     settings.oauth = settings.oauth.model_copy(update={"scopes": {"foo", "bar"}})
     subject = bridge.Bridge(settings, bridge_harness.oauth.fetch)
 
-    response = await subject.authorize(bridge.AuthorizationRequest(query={}))
+    response = await subject.authorize(query={})
 
     query = urllib.parse.parse_qs(
         urllib.parse.urlsplit(response.headers["Location"]).query
@@ -118,10 +110,8 @@ async def test_callback_stores_token_and_consumes_session(
     )
 
     response = await bridge_harness.bridge.callback(
-        bridge.CallbackRequest(
-            query={"state": "expected-state", "code": "authorization-code"},
-            session={"state": "expected-state", "client_state": "caller-state"},
-        )
+        query={"state": "expected-state", "code": "authorization-code"},
+        session={"state": "expected-state", "client_state": "caller-state"},
     )
 
     assert response.status == 200
@@ -136,10 +126,8 @@ async def test_callback_rejects_state_mismatch_and_consumes_session(
     bridge_harness: BridgeHarness,
 ):
     response = await bridge_harness.bridge.callback(
-        bridge.CallbackRequest(
-            query={"state": "wrong-state", "code": "authorization-code"},
-            session={"state": "expected-state", "client_state": "caller-state"},
-        )
+        query={"state": "wrong-state", "code": "authorization-code"},
+        session={"state": "expected-state", "client_state": "caller-state"},
     )
 
     assert response.status == 400

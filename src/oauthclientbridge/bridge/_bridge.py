@@ -1,4 +1,4 @@
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from http import HTTPStatus
 from typing import Any
 
@@ -12,7 +12,7 @@ from oauthclientbridge.settings import LogLevel, Settings
 from oauthclientbridge.utils import uri as uri_utils
 
 from ._template import render_template
-from ._types import AuthorizationRequest, BridgeResponse, CallbackRequest, Session
+from ._types import BridgeResponse, Session
 
 Fetch = Callable[..., Awaitable[dict[str, Any]]]
 logger: structlog.BoundLogger = structlog.get_logger()
@@ -23,14 +23,14 @@ class Bridge:
         self._settings = settings
         self._fetch = fetch
 
-    async def authorize(self, request: AuthorizationRequest) -> BridgeResponse:
-        redirect_uri = request.query.get("redirect_uri")
+    async def authorize(self, *, query: Mapping[str, str]) -> BridgeResponse:
+        redirect_uri = query.get("redirect_uri")
         if redirect_uri and redirect_uri != self._settings.oauth.redirect_uri:
             return self._authorization_error(
                 OAuthError.INVALID_REQUEST, "Wrong redirect_uri."
             )
 
-        scope = request.query.get("scope", " ".join(self._settings.oauth.scopes))
+        scope = query.get("scope", " ".join(self._settings.oauth.scopes))
         if self._settings.oauth.allowed_scopes is not None and not set(
             scope.split()
         ).issubset(self._settings.oauth.allowed_scopes):
@@ -41,7 +41,7 @@ class Bridge:
         state = crypto.generate_key()
         session: Session = {"state": state}
 
-        client_state = request.query.get("state")
+        client_state = query.get("state")
         if client_state is not None:
             session["client_state"] = client_state
 
@@ -62,17 +62,19 @@ class Bridge:
             session=session,
         )
 
-    async def callback(self, request: CallbackRequest) -> BridgeResponse:
-        client_state = request.session.get("client_state")
-        state = request.session.get("state")
-        session: Session = {}
+    async def callback(
+        self, *, query: Mapping[str, str], session: Session
+    ) -> BridgeResponse:
+        client_state = session.get("client_state")
+        state = session.get("state")
+        cleared_session: Session = {}
 
-        if not request.query:
+        if not query:
             return self._callback_error(
                 OAuthError.INVALID_REQUEST,
                 "No arguments provided, request is invalid.",
                 client_state,
-                session,
+                cleared_session,
             )
 
         if state is None:
@@ -80,37 +82,34 @@ class Bridge:
                 OAuthError.INVALID_STATE,
                 "State is not set, this page was probably refreshed.",
                 client_state,
-                session,
+                cleared_session,
             )
 
-        if state != request.query.get("state"):
+        if state != query.get("state"):
             return self._callback_error(
                 OAuthError.INVALID_STATE,
                 "State does not match callback state.",
                 client_state,
-                session,
+                cleared_session,
             )
 
-        if "error" in request.query:
+        if "error" in query:
             error = oauth.normalize_error(
-                request.query["error"],
+                query["error"],
                 allowed_types=oauth.AUTHORIZATION_ERRORS,
                 fallback_type=OAuthError.SERVER_ERROR,
             )
             return self._callback_error(
-                error,
-                error.description,
-                client_state,
-                session,
+                error, error.description, client_state, cleared_session
             )
 
-        code = request.query.get("code")
+        code = query.get("code")
         if not code:
             return self._callback_error(
                 OAuthError.INVALID_REQUEST,
                 "Authorization code missing from provider callback.",
                 client_state,
-                session,
+                cleared_session,
             )
 
         result = await self._fetch(
@@ -135,7 +134,7 @@ class Bridge:
                 error,
                 error.description,
                 client_state,
-                session,
+                cleared_session,
                 retry_after=result.get("retry_after"),
             )
 
@@ -144,7 +143,7 @@ class Bridge:
                 OAuthError.INVALID_RESPONSE,
                 "Invalid response from provider.",
                 client_state,
-                session,
+                cleared_session,
             )
 
         if "refresh_token" in result:
@@ -165,14 +164,14 @@ class Bridge:
                 error="integrity_error",
                 description="Database integrity error.",
                 state=client_state,
-                session=session,
+                session=cleared_session,
             )
 
         return self._callback_response(
             client_id=str(client_id),
             client_secret=client_secret,
             state=client_state,
-            session=session,
+            session=cleared_session,
         )
 
     def _callback_error(
