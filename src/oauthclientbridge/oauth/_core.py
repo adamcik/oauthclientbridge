@@ -161,7 +161,8 @@ async def fetch(
 ) -> OAuthResponse:
     """Perform an upstream OAuth request without blocking the event loop."""
     settings = current_settings.fetch.model_copy(deep=True)
-    return await anyio.to_thread.run_sync(  # pyright: ignore[reportUnknownMemberType, reportAttributeAccessIssue, reportUnknownVariableType] # AnyIO's local stub omits worker-thread support.
+    # AnyIO's local stub omits worker-thread support.
+    return await anyio.to_thread.run_sync(  # pyright: ignore # ty: ignore[unresolved-attribute]
         _fetch_sync, uri, endpoint, auth, data, settings
     )
 

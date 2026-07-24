@@ -66,12 +66,6 @@ class TokenInputValidationCase:
             expected_status=401,
         ),
         TokenInputValidationCase(
-            name="empty client id duplicate",
-            data={"client_id": ""},
-            expected_error=OAuthError.INVALID_CLIENT,
-            expected_status=401,
-        ),
-        TokenInputValidationCase(
             name="missing client secret",
             data={"client_secret": None},
             expected_error=OAuthError.INVALID_CLIENT,
@@ -368,7 +362,7 @@ def test_token_wrong_secret_and_not_found_identical(
     resp2 = post("/token", data2)
 
     assert resp1.data == resp2.data
-    assert resp2.status == resp2.status
+    assert resp1.status == resp2.status
 
 
 def test_token_refresh_post_data(
