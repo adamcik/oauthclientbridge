@@ -8,6 +8,7 @@ and do not use this module.
 """
 
 from collections.abc import Awaitable, Callable
+from threading import current_thread, get_ident
 from typing import ParamSpec, TypeVar
 
 from anyio import from_thread, to_thread
@@ -17,6 +18,14 @@ P = ParamSpec("P")
 T = TypeVar("T")
 
 tracer = trace.get_tracer(__name__)
+
+
+def _thread_attributes() -> dict[str, str | int]:
+    thread = current_thread()
+    return {
+        "process.thread.id": get_ident(),
+        "process.thread.name": thread.name,
+    }
 
 
 async def run_sync(
@@ -30,7 +39,9 @@ async def run_sync(
     """
 
     def traced() -> T:
-        with tracer.start_as_current_span(f"THREAD {name}"):
+        with tracer.start_as_current_span(
+            f"THREAD {name}", attributes=_thread_attributes()
+        ):
             return func(*args, **kwargs)
 
     return await to_thread.run_sync(traced)
@@ -47,7 +58,9 @@ def run_from_thread(
     """
 
     async def traced() -> T:
-        with tracer.start_as_current_span(f"THREAD {name}"):
+        with tracer.start_as_current_span(
+            f"THREAD {name}", attributes=_thread_attributes()
+        ):
             return await func(*args, **kwargs)
 
     return from_thread.run(traced)
