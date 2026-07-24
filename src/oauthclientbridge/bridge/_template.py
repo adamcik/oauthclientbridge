@@ -21,8 +21,6 @@ def render_template(
         "Referrer-Policy": "no-referrer",
         "X-Content-Type-Options": "nosniff",
         "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
-        "Cache-Control": "no-store",
-        "Pragma": "no-cache",
     }
     if content_security_policy is not None:
         response_headers["Content-Security-Policy"] = content_security_policy

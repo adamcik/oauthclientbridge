@@ -4,11 +4,9 @@ from typing import cast
 
 import anyio
 import flask
-import structlog
 from flask import Blueprint
 
-from oauthclientbridge import bridge, oauth, telemetry
-from oauthclientbridge.errors import OAuthError
+from oauthclientbridge import bridge, telemetry
 from oauthclientbridge.settings import current_settings
 
 routes = Blueprint("views", __name__)
@@ -63,26 +61,7 @@ def token() -> flask.Response:
             user_agent=flask.request.user_agent.string,
         )
     )
-    _record_handled_token_error(response)
     return _flask_response(response)
-
-
-def _record_handled_token_error(response: bridge.BridgeResponse) -> None:
-    if not isinstance(response.body, dict):
-        return
-    error_code = response.body.get("error")
-    description = response.body.get("error_description")
-    if not isinstance(error_code, str) or not isinstance(description, str):
-        return
-    if error_code not in OAuthError:
-        return
-
-    error = oauth.Error(OAuthError(error_code), description)
-    structlog.contextvars.bind_contextvars(oauth_error=error_code)
-    telemetry.record_oauth_error_trace(
-        error_code, description, error, status=response.status
-    )
-    telemetry.record_server_error_metric(response.status, error_code)
 
 
 @routes.route("/metrics", methods=["GET"])

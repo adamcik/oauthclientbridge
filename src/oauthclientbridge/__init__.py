@@ -30,10 +30,7 @@ def create_app(settings: Settings | None = None) -> Flask:
 
     _ = app.teardown_appcontext(db.close)
 
-    _ = app.after_request(oauth.nocache)
-    _ = app.register_error_handler(oauth.Error, oauth.error_handler)
     _ = app.register_error_handler(500, oauth.fallback_error_handler)
-
     _ = app.before_request(telemetry.start_request_metrics)
     _ = app.after_request(telemetry.finalize_request_metrics)
 
