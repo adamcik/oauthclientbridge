@@ -14,20 +14,40 @@ CLIENT_ID = types.ClientId(uuid.UUID("00000000-0000-0000-0000-000000000001"))
 ENCRYPTED_TOKEN = types.EncryptedToken(b"token")
 
 
+@dataclass(frozen=True)
+class DatabaseConnectCase:
+    name: str
+    database: str
+    expected: tuple[str, bool]
+
+
 @pytest.mark.parametrize(
-    ("database", "expected"),
+    "case",
     [
-        (":memory:", ("file:oauthclientbridge?mode=memory&cache=shared", True)),
-        ("file:isolated?mode=memory&cache=shared", ("file:isolated?mode=memory&cache=shared", True)),
-        ("./sqlite.db", ("./sqlite.db", False)),
+        DatabaseConnectCase(
+            name="memory database",
+            database=":memory:",
+            expected=("file:oauthclientbridge?mode=memory&cache=shared", True),
+        ),
+        DatabaseConnectCase(
+            name="memory URI",
+            database="file:isolated?mode=memory&cache=shared",
+            expected=("file:isolated?mode=memory&cache=shared", True),
+        ),
+        DatabaseConnectCase(
+            name="file path",
+            database="./sqlite.db",
+            expected=("./sqlite.db", False),
+        ),
     ],
+    ids=lambda case: case.name,
 )
 def test_database_connect_args_supports_sqlite_uris(
-    app_context: AppContext, database: str, expected: tuple[str, bool]
+    app_context: AppContext, case: DatabaseConnectCase
 ) -> None:
-    current_settings.database.database = database
+    current_settings.database.database = case.database
 
-    assert db._database_connect_args() == expected  # pyright: ignore[reportPrivateUsage] # Direct connection configuration test.
+    assert db._database_connect_args() == case.expected  # pyright: ignore[reportPrivateUsage] # Direct connection configuration test.
 
 
 @pytest.mark.parametrize(
