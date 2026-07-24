@@ -107,7 +107,10 @@ def test_callback_csp_can_be_disabled(client: FlaskClient, settings: Settings):
 
 def test_callback_template_adds_security_headers():
     response = _template.render_template(
-        "callback", {}, "default-src 'none'", HTTPStatus.OK
+        "callback",
+        {},
+        status=HTTPStatus.OK,
+        content_security_policy="default-src 'none'",
     )
 
     assert response.headers["Referrer-Policy"] == "no-referrer"
