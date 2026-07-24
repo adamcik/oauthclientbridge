@@ -36,6 +36,8 @@ async def test_authorization_returns_redirect_and_complete_session(
         "state": query["state"][0],
     }
     assert query["state"][0]
+    assert response.headers["Cache-Control"] == "no-store"
+    assert response.headers["Pragma"] == "no-cache"
 
 
 @pytest.mark.anyio
@@ -468,5 +470,7 @@ async def test_token_returns_retryable_refresh_error(
 
     assert response.status == 503
     assert response.headers["Retry-After"] == "10"
+    assert response.headers["Cache-Control"] == "no-store"
+    assert response.headers["Pragma"] == "no-cache"
     assert isinstance(response.body, dict)
     assert response.body["error"] == "temporarily_unavailable"

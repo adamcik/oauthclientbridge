@@ -91,3 +91,8 @@ def set_tags(tags: dict[str, Any]) -> None:
 def set_user(user_data: dict[str, Any] | None) -> None:
     if sentry_sdk:
         sentry_sdk.set_user(user_data)
+
+
+def capture_unhandled_exception(exception: BaseException) -> None:
+    if sentry_sdk:
+        sentry_sdk.capture_exception(exception)

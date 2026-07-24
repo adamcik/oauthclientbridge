@@ -123,14 +123,6 @@ def fallback_error_handler(e: Exception) -> flask.Response:
     return response
 
 
-def nocache(response: flask.Response) -> flask.Response:
-    """Turns off caching in case there is sensitive content in responses."""
-    if "Cache-Control" not in response.headers:
-        response.headers["Cache-Control"] = "no-store"
-        response.headers["Pragma"] = "no-cache"
-    return response
-
-
 def scrub_refresh_token(token: OAuthResponse) -> OAuthResponse:
     remove = ("access_token", "expires_in", "token_type")
     return {k: v for k, v in token.items() if k not in remove}

@@ -10,6 +10,7 @@ from requests_mock import Mocker
 from oauthclientbridge import crypto, db
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import Settings
+from pytest_sentry_capture import SentryCapture
 
 from .conftest import PostClient, ResponseTuple, TokenTuple
 
@@ -900,3 +901,32 @@ def test_token_terminal_refresh_error_ignores_retry_after_header(
 
 # TODO: Test other than basic auth...
 # TODO: Test oauth helpers directly?
+
+
+def test_token_unexpected_error_returns_json(
+    client: FlaskClient,
+    monkeypatch: pytest.MonkeyPatch,
+    sentry_capture: SentryCapture,
+):
+    async def fail(**_: object) -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(client.application.extensions["oauth_bridge"], "_token", fail)
+
+    response = client.post("/token", data={"grant_type": "client_credentials"})
+
+    assert response.status_code == 500
+    assert response.json == OAuthError.SERVER_ERROR.json()
+    assert response.content_type == "application/json"
+    assert response.headers["Cache-Control"] == "no-store"
+    assert response.headers["Pragma"] == "no-cache"
+    sentry_capture.find_exception_by_type("RuntimeError")
+
+
+def test_expected_token_error_is_not_captured_by_sentry(
+    post: PostClient, sentry_capture: SentryCapture
+):
+    response = post("/token", {"grant_type": "authorization_code"})
+
+    assert response.status == 400
+    assert list(sentry_capture.get_exceptions()) == []
