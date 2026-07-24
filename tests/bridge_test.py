@@ -1,9 +1,10 @@
+import json
 import urllib.parse
 from dataclasses import dataclass
 
 import pytest
 
-from oauthclientbridge import bridge
+from oauthclientbridge import bridge, crypto, db
 from oauthclientbridge.settings import Settings
 from tests.conftest import BridgeHarness
 
@@ -103,6 +104,7 @@ async def test_authorization_uses_configured_scopes_when_omitted(
 
 @pytest.mark.anyio
 async def test_callback_stores_token_and_consumes_session(
+    settings: Settings,
     bridge_harness: BridgeHarness,
 ):
     bridge_harness.oauth.results.append(
@@ -118,7 +120,88 @@ async def test_callback_stores_token_and_consumes_session(
     assert response.session == {}
     assert b'"state": "caller-state"' in response.body
     assert response.headers["Cache-Control"] == "no-store"
-    assert len(bridge_harness.oauth.calls) == 1
+    assert bridge_harness.oauth.calls == [
+        (
+            settings.oauth.token_uri,
+            "token",
+            {
+                "client_id": settings.oauth.client_id,
+                "client_secret": settings.oauth.client_secret.get_secret_value(),
+                "code": "authorization-code",
+                "grant_type": "authorization_code",
+                "redirect_uri": settings.oauth.redirect_uri,
+            },
+        )
+    ]
+
+    assert isinstance(response.body, bytes)
+    rendered = json.loads(response.body)
+    client_id = rendered["client_id"]
+    client_secret = rendered["client_secret"]
+    record = db.lookup(db.validate_client_id(client_id), settings.database)
+    assert record.encrypted_token is not None
+    assert crypto.loads(client_secret, record.encrypted_token) == {
+        "token_type": "Bearer",
+        "access_token": "provider-token",
+    }
+
+
+@dataclass(frozen=True)
+class CallbackValidationCase:
+    name: str
+    query: dict[str, str]
+    session: bridge.Session
+    expected_error: str
+    expected_status: int
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "case",
+    [
+        CallbackValidationCase(
+            name="missing query",
+            query={},
+            session={"state": "expected-state"},
+            expected_error="invalid_request",
+            expected_status=400,
+        ),
+        CallbackValidationCase(
+            name="missing session state",
+            query={"state": "expected-state", "code": "authorization-code"},
+            session={},
+            expected_error="invalid_state",
+            expected_status=400,
+        ),
+        CallbackValidationCase(
+            name="missing authorization code",
+            query={"state": "expected-state"},
+            session={"state": "expected-state"},
+            expected_error="invalid_request",
+            expected_status=400,
+        ),
+        CallbackValidationCase(
+            name="provider denied authorization",
+            query={"state": "expected-state", "error": "access_denied"},
+            session={"state": "expected-state"},
+            expected_error="access_denied",
+            expected_status=400,
+        ),
+    ],
+    ids=lambda case: case.name,
+)
+async def test_callback_validation_returns_rendered_error_and_consumes_session(
+    case: CallbackValidationCase, bridge_harness: BridgeHarness
+):
+    response = await bridge_harness.bridge.callback(
+        query=case.query, session=case.session
+    )
+
+    assert response.status == case.expected_status
+    assert response.session == {}
+    assert isinstance(response.body, bytes)
+    assert json.loads(response.body)["error"] == case.expected_error
+    assert bridge_harness.oauth.calls == []
 
 
 @pytest.mark.anyio
@@ -134,3 +217,23 @@ async def test_callback_rejects_state_mismatch_and_consumes_session(
     assert response.session == {}
     assert b'"error": "invalid_state"' in response.body
     assert bridge_harness.oauth.calls == []
+
+
+@pytest.mark.anyio
+async def test_callback_returns_retryable_upstream_error_and_consumes_session(
+    bridge_harness: BridgeHarness,
+):
+    bridge_harness.oauth.results.append(
+        {"error": "temporarily_unavailable", "retry_after": 10}
+    )
+
+    response = await bridge_harness.bridge.callback(
+        query={"state": "expected-state", "code": "authorization-code"},
+        session={"state": "expected-state"},
+    )
+
+    assert response.status == 503
+    assert response.session == {}
+    assert response.headers["Retry-After"] == "10"
+    assert isinstance(response.body, bytes)
+    assert json.loads(response.body)["error"] == "temporarily_unavailable"
