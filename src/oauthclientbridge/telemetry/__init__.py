@@ -23,7 +23,7 @@ __all__ = [
     "record_refresh_token_invalidation",
     "record_request_metrics",
     "record_retry_decision",
-    "record_server_error",
+    "record_server_error_metric",
     "record_workaround",
     "request_refresh",
     "set_build_info",
@@ -66,7 +66,7 @@ def record_database_error(name: str, error: str) -> None:
     _prometheus.DBErrorCounter.labels(query=name, error=error).inc()
 
 
-def record_server_error(
+def record_server_error_metric(
     status: HTTPStatus, error: str, endpoint: str | None = None
 ) -> None:
     _prometheus.ServerErrorCounter.labels(

@@ -109,12 +109,12 @@ def error_handler(e: Error) -> flask.Response:
     current_span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
 
     status = HTTPStatus(response.status_code)
-    telemetry.record_server_error(status, e.error.value)
+    telemetry.record_server_error_metric(status, e.error.value)
     return response
 
 
 def fallback_error_handler(e: Exception) -> flask.Response:
-    telemetry.record_server_error(
+    telemetry.record_server_error_metric(
         HTTPStatus.INTERNAL_SERVER_ERROR, OAuthError.SERVER_ERROR.value
     )
 
