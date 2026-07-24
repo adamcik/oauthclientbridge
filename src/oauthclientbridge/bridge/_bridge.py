@@ -98,6 +98,7 @@ class Bridge:
                 query["error"],
                 allowed_types=oauth.AUTHORIZATION_ERRORS,
                 fallback_type=OAuthError.SERVER_ERROR,
+                error_types=self._settings.fetch.error_types,
             )
             return self._callback_error(
                 error, error.description, client_state, cleared_session
@@ -126,6 +127,7 @@ class Bridge:
                 result["error"],
                 allowed_types=oauth.TOKEN_ERRORS,
                 fallback_type=OAuthError.SERVER_ERROR,
+                error_types=self._settings.fetch.error_types,
             )
             sanitized_result = oauth.sanitize_for_logging(result)
             logger.warning("Retrieving token failed", result=sanitized_result)
