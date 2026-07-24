@@ -162,11 +162,11 @@ def endpoint() -> str:
     return getattr(flask.request.url_rule, "endpoint", "notfound")
 
 
-def record_metrics() -> None:
+def start_request_metrics() -> None:
     flask.g.stats_latency_start_time = time.time()
 
 
-def finalize_metrics(response: flask.Response) -> flask.Response:
+def finalize_request_metrics(response: flask.Response) -> flask.Response:
     request_latency = time.time() - flask.g.stats_latency_start_time
     labels = {
         "endpoint": endpoint(),
@@ -203,17 +203,17 @@ def export_metrics() -> flask.Response:
     return flask.Response(text, mimetype=prometheus_client.CONTENT_TYPE_LATEST)
 
 
-def observe_token_grant_age(created_at: datetime | None) -> None:
+def observe_token_grant_age_metric(created_at: datetime | None) -> None:
     if created_at is None:
         return
 
     TokenGrantAgeHistogram.observe((time_utils.utcnow() - created_at).total_seconds())
 
 
-def set_build_info(settings: TelemetrySettings) -> None:
+def set_build_info_metric(settings: TelemetrySettings) -> None:
     BuildInfoGauge.labels(**build_info_labels(settings)).set(1)
 
 
-def set_token_state_counts(counts: dict[str, int]) -> None:
+def set_token_state_counts_metric(counts: dict[str, int]) -> None:
     for state, count in counts.items():
         TokenStateGauge.labels(state=state).set(count)
