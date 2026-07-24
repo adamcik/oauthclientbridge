@@ -202,7 +202,7 @@ class Bridge:
         trace.get_current_span().add_event(
             "error", {"exception.message": f"{error_code}: {description}"}
         )
-        telemetry.record_server_error(status, error_code, endpoint="callback")
+        telemetry.record_server_error_metric(status, error_code, endpoint="callback")
         logger.log(
             self._settings.error_levels.get(error_code, LogLevel.ERROR),
             f"Callback failed {error_code}: {description}",
