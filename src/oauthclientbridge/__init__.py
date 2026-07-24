@@ -34,13 +34,13 @@ def create_app(settings: Settings | None = None) -> Flask:
     _ = app.register_error_handler(oauth.Error, oauth.error_handler)
     _ = app.register_error_handler(500, oauth.fallback_error_handler)
 
-    _ = app.before_request(telemetry.record_request_metrics)
+    _ = app.before_request(telemetry.start_request_metrics)
     _ = app.after_request(telemetry.finalize_request_metrics)
 
-    telemetry.set_build_info(settings.otel)
+    telemetry.set_build_info_metric(settings.otel)
     telemetry.add_refresher(
         app,
-        lambda: telemetry.set_token_state_counts(db.token_state_counts()),
+        lambda: telemetry.set_token_state_counts_metric(db.token_state_counts()),
     )
 
     app.register_blueprint(views.routes)

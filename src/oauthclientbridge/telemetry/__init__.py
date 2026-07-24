@@ -12,31 +12,33 @@ __all__ = [
     "init_tracing",
     "instrument",
     "instrument_app",
-    "observe_token_grant_age",
+    "observe_token_grant_age_metric",
     "record_client_attempt_metric",
     "record_client_error_metric",
     "record_client_response_metric",
     "record_client_retries_metric",
     "record_database_error_metric",
     "record_database_latency_metric",
-    "record_invalid_client_id",
+    "bind_invalid_client_id_log_context",
+    "record_invalid_client_id_trace",
     "record_refresh_token_invalidation_metric",
-    "record_request_metrics",
     "record_retry_decision_metric",
     "record_server_error_metric",
     "record_workaround_metric",
     "request_refresh",
-    "set_build_info",
-    "set_client_id",
-    "set_token_state_counts",
+    "set_build_info_metric",
+    "set_client_id_context",
+    "set_token_state_counts_metric",
+    "start_request_metrics",
     "start_background_refresh",
     "stop_background_refresh",
     "uninstrument",
     "otel_log_attributes",
 ]
 
-set_client_id = _otel.set_client_id
-record_invalid_client_id = _otel.record_invalid_client_id
+set_client_id_context = _otel.set_client_id_context
+bind_invalid_client_id_log_context = _otel.bind_invalid_client_id_log_context
+record_invalid_client_id_trace = _otel.record_invalid_client_id_trace
 instrument = _otel.instrument
 uninstrument = _otel.uninstrument
 instrument_app = _otel.instrument_app
@@ -46,12 +48,12 @@ init_sentry = _sentry.init
 
 otel_log_attributes = _resources.otel_log_attributes
 
-record_request_metrics = _prometheus.record_metrics
-finalize_request_metrics = _prometheus.finalize_metrics
+start_request_metrics = _prometheus.start_request_metrics
+finalize_request_metrics = _prometheus.finalize_request_metrics
 export_metrics = _prometheus.export_metrics
-observe_token_grant_age = _prometheus.observe_token_grant_age
-set_build_info = _prometheus.set_build_info
-set_token_state_counts = _prometheus.set_token_state_counts
+observe_token_grant_age_metric = _prometheus.observe_token_grant_age_metric
+set_build_info_metric = _prometheus.set_build_info_metric
+set_token_state_counts_metric = _prometheus.set_token_state_counts_metric
 add_refresher = _refresh.add_refresher
 request_refresh = _refresh.request_refresh
 start_background_refresh = _refresh.start_background_refresh
