@@ -107,3 +107,42 @@ async def test_authorization_uses_configured_scopes_when_omitted(
         urllib.parse.urlsplit(response.headers["Location"]).query
     )
     assert set(query["scope"][0].split()) == {"foo", "bar"}
+
+
+@pytest.mark.anyio
+async def test_callback_stores_token_and_consumes_session(
+    bridge_harness: BridgeHarness,
+):
+    bridge_harness.oauth.results.append(
+        {"token_type": "Bearer", "access_token": "provider-token"}
+    )
+
+    response = await bridge_harness.bridge.callback(
+        bridge.CallbackRequest(
+            query={"state": "expected-state", "code": "authorization-code"},
+            session={"state": "expected-state", "client_state": "caller-state"},
+        )
+    )
+
+    assert response.status == 200
+    assert response.session == {}
+    assert b'"state": "caller-state"' in response.body
+    assert response.headers["Cache-Control"] == "no-store"
+    assert len(bridge_harness.oauth.calls) == 1
+
+
+@pytest.mark.anyio
+async def test_callback_rejects_state_mismatch_and_consumes_session(
+    bridge_harness: BridgeHarness,
+):
+    response = await bridge_harness.bridge.callback(
+        bridge.CallbackRequest(
+            query={"state": "wrong-state", "code": "authorization-code"},
+            session={"state": "expected-state", "client_state": "caller-state"},
+        )
+    )
+
+    assert response.status == 400
+    assert response.session == {}
+    assert b'"error": "invalid_state"' in response.body
+    assert bridge_harness.oauth.calls == []
