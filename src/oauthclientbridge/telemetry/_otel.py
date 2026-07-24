@@ -1,5 +1,6 @@
 import importlib.util
 from collections.abc import Mapping
+from http import HTTPStatus
 from typing import Any, assert_never
 from urllib.parse import urlsplit
 from wsgiref.util import request_uri
@@ -76,6 +77,29 @@ def bind_invalid_client_id_log_context(client_id: str) -> None:
 def record_invalid_client_id_trace(client_id: str) -> None:
     """Record rejected input on the current trace without setting client identity."""
     trace.get_current_span().add_event("invalid_client_id", {"client_id": client_id})
+
+
+def record_oauth_error_trace(
+    error: str,
+    description: str,
+    exception: BaseException | None = None,
+    *,
+    status: HTTPStatus,
+) -> None:
+    """Record an expected OAuth error; mark only server failures as errors."""
+
+    current_span = trace.get_current_span()
+    current_span.set_attribute("oauth.error", error)
+    if status >= 500:
+        current_span.set_status(
+            trace.Status(trace.StatusCode.ERROR, f"{error}: {description}")
+        )
+    if exception is None:
+        current_span.add_event(
+            "error", {"exception.message": f"{error}: {description}"}
+        )
+    else:
+        current_span.record_exception(exception)
 
 
 def _requests_response_hook(
