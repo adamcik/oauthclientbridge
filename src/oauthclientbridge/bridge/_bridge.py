@@ -3,11 +3,10 @@ from collections.abc import Awaitable, Callable, Mapping
 from http import HTTPStatus
 from typing import Any, cast
 
-import anyio
 import structlog
 from opentelemetry import trace
 
-from oauthclientbridge import client, crypto, db, oauth, telemetry, types
+from oauthclientbridge import client, crypto, db, execution, oauth, telemetry, types
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import LogLevel, Settings
 from oauthclientbridge.utils import uri as uri_utils
@@ -167,8 +166,8 @@ class Bridge:
         client_secret = crypto.generate_key()
         client_id = db.generate_id()
         try:
-            # AnyIO's local stub omits worker-thread support.
-            await anyio.to_thread.run_sync(  # pyright: ignore # ty: ignore[unresolved-attribute]
+            await execution.run_sync(
+                "db.insert",
                 db.insert,
                 client_id,
                 crypto.dumps(client_secret, result),
@@ -239,12 +238,8 @@ class Bridge:
 
         telemetry.set_client_id_context(credentials.client_id)
         try:
-            record = cast(
-                db.TokenRecord,
-                # AnyIO's local stub omits worker-thread support.
-                await anyio.to_thread.run_sync(  # pyright: ignore # ty: ignore[unresolved-attribute]
-                    db.lookup, credentials.client_id, self._settings.database
-                ),
+            record = await execution.run_sync(
+                "db.lookup", db.lookup, credentials.client_id, self._settings.database
             )
         except LookupError:
             return self._token_error(OAuthError.INVALID_CLIENT, "Client not known.")
@@ -299,8 +294,8 @@ class Bridge:
             trace.get_current_span().add_event(
                 "Updating token", {"updated_fields": updated_fields}
             )
-            # AnyIO's local stub omits worker-thread support.
-            await anyio.to_thread.run_sync(  # pyright: ignore # ty: ignore[unresolved-attribute]
+            await execution.run_sync(
+                "db.update",
                 db.update,
                 credentials.client_id,
                 crypto.dumps(credentials.client_secret, modified),
@@ -323,9 +318,12 @@ class Bridge:
         )
         error = refresh_outcome.normalized_error or OAuthError.SERVER_ERROR
         if refresh_outcome.invalidate_refresh_token:
-            # AnyIO's local stub omits worker-thread support.
-            await anyio.to_thread.run_sync(  # pyright: ignore # ty: ignore[unresolved-attribute]
-                db.update, credentials.client_id, None, self._settings.database
+            await execution.run_sync(
+                "db.update",
+                db.update,
+                credentials.client_id,
+                None,
+                self._settings.database,
             )
             telemetry.record_refresh_token_invalidation_metric(error.value)
             logger.warning("Revoking stored token after upstream invalid_grant")
