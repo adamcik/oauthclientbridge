@@ -6,13 +6,12 @@ import time
 from http import HTTPStatus
 from typing import Any, override
 
-import anyio
 import flask
 import requests
 import structlog
 from opentelemetry import metrics, trace
 
-from oauthclientbridge import telemetry
+from oauthclientbridge import execution, telemetry
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import FetchSettings, current_settings
 from oauthclientbridge.utils import uri as uri_utils
@@ -161,9 +160,8 @@ async def fetch(
 ) -> OAuthResponse:
     """Perform an upstream OAuth request without blocking the event loop."""
     settings = current_settings.fetch.model_copy(deep=True)
-    # AnyIO's local stub omits worker-thread support.
-    return await anyio.to_thread.run_sync(  # pyright: ignore # ty: ignore[unresolved-attribute]
-        _fetch_sync, uri, endpoint, auth, data, settings
+    return await execution.run_sync(
+        "oauth.fetch", _fetch_sync, uri, endpoint, auth, data, settings
     )
 
 
