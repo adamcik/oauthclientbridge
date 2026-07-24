@@ -1,5 +1,6 @@
 import json
 import urllib.parse
+from base64 import b64encode
 from dataclasses import dataclass
 
 import pytest
@@ -237,3 +238,235 @@ async def test_callback_returns_retryable_upstream_error_and_consumes_session(
     assert response.headers["Retry-After"] == "10"
     assert isinstance(response.body, bytes)
     assert json.loads(response.body)["error"] == "temporarily_unavailable"
+
+
+@pytest.mark.anyio
+async def test_token_returns_stored_access_token(
+    settings: Settings, bridge_harness: BridgeHarness
+):
+    client_id = db.generate_id()
+    client_secret = crypto.generate_key()
+    stored_token = {"access_token": "stored-token", "token_type": "Bearer"}
+    db.insert(
+        client_id,
+        crypto.dumps(client_secret, stored_token),
+        settings.database,
+    )
+
+    response = await bridge_harness.bridge.token(
+        form={
+            "grant_type": "client_credentials",
+            "client_id": str(client_id),
+            "client_secret": client_secret,
+        },
+        authorization=None,
+        user_agent="",
+    )
+
+    assert response.status == 200
+    assert response.body == stored_token
+    assert bridge_harness.oauth.calls == []
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    (
+        "authorization",
+        "form",
+        "expected_error",
+        "expected_description",
+        "expected_status",
+    ),
+    [
+        (
+            "Bearer token",
+            {"grant_type": "client_credentials"},
+            "invalid_client",
+            "Only Basic Auth is supported.",
+            401,
+        ),
+        (
+            "Basic " + b64encode(b"client:secret").decode(),
+            {
+                "grant_type": "client_credentials",
+                "client_id": "client",
+                "client_secret": "secret",
+            },
+            "invalid_request",
+            "More than one mechanism for authenticating set.",
+            400,
+        ),
+    ],
+    ids=["non-basic authorization", "conflicting credentials"],
+)
+async def test_token_validates_authentication_mechanism(
+    bridge_harness: BridgeHarness,
+    authorization: str,
+    form: dict[str, str],
+    expected_error: str,
+    expected_description: str,
+    expected_status: int,
+):
+    response = await bridge_harness.bridge.token(
+        form=form, authorization=authorization, user_agent=""
+    )
+
+    assert response.status == expected_status
+    assert response.body == {
+        "error": expected_error,
+        "error_description": expected_description,
+    }
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("form", "expected_error", "expected_status"),
+    [
+        ({}, "unsupported_grant_type", 400),
+        (
+            {"grant_type": "client_credentials", "scope": "unsupported"},
+            "invalid_scope",
+            400,
+        ),
+        ({"grant_type": "client_credentials"}, "invalid_client", 401),
+    ],
+    ids=["missing grant", "unsupported scope", "missing credentials"],
+)
+async def test_token_validates_grant_and_credentials(
+    bridge_harness: BridgeHarness,
+    form: dict[str, str],
+    expected_error: str,
+    expected_status: int,
+):
+    response = await bridge_harness.bridge.token(
+        form=form, authorization=None, user_agent=""
+    )
+
+    assert response.status == expected_status
+    assert isinstance(response.body, dict)
+    assert response.body["error"] == expected_error
+
+
+@pytest.mark.anyio
+async def test_token_accepts_basic_authentication(
+    settings: Settings, bridge_harness: BridgeHarness
+):
+    client_id = db.generate_id()
+    client_secret = crypto.generate_key()
+    db.insert(
+        client_id,
+        crypto.dumps(client_secret, {"access_token": "stored", "token_type": "Bearer"}),
+        settings.database,
+    )
+    authorization = "Basic " + b64encode(
+        f"{client_id}:{client_secret}".encode()
+    ).decode()
+
+    response = await bridge_harness.bridge.token(
+        form={"grant_type": "client_credentials"},
+        authorization=authorization,
+        user_agent="",
+    )
+
+    assert response.status == 200
+    assert response.body == {"access_token": "stored", "token_type": "Bearer"}
+
+
+@pytest.mark.anyio
+async def test_token_rejects_revoked_grant(
+    settings: Settings, bridge_harness: BridgeHarness
+):
+    client_id = db.generate_id()
+    client_secret = crypto.generate_key()
+    db.insert(client_id, crypto.dumps(client_secret, {}), settings.database)
+    db.update(client_id, None, settings.database)
+
+    response = await bridge_harness.bridge.token(
+        form={
+            "grant_type": "client_credentials",
+            "client_id": str(client_id),
+            "client_secret": client_secret,
+        },
+        authorization=None,
+        user_agent="",
+    )
+
+    assert response.status == 400
+    assert isinstance(response.body, dict)
+    assert response.body["error"] == "invalid_grant"
+
+
+@pytest.mark.anyio
+async def test_token_refreshes_and_persists_new_refresh_token(
+    settings: Settings,
+    bridge_harness: BridgeHarness,
+):
+    client_id = db.generate_id()
+    client_secret = crypto.generate_key()
+    db.insert(
+        client_id,
+        crypto.dumps(client_secret, {"refresh_token": "old-refresh-token"}),
+        settings.database,
+    )
+    bridge_harness.oauth.results.append(
+        {
+            "access_token": "refreshed-access-token",
+            "token_type": "Bearer",
+            "refresh_token": "new-refresh-token",
+        }
+    )
+
+    response = await bridge_harness.bridge.token(
+        form={
+            "grant_type": "client_credentials",
+            "client_id": str(client_id),
+            "client_secret": client_secret,
+        },
+        authorization=None,
+        user_agent="",
+    )
+
+    assert response.status == 200
+    assert response.body == {
+        "access_token": "refreshed-access-token",
+        "token_type": "Bearer",
+    }
+    record = db.lookup(
+        client_id,
+        settings.database,
+    )
+    assert record.encrypted_token is not None
+    assert crypto.loads(client_secret, record.encrypted_token) == {
+        "refresh_token": "new-refresh-token"
+    }
+
+
+@pytest.mark.anyio
+async def test_token_returns_retryable_refresh_error(
+    settings: Settings, bridge_harness: BridgeHarness
+):
+    client_id = db.generate_id()
+    client_secret = crypto.generate_key()
+    db.insert(
+        client_id,
+        crypto.dumps(client_secret, {"refresh_token": "refresh-token"}),
+        settings.database,
+    )
+    bridge_harness.oauth.results.append(
+        {"error": "temporarily_unavailable", "retry_after": 10}
+    )
+
+    response = await bridge_harness.bridge.token(
+        form={
+            "grant_type": "client_credentials",
+            "client_id": str(client_id),
+            "client_secret": client_secret,
+        },
+        authorization=None,
+        user_agent="",
+    )
+
+    assert response.status == 503
+    assert response.headers["Retry-After"] == "10"
+    assert isinstance(response.body, dict)
+    assert response.body["error"] == "temporarily_unavailable"
