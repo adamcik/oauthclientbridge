@@ -238,9 +238,9 @@ class Bridge:
                 "error": error,
                 "description": description,
             },
-            self._settings.callback_content_security_policy,
-            status,
+            status=status,
             headers=headers,
+            content_security_policy=self._settings.callback_content_security_policy,
         )
         return BridgeResponse(response.status, response.headers, response.body, session)
 
@@ -257,6 +257,6 @@ class Bridge:
         return render_template(
             self._settings.callback_template,
             variables,
-            self._settings.callback_content_security_policy,
             status=HTTPStatus.BAD_REQUEST,
+            content_security_policy=self._settings.callback_content_security_policy,
         )

@@ -7,8 +7,8 @@ def test_render_template_includes_variables_and_security_headers():
     response = _template.render_template(
         "{{ error }}: {{ description }}",
         {"error": "invalid_request", "description": "Invalid request."},
-        "default-src 'none'",
-        HTTPStatus.BAD_REQUEST,
+        status=HTTPStatus.BAD_REQUEST,
+        content_security_policy="default-src 'none'",
     )
 
     assert response.status == HTTPStatus.BAD_REQUEST
@@ -26,13 +26,13 @@ def test_render_template_includes_variables_and_security_headers():
 
 def test_render_template_autoescapes_variables():
     response = _template.render_template(
-        "{{ value }}", {"value": "<script>"}, None, HTTPStatus.OK
+        "{{ value }}", {"value": "<script>"}, status=HTTPStatus.OK
     )
 
     assert response.body == b"&lt;script&gt;"
 
 
 def test_render_template_omits_disabled_content_security_policy():
-    response = _template.render_template("callback", {}, None, HTTPStatus.BAD_REQUEST)
+    response = _template.render_template("callback", {}, status=HTTPStatus.BAD_REQUEST)
 
     assert "Content-Security-Policy" not in response.headers

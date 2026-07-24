@@ -11,9 +11,10 @@ environment = jinja2.Environment(autoescape=True)
 def render_template(
     template: str,
     variables: Mapping[str, str | None],
-    content_security_policy: str | None,
+    *,
     status: HTTPStatus,
     headers: Mapping[str, str] | None = None,
+    content_security_policy: str | None = None,
 ) -> BridgeResponse:
     response_headers = {
         "Content-Type": "text/html; charset=UTF-8",
