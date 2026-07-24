@@ -404,12 +404,7 @@ class Bridge:
             status=status,
         )
         error_code = error.value if isinstance(error, OAuthError) else error
-        trace.get_current_span().set_status(
-            trace.Status(trace.StatusCode.ERROR, f"{error_code}: {description}")
-        )
-        trace.get_current_span().add_event(
-            "error", {"exception.message": f"{error_code}: {description}"}
-        )
+        telemetry.record_oauth_error_trace(error_code, description, status=status)
         telemetry.record_server_error_metric(status, error_code, endpoint="callback")
         logger.log(
             self._settings.error_levels.get(error_code, LogLevel.ERROR),

@@ -6,7 +6,6 @@ import anyio
 import flask
 import structlog
 from flask import Blueprint
-from opentelemetry import trace
 
 from oauthclientbridge import bridge, oauth, telemetry
 from oauthclientbridge.errors import OAuthError
@@ -79,12 +78,10 @@ def _record_handled_token_error(response: bridge.BridgeResponse) -> None:
         return
 
     error = oauth.Error(OAuthError(error_code), description)
-    current_span = trace.get_current_span()
-    current_span.set_attribute("error.unhandled", False)
-    current_span.set_attribute("oauth.error", error_code)
     structlog.contextvars.bind_contextvars(oauth_error=error_code)
-    current_span.record_exception(error)
-    current_span.set_status(trace.Status(trace.StatusCode.ERROR, str(error)))
+    telemetry.record_oauth_error_trace(
+        error_code, description, error, status=response.status
+    )
     telemetry.record_server_error_metric(response.status, error_code)
 
 

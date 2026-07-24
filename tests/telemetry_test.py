@@ -290,10 +290,24 @@ def test_local_invalid_grant_records_handled_trace_error(
     assert request_span is not None
     assert request_span.attributes is not None
     assert request_span.attributes["client_id"] == str(access_token.client_id)
-    assert request_span.attributes["error.unhandled"] is False
     assert request_span.attributes["oauth.error"] == "invalid_grant"
-    assert request_span.status.status_code == trace.StatusCode.ERROR
+    assert request_span.status.status_code == trace.StatusCode.UNSET
     assert any(event.name == "exception" for event in request_span.events)
+
+
+def test_oauth_server_error_marks_span_error(
+    otel_mock: otel.OTelMocker, tracer: trace.Tracer
+) -> None:
+    with tracer.start_as_current_span("test"):
+        telemetry.record_oauth_error_trace(
+            OAuthError.TEMPORARILY_UNAVAILABLE.value,
+            "Provider unavailable.",
+            status=HTTPStatus.SERVICE_UNAVAILABLE,
+        )
+
+    span = otel.get_span(otel_mock.get_finished_spans(), "test")
+    assert span is not None
+    assert span.status.status_code == trace.StatusCode.ERROR
 
 
 def test_malformed_client_id_records_rejected_value(
