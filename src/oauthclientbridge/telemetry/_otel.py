@@ -60,7 +60,7 @@ from ._buckets import BYTES, TIME
 from ._resources import otel_log_attributes, resource_attributes
 
 
-def set_client_id(client_id: types.ClientId) -> None:
+def set_client_id_context(client_id: types.ClientId) -> None:
     """Associate a canonical client ID with the current request telemetry."""
     client_id_string = str(client_id)
     structlog.contextvars.bind_contextvars(client_id=client_id_string)
@@ -68,9 +68,13 @@ def set_client_id(client_id: types.ClientId) -> None:
     sentry.set_user({"client_id": client_id_string})
 
 
-def record_invalid_client_id(client_id: str) -> None:
-    """Preserve the rejected input without treating it as a client identity."""
+def bind_invalid_client_id_log_context(client_id: str) -> None:
+    """Preserve rejected input in structured log context."""
     structlog.contextvars.bind_contextvars(invalid_client_id=client_id)
+
+
+def record_invalid_client_id_trace(client_id: str) -> None:
+    """Record rejected input on the current trace without setting client identity."""
     trace.get_current_span().add_event("invalid_client_id", {"client_id": client_id})
 
 

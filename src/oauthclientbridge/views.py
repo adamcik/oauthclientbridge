@@ -106,14 +106,15 @@ def token() -> flask.Response:
         credentials = client.validate_credentials(client_id_value, client_secret_value)
     except client.ClientIdValidationError:
         if client_id_value is not None:
-            telemetry.record_invalid_client_id(client_id_value)
+            telemetry.bind_invalid_client_id_log_context(client_id_value)
+            telemetry.record_invalid_client_id_trace(client_id_value)
         raise oauth.Error(OAuthError.INVALID_CLIENT, "Malformed client_id.")
     except client.ClientSecretValidationError:
         raise oauth.Error(OAuthError.INVALID_CLIENT, "Client not known.")
     except client.CredentialValidationError as e:
         raise oauth.Error(OAuthError.INVALID_CLIENT, str(e))
     else:
-        telemetry.set_client_id(credentials.client_id)
+        telemetry.set_client_id_context(credentials.client_id)
 
     client_id = credentials.client_id
     client_secret = credentials.client_secret
@@ -141,7 +142,7 @@ def token() -> flask.Response:
         raise oauth.Error(OAuthError.INVALID_CLIENT, "Client not known.")
 
     if "refresh_token" not in result:
-        telemetry.observe_token_grant_age(record.created_at)
+        telemetry.observe_token_grant_age_metric(record.created_at)
         return flask.jsonify(result)
 
     refresh_result = anyio.run(
@@ -225,7 +226,7 @@ def token() -> flask.Response:
         db.update(client_id, crypto.dumps(client_secret, modified))
 
     # Only return what we got from the API (minus refresh_token).
-    telemetry.observe_token_grant_age(record.created_at)
+    telemetry.observe_token_grant_age_metric(record.created_at)
     return flask.jsonify(refresh_result)
 
 
