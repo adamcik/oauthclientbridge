@@ -149,11 +149,11 @@ def sanitize_for_logging(payload: OAuthResponse) -> OAuthResponse:
 
 
 def _record_attempt(endpoint: str, attempt_kind: RetryAttemptKind) -> None:
-    telemetry.record_client_attempt(endpoint, attempt_kind)
+    telemetry.record_client_attempt_metric(endpoint, attempt_kind)
 
 
 def _record_retry_decision(endpoint: str, decision: RetryDecision) -> None:
-    telemetry.record_retry_decision(endpoint, decision.action, decision.reason)
+    telemetry.record_retry_decision_metric(endpoint, decision.action, decision.reason)
 
 
 async def fetch(
@@ -313,7 +313,7 @@ def _fetch_sync(
                     error_label = OAuthError(error_code).value
                 else:
                     error_label = "invalid_error"
-                telemetry.record_client_error(endpoint, status, error_label)
+                telemetry.record_client_error_metric(endpoint, status, error_label)
 
             logger.debug(
                 "Result %s [status %s] [retry after %s]", prefix, status, retry
@@ -341,7 +341,7 @@ def _fetch_sync(
         if status:
             attributes["http.response.status_code"] = int(status)
 
-        telemetry.record_client_retries(endpoint, status, completed_retries)
+        telemetry.record_client_retries_metric(endpoint, status, completed_retries)
 
         error_type = result.get("error")
         if error_type:
@@ -429,7 +429,9 @@ def _fetch(
         length = len(resp.content)
         retry_after = parse_retry(resp.headers.get("retry-after"))
 
-    telemetry.record_client_response(endpoint, status_label, request_latency, length)
+    telemetry.record_client_response_metric(
+        endpoint, status_label, request_latency, length
+    )
 
     return result, status, retry_after
 
