@@ -15,11 +15,7 @@ from pytest_sentry_capture import SentryCapture
 
 from .conftest import TokenTuple
 
-
-@pytest.fixture
-def traced_client(instrumented: None, client: FlaskClient) -> FlaskClient:
-    _ = instrumented
-    return client
+pytestmark = pytest.mark.usefixtures("instrumented")
 
 
 def _assert_oauth_error_metric(
@@ -77,17 +73,17 @@ class ExpectedOAuthFailure:
     ids=lambda case: case.name,
 )
 def test_expected_oauth_failures_have_safe_observability(
-    traced_client: FlaskClient,
+    client: FlaskClient,
     otel_mock: OTelMocker,
     sentry_capture: SentryCapture,
     case: ExpectedOAuthFailure,
 ) -> None:
-    response = traced_client.open(case.path, method=case.method, data=case.data)
+    response = client.open(case.path, method=case.method, data=case.data)
 
     assert response.status_code == HTTPStatus.BAD_REQUEST
     assert json.loads(response.text)["error"] == case.error
     _assert_oauth_error_metric(
-        traced_client,
+        client,
         endpoint=case.endpoint,
         error=case.error,
         status=HTTPStatus.BAD_REQUEST,
@@ -105,7 +101,7 @@ def test_expected_oauth_failures_have_safe_observability(
 
 
 def test_unexpected_token_failure_has_safe_response_and_error_observability(
-    traced_client: FlaskClient,
+    client: FlaskClient,
     monkeypatch: pytest.MonkeyPatch,
     otel_mock: OTelMocker,
     sentry_capture: SentryCapture,
@@ -116,7 +112,7 @@ def test_unexpected_token_failure_has_safe_response_and_error_observability(
 
     monkeypatch.setattr(db, "lookup", fail)
 
-    response = traced_client.post(
+    response = client.post(
         "/token",
         data={
             "client_id": access_token.client_id,
@@ -130,7 +126,7 @@ def test_unexpected_token_failure_has_safe_response_and_error_observability(
     assert response.headers["Cache-Control"] == "no-store"
     assert response.headers["Pragma"] == "no-cache"
     _assert_oauth_error_metric(
-        traced_client,
+        client,
         endpoint="token",
         error=OAuthError.SERVER_ERROR,
         status=HTTPStatus.INTERNAL_SERVER_ERROR,
