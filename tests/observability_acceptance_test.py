@@ -15,6 +15,7 @@ from pytest_sentry_capture import SentryCapture
 
 from .conftest import TokenTuple
 
+# Instrument Flask before constructing the app used by each acceptance scenario.
 pytestmark = pytest.mark.usefixtures("instrumented")
 
 
