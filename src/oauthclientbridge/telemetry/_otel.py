@@ -50,6 +50,7 @@ from requests.structures import CaseInsensitiveDict
 # Import the leaf module directly; importing through telemetry's facade creates a cycle.
 import oauthclientbridge.telemetry._sentry as sentry
 from oauthclientbridge import types
+from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import (
     TelemetryComponent,
     TelemetryExporter,
@@ -100,6 +101,20 @@ def record_oauth_error_trace(
         )
     else:
         current_span.record_exception(exception)
+
+
+def record_oauth_outcome_trace(
+    endpoint: str, status: HTTPStatus, error: OAuthError | None
+) -> None:
+    current_span = trace.get_current_span()
+    current_span.set_attribute("oauth.endpoint", endpoint)
+    if error is not None:
+        exception = None
+        if endpoint == "token":
+            from oauthclientbridge import oauth
+
+            exception = oauth.Error(error, "")
+        record_oauth_error_trace(error.value, "", exception, status=status)
 
 
 def _requests_response_hook(

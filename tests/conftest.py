@@ -4,6 +4,7 @@ import logging
 import sqlite3
 from collections.abc import Generator
 from dataclasses import dataclass, field
+from http import HTTPStatus
 from pathlib import Path
 from typing import Any, Mapping, NamedTuple, Protocol
 from uuid import uuid4
@@ -17,6 +18,7 @@ from pydantic import SecretStr
 from werkzeug.datastructures import Headers
 
 from oauthclientbridge import bridge, create_app, crypto, db, types
+from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.oauth import (
     _retry as oauth_retry,  # pyright: ignore[reportPrivateUsage] # Global retry limiter reset.
 )
@@ -84,6 +86,19 @@ class BridgeHarness:
     bridge: bridge.Bridge
     oauth: ScriptedOAuth
     database: sqlite3.Connection
+    observer: "RecordingOAuthOutcomeObserver"
+
+
+@dataclass
+class RecordingOAuthOutcomeObserver:
+    outcomes: list[tuple[types.Endpoint, int, OAuthError | None]] = field(
+        default_factory=list
+    )
+
+    def observe(
+        self, endpoint: types.Endpoint, status: HTTPStatus, error: OAuthError | None
+    ) -> None:
+        self.outcomes.append((endpoint, status, error))
 
 
 @pytest.fixture
@@ -102,10 +117,12 @@ def bridge_harness(
         Path("src/oauthclientbridge/schema.sql").read_text(encoding="ascii")
     )
     try:
+        observer = RecordingOAuthOutcomeObserver()
         yield BridgeHarness(
-            bridge.Bridge(settings, scripted_oauth.fetch),
+            bridge.Bridge(settings, scripted_oauth.fetch, observer),
             scripted_oauth,
             database,
+            observer,
         )
     finally:
         database.close()
