@@ -10,6 +10,7 @@ from prometheus_client.parser import text_string_to_metric_families
 
 from oauthclientbridge import db
 from oauthclientbridge.errors import OAuthError
+from oauthclientbridge.settings import Settings
 from pytest_otel_capture import OTelMocker
 from pytest_sentry_capture import SentryCapture
 
@@ -49,11 +50,29 @@ class ExpectedOAuthFailure:
     data: dict[str, str] | None
     error: OAuthError
     endpoint: str
+    allowed_scopes: set[str] | None = None
 
 
 @pytest.mark.parametrize(
     "case",
     [
+        ExpectedOAuthFailure(
+            name="authorize wrong redirect URI",
+            method="GET",
+            path="/?redirect_uri=https://wrong.example.com/callback",
+            data=None,
+            error=OAuthError.INVALID_REQUEST,
+            endpoint="authorize",
+        ),
+        ExpectedOAuthFailure(
+            name="authorize disallowed scope",
+            method="GET",
+            path="/?scope=not-allowed",
+            data=None,
+            error=OAuthError.INVALID_SCOPE,
+            endpoint="authorize",
+            allowed_scopes={"allowed"},
+        ),
         ExpectedOAuthFailure(
             name="callback invalid state",
             method="GET",
@@ -78,7 +97,12 @@ def test_expected_oauth_failures_have_safe_observability(
     otel_mock: OTelMocker,
     sentry_capture: SentryCapture,
     case: ExpectedOAuthFailure,
+    settings: Settings,
 ) -> None:
+    if case.allowed_scopes is not None:
+        settings.oauth = settings.oauth.model_copy(
+            update={"allowed_scopes": case.allowed_scopes}
+        )
     response = client.open(case.path, method=case.method, data=case.data)
 
     assert response.status_code == HTTPStatus.BAD_REQUEST
@@ -141,5 +165,11 @@ def test_unexpected_token_failure_has_safe_response_and_error_observability(
     ]
     assert len(outcome_spans) == 1
     assert outcome_spans[0].status.status_code == trace.StatusCode.ERROR
+    assert any(
+        event.name == "exception"
+        and event.attributes is not None
+        and event.attributes["exception.type"] == "RuntimeError"
+        for event in outcome_spans[0].events
+    )
     exceptions = list(sentry_capture.get_exceptions())
     assert [exception["type"] for exception in exceptions] == ["RuntimeError"]

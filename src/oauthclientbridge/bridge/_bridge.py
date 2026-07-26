@@ -6,7 +6,16 @@ from typing import Any, cast
 import structlog
 from opentelemetry import trace
 
-from oauthclientbridge import client, crypto, db, execution, oauth, telemetry, types
+from oauthclientbridge import (
+    client,
+    crypto,
+    db,
+    execution,
+    oauth,
+    observer,
+    telemetry,
+    types,
+)
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import LogLevel, Settings
 from oauthclientbridge.utils import uri as uri_utils
@@ -32,11 +41,23 @@ def _updated_fields(
 
 
 class Bridge:
-    def __init__(self, settings: Settings, fetch: Fetch):
+    def __init__(
+        self,
+        settings: Settings,
+        fetch: Fetch,
+        observer: observer.OAuthOutcomeObserver,
+    ):
         self._settings = settings
         self._fetch = fetch
+        self._observer = observer
 
     async def authorize(self, *, query: Mapping[str, str]) -> BridgeResponse:
+        response = await self._authorize(query=query)
+        if response.status < 400:
+            self._observe_outcome(types.Endpoint.AUTHORIZE, response, None)
+        return response
+
+    async def _authorize(self, *, query: Mapping[str, str]) -> BridgeResponse:
         redirect_uri = query.get("redirect_uri")
         if redirect_uri and redirect_uri != self._settings.oauth.redirect_uri:
             return self._authorization_error(
@@ -76,6 +97,14 @@ class Bridge:
         )
 
     async def callback(
+        self, *, query: Mapping[str, str], session: Session
+    ) -> BridgeResponse:
+        response = await self._callback(query=query, session=session)
+        if response.status < 400:
+            self._observe_outcome(types.Endpoint.CALLBACK, response, None)
+        return response
+
+    async def _callback(
         self, *, query: Mapping[str, str], session: Session
     ) -> BridgeResponse:
         client_state = session.get("client_state")
@@ -176,9 +205,12 @@ class Bridge:
                 trace.get_current_span(),
             )
         except db.IntegrityError:
+            logger.error(
+                "Persisting callback token failed", failure="database_integrity"
+            )
             return self._callback_error(
-                error="integrity_error",
-                description="Database integrity error.",
+                error=OAuthError.SERVER_ERROR,
+                description=OAuthError.SERVER_ERROR.description,
                 state=client_state,
                 session=cleared_session,
             )
@@ -198,16 +230,19 @@ class Bridge:
         user_agent: str,
     ) -> BridgeResponse:
         try:
-            return await self._token(
+            response = await self._token(
                 form=form,
                 authorization=authorization,
                 user_agent=user_agent,
             )
         except Exception as exception:
-            return self._token_error_response(
+            response = self._token_error_response(
                 OAuthError.SERVER_ERROR,
                 unhandled_exception=exception,
             )
+        if response.status < 400:
+            self._observe_outcome(types.Endpoint.TOKEN, response, None)
+        return response
 
     async def _token(
         self,
@@ -398,18 +433,16 @@ class Bridge:
                 headers["Retry-After"] = str(retry_after)
         if unhandled_exception is not None:
             status = HTTPStatus.INTERNAL_SERVER_ERROR
+            logger.exception("Token request failed")
+            trace.get_current_span().record_exception(unhandled_exception)
             telemetry.capture_unhandled_exception(unhandled_exception)
-        error_exception = unhandled_exception or oauth.Error(error, description)
-        structlog.contextvars.bind_contextvars(oauth_error=error.value)
-        telemetry.record_oauth_error_trace(
-            error.value, description, error_exception, status=status
-        )
-        telemetry.record_server_error_metric(status, error.value, endpoint="token")
-        return BridgeResponse(
+        response = BridgeResponse(
             status=status,
             headers=headers,
             body=cast(types.JsonDict, body),
         )
+        self._observe_outcome(types.Endpoint.TOKEN, response, error)
+        return response
 
     def _revoked_grant_workaround_response(
         self, user_agent: str
@@ -425,7 +458,7 @@ class Bridge:
 
     def _callback_error(
         self,
-        error: OAuthError | str,
+        error: OAuthError,
         description: str,
         state: str | None,
         session: Session,
@@ -438,28 +471,26 @@ class Bridge:
         elif error == OAuthError.TEMPORARILY_UNAVAILABLE:
             status = HTTPStatus.SERVICE_UNAVAILABLE
         response = self._callback_response(
-            error=error.value if isinstance(error, OAuthError) else error,
+            error=error.value,
             description=description,
             state=state,
             session=session,
             status=status,
         )
-        error_code = error.value if isinstance(error, OAuthError) else error
-        telemetry.record_oauth_error_trace(error_code, description, status=status)
-        telemetry.record_server_error_metric(status, error_code, endpoint="callback")
         logger.log(
-            self._settings.error_levels.get(error_code, LogLevel.ERROR),
-            f"Callback failed {error_code}: {description}",
+            self._settings.error_levels.get(error.value, LogLevel.ERROR),
+            f"Callback failed {error.value}: {description}",
         )
         if retry_after is not None and status == HTTPStatus.SERVICE_UNAVAILABLE:
             response = self._callback_response(
-                error=error.value if isinstance(error, OAuthError) else error,
+                error=error.value,
                 description=description,
                 state=state,
                 session=session,
                 status=status,
                 headers={"Retry-After": str(retry_after)},
             )
+        self._observe_outcome(types.Endpoint.CALLBACK, response, error)
         return response
 
     def _callback_response(
@@ -504,4 +535,16 @@ class Bridge:
             status=HTTPStatus.BAD_REQUEST,
             content_security_policy=self._settings.callback_content_security_policy,
         )
+        self._observe_outcome(types.Endpoint.AUTHORIZE, response, error)
         return response
+
+    def _observe_outcome(
+        self,
+        endpoint: types.Endpoint,
+        response: BridgeResponse,
+        error: OAuthError | None,
+    ) -> None:
+        try:
+            self._observer.observe(endpoint, response.status, error)
+        except Exception:
+            return
