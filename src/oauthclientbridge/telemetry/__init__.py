@@ -1,7 +1,7 @@
 from contextlib import AbstractContextManager
 from http import HTTPStatus
 
-from . import _otel, _prometheus, _refresh, _resources, _sentry
+from . import _oauth_outcome, _otel, _prometheus, _refresh, _resources, _sentry
 
 __all__ = [
     "add_refresher",
@@ -13,6 +13,7 @@ __all__ = [
     "instrument",
     "instrument_app",
     "observe_token_grant_age_metric",
+    "oauth_outcome_observer",
     "record_client_attempt_metric",
     "record_client_error_metric",
     "record_client_response_metric",
@@ -49,6 +50,7 @@ instrument_app = _otel.instrument_app
 init_tracing = _otel.init_tracing
 init_metrics = _otel.init_metrics
 init_sentry = _sentry.init
+oauth_outcome_observer = _oauth_outcome.OAuthOutcomeObserver
 
 otel_log_attributes = _resources.otel_log_attributes
 
