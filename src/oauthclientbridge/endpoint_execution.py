@@ -49,8 +49,7 @@ async def run(
     try:
         result = await operation(*args, **kwargs)
     except Exception as exception:
-        _observe_fallback(fallback_observer, endpoint, exception)
-        response = _fallback_response(settings, endpoint)
+        response = fallback(settings, fallback_observer, endpoint, exception)
         _observe_outcome(outcome_observer, endpoint, response, OAuthError.SERVER_ERROR)
         return EndpointResult(
             response=response,
@@ -67,10 +66,26 @@ async def run(
     return EndpointResult(response=result.response, log_context=log_context)
 
 
+def fallback(
+    settings: Settings,
+    fallback_observer: observer.FallbackObserver,
+    endpoint: types.Endpoint,
+    exception: BaseException,
+) -> bridge.BridgeResponse:
+    """Observe an application fault and return its safe endpoint response.
+
+    This deliberately does not emit an OAuth outcome. OAuth endpoint execution
+    adds that classification after using this shared fallback; metrics and
+    unknown faults remain outside the OAuth outcome vocabulary.
+    """
+    _observe_fallback(fallback_observer, endpoint, exception)
+    return _fallback_response(settings, endpoint)
+
+
 def _observe_fallback(
     fallback_observer: observer.FallbackObserver,
     endpoint: types.Endpoint,
-    exception: Exception,
+    exception: BaseException,
 ) -> None:
     try:
         fallback_observer.observe(endpoint, exception)
@@ -106,6 +121,12 @@ def _fallback_response(
             content_security_policy=settings.callback_content_security_policy,
             error=OAuthError.SERVER_ERROR.value,
             description=OAuthError.SERVER_ERROR.description,
+        )
+    if endpoint in {types.Endpoint.METRICS, types.Endpoint.UNKNOWN}:
+        return bridge.BridgeResponse(
+            status=HTTPStatus.INTERNAL_SERVER_ERROR,
+            headers={"Content-Type": "text/plain; charset=utf-8"},
+            body=b"Internal Server Error",
         )
     return bridge.BridgeResponse(
         status=HTTPStatus.INTERNAL_SERVER_ERROR,

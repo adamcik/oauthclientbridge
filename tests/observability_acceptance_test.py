@@ -1,14 +1,15 @@
 import json
 from dataclasses import dataclass
 from http import HTTPStatus
-from typing import Literal
+from typing import Literal, NoReturn
 
 import pytest
+from flask import Flask
 from flask.testing import FlaskClient
 from opentelemetry import trace
 from prometheus_client.parser import text_string_to_metric_families
 
-from oauthclientbridge import crypto, db
+from oauthclientbridge import crypto, db, telemetry
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import Settings
 from pytest_otel_capture import OTelMocker
@@ -197,3 +198,68 @@ def test_unexpected_authorize_failure_has_safe_browser_response(
     assert [exception["type"] for exception in sentry_capture.get_exceptions()] == [
         "RuntimeError"
     ]
+
+
+def test_metrics_failure_is_safe_and_not_an_oauth_outcome(
+    client: FlaskClient,
+    monkeypatch: pytest.MonkeyPatch,
+    otel_mock: OTelMocker,
+    sentry_capture: SentryCapture,
+) -> None:
+    def fail() -> NoReturn:
+        raise RuntimeError("internal detail")
+
+    monkeypatch.setattr(telemetry, "export_metrics", fail)
+
+    response = client.get("/metrics")
+
+    assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+    assert response.text == "Internal Server Error"
+    assert response.headers["Content-Type"] == "text/plain; charset=utf-8"
+    assert response.headers["Cache-Control"] == "no-store"
+    assert response.headers["Pragma"] == "no-cache"
+    assert "internal detail" not in response.text
+    assert [exception["type"] for exception in sentry_capture.get_exceptions()] == [
+        "RuntimeError"
+    ]
+    assert all(
+        span.attributes is None or "oauth.error" not in span.attributes
+        for span in otel_mock.get_finished_spans()
+    )
+
+
+def test_framework_native_routing_responses_remain_unhandled(
+    client: FlaskClient,
+    sentry_capture: SentryCapture,
+) -> None:
+    assert client.get("/not-found").status_code == HTTPStatus.NOT_FOUND
+    assert client.get("/token").status_code == HTTPStatus.METHOD_NOT_ALLOWED
+    assert list(sentry_capture.get_exceptions()) == []
+
+
+def test_unknown_failure_is_safe_and_not_an_oauth_outcome(
+    app: Flask,
+    client: FlaskClient,
+    otel_mock: OTelMocker,
+    sentry_capture: SentryCapture,
+) -> None:
+    def fail() -> None:
+        raise RuntimeError("internal detail")
+
+    app.add_url_rule("/unexpected", "unexpected", fail)
+
+    response = client.get("/unexpected")
+
+    assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+    assert response.text == "Internal Server Error"
+    assert response.headers["Content-Type"] == "text/plain; charset=utf-8"
+    assert response.headers["Cache-Control"] == "no-store"
+    assert response.headers["Pragma"] == "no-cache"
+    assert "internal detail" not in response.text
+    assert [exception["type"] for exception in sentry_capture.get_exceptions()] == [
+        "RuntimeError"
+    ]
+    assert all(
+        span.attributes is None or "oauth.error" not in span.attributes
+        for span in otel_mock.get_finished_spans()
+    )

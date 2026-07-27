@@ -108,21 +108,6 @@ def error_handler(e: Error) -> flask.Response:
     return response
 
 
-def fallback_error_handler(e: Exception) -> flask.Response:
-    telemetry.record_server_error_metric(
-        HTTPStatus.INTERNAL_SERVER_ERROR, OAuthError.SERVER_ERROR.value
-    )
-
-    current_span = trace.get_current_span()
-    current_span.set_attribute("error.unhandled", True)
-    current_span.record_exception(e)
-    current_span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
-
-    response = flask.jsonify(OAuthError.SERVER_ERROR.json())
-    response.status_code = HTTPStatus.INTERNAL_SERVER_ERROR
-    return response
-
-
 def scrub_refresh_token(token: OAuthResponse) -> OAuthResponse:
     remove = ("access_token", "expires_in", "token_type")
     return {k: v for k, v in token.items() if k not in remove}

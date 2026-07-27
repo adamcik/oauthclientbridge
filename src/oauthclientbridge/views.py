@@ -8,9 +8,10 @@ import anyio
 import flask
 import structlog
 from flask import Blueprint
+from werkzeug.exceptions import InternalServerError
 
 from oauthclientbridge import bridge, endpoint_execution, observer, telemetry, types
-from oauthclientbridge.settings import current_settings
+from oauthclientbridge.settings import Settings, current_settings
 
 routes = Blueprint("views", __name__)
 P = ParamSpec("P")
@@ -56,6 +57,24 @@ def _get_bridge() -> bridge.Bridge:
     return cast(bridge.Bridge, flask.current_app.extensions["oauth_bridge"])
 
 
+def _get_settings() -> Settings:
+    return cast(Settings, flask.current_app.config["SETTINGS"])
+
+
+def _get_fallback_observer() -> observer.FallbackObserver:
+    return cast(
+        observer.FallbackObserver,
+        flask.current_app.extensions["oauth_fallback_observer"],
+    )
+
+
+def _get_outcome_observer() -> observer.OAuthOutcomeObserver:
+    return cast(
+        observer.OAuthOutcomeObserver,
+        flask.current_app.extensions["oauth_outcome_observer"],
+    )
+
+
 def _flask_response_with_context(
     result: endpoint_execution.EndpointResult,
 ) -> flask.Response:
@@ -86,15 +105,9 @@ def _run(
     result = anyio.run(
         partial(
             endpoint_execution.run,
-            current_settings,
-            cast(
-                observer.FallbackObserver,
-                flask.current_app.extensions["oauth_fallback_observer"],
-            ),
-            cast(
-                observer.OAuthOutcomeObserver,
-                flask.current_app.extensions["oauth_outcome_observer"],
-            ),
+            _get_settings(),
+            _get_fallback_observer(),
+            _get_outcome_observer(),
             endpoint,
             operation,
             *args,
@@ -119,4 +132,24 @@ def metrics() -> flask.Response:
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-    return telemetry.export_metrics()
+    try:
+        return telemetry.export_metrics()
+    except Exception as exception:
+        return _fallback(types.Endpoint.METRICS, exception)
+
+
+def fallback_error_handler(exception: Exception) -> flask.Response:
+    """Adapt escaped application faults to the shared unknown fallback."""
+    if isinstance(exception, InternalServerError) and exception.original_exception:
+        return _fallback(types.Endpoint.UNKNOWN, exception.original_exception)
+    return _fallback(types.Endpoint.UNKNOWN, exception)
+
+
+def _fallback(endpoint: types.Endpoint, exception: BaseException) -> flask.Response:
+    response = endpoint_execution.fallback(
+        _get_settings(),
+        _get_fallback_observer(),
+        endpoint,
+        exception,
+    )
+    return _flask_response(response)
