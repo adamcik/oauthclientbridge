@@ -34,3 +34,30 @@ def render_template(
         .render(variables=variables, **variables)
         .encode("utf-8"),
     )
+
+
+def render_browser_oauth_result(
+    template: str,
+    *,
+    status: HTTPStatus,
+    content_security_policy: str | None,
+    client_id: str | None = None,
+    client_secret: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+    description: str | None = None,
+    headers: Mapping[str, str] | None = None,
+) -> BridgeResponse:
+    return render_template(
+        template,
+        {
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "state": state,
+            "error": error,
+            "description": description,
+        },
+        status=status,
+        headers=headers,
+        content_security_policy=content_security_policy,
+    )
