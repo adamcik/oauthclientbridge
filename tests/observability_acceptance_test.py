@@ -8,7 +8,7 @@ from flask.testing import FlaskClient
 from opentelemetry import trace
 from prometheus_client.parser import text_string_to_metric_families
 
-from oauthclientbridge import db
+from oauthclientbridge import crypto, db
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import Settings
 from pytest_otel_capture import OTelMocker
@@ -173,3 +173,27 @@ def test_unexpected_token_failure_has_safe_response_and_error_observability(
     )
     exceptions = list(sentry_capture.get_exceptions())
     assert [exception["type"] for exception in exceptions] == ["RuntimeError"]
+
+
+def test_unexpected_authorize_failure_has_safe_browser_response(
+    client: FlaskClient,
+    monkeypatch: pytest.MonkeyPatch,
+    sentry_capture: SentryCapture,
+) -> None:
+    def fail() -> str:
+        raise RuntimeError("internal detail")
+
+    monkeypatch.setattr(crypto, "generate_key", fail)
+
+    response = client.get("/")
+
+    assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+    assert OAuthError.SERVER_ERROR.value in response.text
+    assert "internal detail" not in response.text
+    assert response.headers["Content-Type"] == "text/html; charset=UTF-8"
+    assert response.headers["Referrer-Policy"] == "no-referrer"
+    assert response.headers["Cache-Control"] == "no-store"
+    assert response.headers["Pragma"] == "no-cache"
+    assert [exception["type"] for exception in sentry_capture.get_exceptions()] == [
+        "RuntimeError"
+    ]

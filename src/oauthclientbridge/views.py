@@ -1,22 +1,27 @@
 import hmac
+from collections.abc import Awaitable, Callable
+from functools import partial
 from http import HTTPStatus
-from typing import cast
+from typing import ParamSpec, cast
 
 import anyio
 import flask
+import structlog
 from flask import Blueprint
 
-from oauthclientbridge import bridge, telemetry
+from oauthclientbridge import bridge, endpoint_execution, observer, telemetry, types
 from oauthclientbridge.settings import current_settings
 
 routes = Blueprint("views", __name__)
+P = ParamSpec("P")
 
 
 @routes.route("/")
 def authorize() -> flask.Response:
     """Store random state in session cookie and redirect to auth endpoint."""
-    response = anyio.run(lambda: _get_bridge().authorize(query=flask.request.args))
-    return _flask_response(response)
+    return _run(
+        types.Endpoint.AUTHORIZE, _get_bridge().authorize, query=flask.request.args
+    )
 
 
 def _flask_response(bridge_response: bridge.BridgeResponse) -> flask.Response:
@@ -39,29 +44,64 @@ def _flask_response(bridge_response: bridge.BridgeResponse) -> flask.Response:
 @routes.route("/callback")
 def callback() -> flask.Response:
     """Validate callback and trade in code for a token."""
-    response = anyio.run(
-        lambda: _get_bridge().callback(
-            query=flask.request.args, session=dict(flask.session)
-        )
+    return _run(
+        types.Endpoint.CALLBACK,
+        _get_bridge().callback,
+        query=flask.request.args,
+        session=dict(flask.session),
     )
-    return _flask_response(response)
 
 
 def _get_bridge() -> bridge.Bridge:
     return cast(bridge.Bridge, flask.current_app.extensions["oauth_bridge"])
 
 
+def _flask_response_with_context(
+    result: endpoint_execution.EndpointResult,
+) -> flask.Response:
+    structlog.contextvars.bind_contextvars(**result.log_context)
+    return _flask_response(result.response)
+
+
 @routes.route("/token", methods=["POST"])
 def token() -> flask.Response:
     """Validate token request, refreshing when needed."""
-    response = anyio.run(
-        lambda: _get_bridge().token(
-            form=flask.request.form,
-            authorization=flask.request.headers.get("Authorization"),
-            user_agent=flask.request.user_agent.string,
+    return _run(
+        types.Endpoint.TOKEN,
+        _get_bridge().token,
+        form=flask.request.form,
+        authorization=flask.request.headers.get("Authorization"),
+        user_agent=flask.request.user_agent.string,
+    )
+
+
+def _run(
+    endpoint: types.Endpoint,
+    operation: Callable[P, Awaitable[bridge.BridgeResult]],
+    /,
+    *args: P.args,
+    **kwargs: P.kwargs,
+) -> flask.Response:
+    """Run a Bridge endpoint through shared execution and adapt it to Flask."""
+    result = anyio.run(
+        partial(
+            endpoint_execution.run,
+            current_settings,
+            cast(
+                observer.FallbackObserver,
+                flask.current_app.extensions["oauth_fallback_observer"],
+            ),
+            cast(
+                observer.OAuthOutcomeObserver,
+                flask.current_app.extensions["oauth_outcome_observer"],
+            ),
+            endpoint,
+            operation,
+            *args,
+            **kwargs,
         )
     )
-    return _flask_response(response)
+    return _flask_response_with_context(result)
 
 
 @routes.route("/metrics", methods=["GET"])

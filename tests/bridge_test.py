@@ -5,9 +5,12 @@ from dataclasses import dataclass
 from unittest.mock import AsyncMock
 
 import pytest
+from jinja2 import TemplateSyntaxError
 
-from oauthclientbridge import bridge, crypto, db, types
-from oauthclientbridge.bridge import _bridge as bridge_implementation
+from oauthclientbridge import bridge, crypto, db
+from oauthclientbridge.bridge import (
+    _bridge as bridge_implementation,  # pyright: ignore[reportPrivateUsage] # Direct integrity-failure test.
+)
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import Settings
 from tests.conftest import BridgeHarness
@@ -25,7 +28,8 @@ class AuthorizationCase:
 async def test_authorization_returns_redirect_and_complete_session(
     settings: Settings, bridge_harness: BridgeHarness
 ):
-    response = await bridge_harness.bridge.authorize(query={"state": "caller-state"})
+    result = await bridge_harness.bridge.authorize(query={"state": "caller-state"})
+    response = result.response
 
     location = urllib.parse.urlsplit(response.headers["Location"])
     query = urllib.parse.parse_qs(location.query)
@@ -41,13 +45,13 @@ async def test_authorization_returns_redirect_and_complete_session(
     assert query["state"][0]
     assert response.headers["Cache-Control"] == "no-store"
     assert response.headers["Pragma"] == "no-cache"
-    assert bridge_harness.observer.outcomes == [(types.Endpoint.AUTHORIZE, 302, None)]
+    assert result.oauth_error is None
 
 
 @pytest.mark.anyio
 async def test_authorization_generates_a_unique_state(bridge_harness: BridgeHarness):
-    first = await bridge_harness.bridge.authorize(query={})
-    second = await bridge_harness.bridge.authorize(query={})
+    first = (await bridge_harness.bridge.authorize(query={})).response
+    second = (await bridge_harness.bridge.authorize(query={})).response
 
     assert first.session is not None
     assert second.session is not None
@@ -73,11 +77,9 @@ async def test_authorization_validates_scope(
     settings.oauth = settings.oauth.model_copy(
         update={"allowed_scopes": case.allowed_scopes}
     )
-    subject = bridge.Bridge(
-        settings, bridge_harness.oauth.fetch, bridge_harness.observer
-    )
+    subject = bridge.Bridge(settings, bridge_harness.oauth.fetch)
 
-    response = await subject.authorize(query={"scope": case.scope})
+    response = (await subject.authorize(query={"scope": case.scope})).response
 
     assert response.status == case.status
     if response.status == 400:
@@ -87,51 +89,25 @@ async def test_authorization_validates_scope(
 
 @pytest.mark.anyio
 async def test_authorization_rejects_wrong_redirect_uri(bridge_harness: BridgeHarness):
-    response = await bridge_harness.bridge.authorize(
+    result = await bridge_harness.bridge.authorize(
         query={"redirect_uri": "https://wrong.example.com/callback"}
     )
+    response = result.response
 
     assert response.status == 400
     assert b'"error": "invalid_request"' in response.body
     assert response.session is None
-    assert bridge_harness.observer.outcomes == [
-        (types.Endpoint.AUTHORIZE, 400, OAuthError.INVALID_REQUEST)
-    ]
-
-
-@pytest.mark.anyio
-async def test_observer_failure_does_not_change_authorization_response(
-    settings: Settings, bridge_harness: BridgeHarness
-):
-    class FailingObserver:
-        def observe(
-            self,
-            endpoint: types.Endpoint,
-            status: int,
-            error: OAuthError | None,
-        ) -> None:
-            raise RuntimeError("observer unavailable")
-
-    subject = bridge.Bridge(settings, bridge_harness.oauth.fetch, FailingObserver())
-
-    response = await subject.authorize(query={})
-
-    assert response.status == 302
+    assert result.oauth_error == OAuthError.INVALID_REQUEST
 
 
 @pytest.mark.anyio
 async def test_callback_rendering_failure_does_not_emit_outcome(
-    bridge_harness: BridgeHarness, monkeypatch: pytest.MonkeyPatch
+    settings: Settings, bridge_harness: BridgeHarness
 ):
-    def fail(*_: object, **__: object) -> bridge.BridgeResponse:
-        raise RuntimeError("template unavailable")
+    settings.callback_template = "{%"
 
-    monkeypatch.setattr(bridge_implementation, "render_template", fail)
-
-    with pytest.raises(RuntimeError, match="template unavailable"):
+    with pytest.raises(TemplateSyntaxError):
         await bridge_harness.bridge.callback(query={}, session={})
-
-    assert bridge_harness.observer.outcomes == []
 
 
 @pytest.mark.anyio
@@ -139,11 +115,9 @@ async def test_authorization_uses_configured_scopes_when_omitted(
     settings: Settings, bridge_harness: BridgeHarness
 ):
     settings.oauth = settings.oauth.model_copy(update={"scopes": {"foo", "bar"}})
-    subject = bridge.Bridge(
-        settings, bridge_harness.oauth.fetch, bridge_harness.observer
-    )
+    subject = bridge.Bridge(settings, bridge_harness.oauth.fetch)
 
-    response = await subject.authorize(query={})
+    response = (await subject.authorize(query={})).response
 
     query = urllib.parse.parse_qs(
         urllib.parse.urlsplit(response.headers["Location"]).query
@@ -160,10 +134,12 @@ async def test_callback_stores_token_and_consumes_session(
         {"token_type": "Bearer", "access_token": "provider-token"}
     )
 
-    response = await bridge_harness.bridge.callback(
-        query={"state": "expected-state", "code": "authorization-code"},
-        session={"state": "expected-state", "client_state": "caller-state"},
-    )
+    response = (
+        await bridge_harness.bridge.callback(
+            query={"state": "expected-state", "code": "authorization-code"},
+            session={"state": "expected-state", "client_state": "caller-state"},
+        )
+    ).response
 
     assert response.status == 200
     assert response.session == {}
@@ -242,9 +218,9 @@ class CallbackValidationCase:
 async def test_callback_validation_returns_rendered_error_and_consumes_session(
     case: CallbackValidationCase, bridge_harness: BridgeHarness
 ):
-    response = await bridge_harness.bridge.callback(
-        query=case.query, session=case.session
-    )
+    response = (
+        await bridge_harness.bridge.callback(query=case.query, session=case.session)
+    ).response
 
     assert response.status == case.expected_status
     assert response.session == {}
@@ -257,18 +233,17 @@ async def test_callback_validation_returns_rendered_error_and_consumes_session(
 async def test_callback_rejects_state_mismatch_and_consumes_session(
     bridge_harness: BridgeHarness,
 ):
-    response = await bridge_harness.bridge.callback(
+    result = await bridge_harness.bridge.callback(
         query={"state": "wrong-state", "code": "authorization-code"},
         session={"state": "expected-state", "client_state": "caller-state"},
     )
+    response = result.response
 
     assert response.status == 400
     assert response.session == {}
     assert b'"error": "invalid_state"' in response.body
     assert bridge_harness.oauth.calls == []
-    assert bridge_harness.observer.outcomes == [
-        (types.Endpoint.CALLBACK, 400, OAuthError.INVALID_STATE)
-    ]
+    assert result.oauth_error == OAuthError.INVALID_STATE
 
 
 @pytest.mark.anyio
@@ -279,10 +254,12 @@ async def test_callback_returns_retryable_upstream_error_and_consumes_session(
         {"error": "temporarily_unavailable", "retry_after": 10}
     )
 
-    response = await bridge_harness.bridge.callback(
-        query={"state": "expected-state", "code": "authorization-code"},
-        session={"state": "expected-state"},
-    )
+    response = (
+        await bridge_harness.bridge.callback(
+            query={"state": "expected-state", "code": "authorization-code"},
+            session={"state": "expected-state"},
+        )
+    ).response
 
     assert response.status == 503
     assert response.session == {}
@@ -304,17 +281,16 @@ async def test_callback_integrity_failure_is_server_error(
         AsyncMock(side_effect=db.IntegrityError),
     )
 
-    response = await bridge_harness.bridge.callback(
+    result = await bridge_harness.bridge.callback(
         query={"state": "expected-state", "code": "authorization-code"},
         session={"state": "expected-state"},
     )
+    response = result.response
 
     body = json.loads(response.body)
     assert body["error"] == OAuthError.SERVER_ERROR
     assert body["description"] == OAuthError.SERVER_ERROR.description
-    assert bridge_harness.observer.outcomes == [
-        (types.Endpoint.CALLBACK, 400, OAuthError.SERVER_ERROR)
-    ]
+    assert result.oauth_error == OAuthError.SERVER_ERROR
 
 
 @pytest.mark.anyio
@@ -330,15 +306,17 @@ async def test_token_returns_stored_access_token(
         settings.database,
     )
 
-    response = await bridge_harness.bridge.token(
-        form={
-            "grant_type": "client_credentials",
-            "client_id": str(client_id),
-            "client_secret": client_secret,
-        },
-        authorization=None,
-        user_agent="",
-    )
+    response = (
+        await bridge_harness.bridge.token(
+            form={
+                "grant_type": "client_credentials",
+                "client_id": str(client_id),
+                "client_secret": client_secret,
+            },
+            authorization=None,
+            user_agent="",
+        )
+    ).response
 
     assert response.status == 200
     assert response.body == stored_token
@@ -384,9 +362,11 @@ async def test_token_validates_authentication_mechanism(
     expected_description: str,
     expected_status: int,
 ):
-    response = await bridge_harness.bridge.token(
-        form=form, authorization=authorization, user_agent=""
-    )
+    response = (
+        await bridge_harness.bridge.token(
+            form=form, authorization=authorization, user_agent=""
+        )
+    ).response
 
     assert response.status == expected_status
     assert response.body == {
@@ -415,16 +395,15 @@ async def test_token_validates_grant_and_credentials(
     expected_error: str,
     expected_status: int,
 ):
-    response = await bridge_harness.bridge.token(
+    result = await bridge_harness.bridge.token(
         form=form, authorization=None, user_agent=""
     )
+    response = result.response
 
     assert response.status == expected_status
     assert isinstance(response.body, dict)
     assert response.body["error"] == expected_error
-    assert bridge_harness.observer.outcomes == [
-        (types.Endpoint.TOKEN, expected_status, OAuthError(expected_error))
-    ]
+    assert result.oauth_error == OAuthError(expected_error)
 
 
 @pytest.mark.anyio
@@ -442,11 +421,13 @@ async def test_token_accepts_basic_authentication(
         "Basic " + b64encode(f"{client_id}:{client_secret}".encode()).decode()
     )
 
-    response = await bridge_harness.bridge.token(
-        form={"grant_type": "client_credentials"},
-        authorization=authorization,
-        user_agent="",
-    )
+    response = (
+        await bridge_harness.bridge.token(
+            form={"grant_type": "client_credentials"},
+            authorization=authorization,
+            user_agent="",
+        )
+    ).response
 
     assert response.status == 200
     assert response.body == {"access_token": "stored", "token_type": "Bearer"}
@@ -461,15 +442,17 @@ async def test_token_rejects_revoked_grant(
     db.insert(client_id, crypto.dumps(client_secret, {}), settings.database)
     db.update(client_id, None, settings.database)
 
-    response = await bridge_harness.bridge.token(
-        form={
-            "grant_type": "client_credentials",
-            "client_id": str(client_id),
-            "client_secret": client_secret,
-        },
-        authorization=None,
-        user_agent="",
-    )
+    response = (
+        await bridge_harness.bridge.token(
+            form={
+                "grant_type": "client_credentials",
+                "client_id": str(client_id),
+                "client_secret": client_secret,
+            },
+            authorization=None,
+            user_agent="",
+        )
+    ).response
 
     assert response.status == 400
     assert isinstance(response.body, dict)
@@ -496,15 +479,17 @@ async def test_token_refreshes_and_persists_new_refresh_token(
         }
     )
 
-    response = await bridge_harness.bridge.token(
-        form={
-            "grant_type": "client_credentials",
-            "client_id": str(client_id),
-            "client_secret": client_secret,
-        },
-        authorization=None,
-        user_agent="",
-    )
+    response = (
+        await bridge_harness.bridge.token(
+            form={
+                "grant_type": "client_credentials",
+                "client_id": str(client_id),
+                "client_secret": client_secret,
+            },
+            authorization=None,
+            user_agent="",
+        )
+    ).response
 
     assert response.status == 200
     assert response.body == {
@@ -536,15 +521,17 @@ async def test_token_returns_retryable_refresh_error(
         {"error": "temporarily_unavailable", "retry_after": 10}
     )
 
-    response = await bridge_harness.bridge.token(
-        form={
-            "grant_type": "client_credentials",
-            "client_id": str(client_id),
-            "client_secret": client_secret,
-        },
-        authorization=None,
-        user_agent="",
-    )
+    response = (
+        await bridge_harness.bridge.token(
+            form={
+                "grant_type": "client_credentials",
+                "client_id": str(client_id),
+                "client_secret": client_secret,
+            },
+            authorization=None,
+            user_agent="",
+        )
+    ).response
 
     assert response.status == 503
     assert response.headers["Retry-After"] == "10"

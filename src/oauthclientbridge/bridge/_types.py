@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from http import HTTPStatus
 from typing import TypeAlias
 
+from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.types import JsonDict
 
 Session: TypeAlias = dict[str, str]
@@ -29,3 +30,16 @@ class BridgeResponse:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "headers", _NO_CACHE_HEADERS | dict(self.headers))
+
+
+@dataclass(frozen=True)
+class BridgeResult:
+    """A completed Bridge response and its bounded OAuth classification.
+
+    The response remains the sole client-visible error representation. The
+    optional OAuth error is only for the endpoint execution seam to observe.
+    Internal exception details never travel in a completed result.
+    """
+
+    response: BridgeResponse
+    oauth_error: OAuthError | None

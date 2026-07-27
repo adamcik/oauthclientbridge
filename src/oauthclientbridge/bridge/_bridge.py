@@ -1,7 +1,7 @@
 import re
 from collections.abc import Awaitable, Callable, Mapping
 from http import HTTPStatus
-from typing import Any, cast
+from typing import Any
 
 import structlog
 from opentelemetry import trace
@@ -12,17 +12,15 @@ from oauthclientbridge import (
     db,
     execution,
     oauth,
-    observer,
     telemetry,
-    types,
 )
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import LogLevel, Settings
 from oauthclientbridge.utils import uri as uri_utils
 
 from . import _basic_auth
-from ._template import render_template
-from ._types import BridgeResponse, Session
+from ._template import render_browser_oauth_result
+from ._types import BridgeResponse, BridgeResult, Session
 
 Fetch = Callable[..., Awaitable[dict[str, Any]]]
 logger: structlog.BoundLogger = structlog.get_logger()
@@ -45,19 +43,14 @@ class Bridge:
         self,
         settings: Settings,
         fetch: Fetch,
-        observer: observer.OAuthOutcomeObserver,
     ):
         self._settings = settings
         self._fetch = fetch
-        self._observer = observer
 
-    async def authorize(self, *, query: Mapping[str, str]) -> BridgeResponse:
-        response = await self._authorize(query=query)
-        if response.status < 400:
-            self._observe_outcome(types.Endpoint.AUTHORIZE, response, None)
-        return response
+    async def authorize(self, *, query: Mapping[str, str]) -> BridgeResult:
+        return await self._authorize(query=query)
 
-    async def _authorize(self, *, query: Mapping[str, str]) -> BridgeResponse:
+    async def _authorize(self, *, query: Mapping[str, str]) -> BridgeResult:
         redirect_uri = query.get("redirect_uri")
         if redirect_uri and redirect_uri != self._settings.oauth.redirect_uri:
             return self._authorization_error(
@@ -79,34 +72,34 @@ class Bridge:
         if client_state is not None:
             session["client_state"] = client_state
 
-        return BridgeResponse(
-            status=HTTPStatus.FOUND,
-            headers={
-                "Location": uri_utils.rewrite_uri(
-                    self._settings.oauth.authorization_uri,
-                    {
-                        "client_id": self._settings.oauth.client_id,
-                        "response_type": "code",
-                        "redirect_uri": self._settings.oauth.redirect_uri,
-                        "scope": scope,
-                        "state": state,
-                    },
-                )
-            },
-            session=session,
+        return BridgeResult(
+            BridgeResponse(
+                status=HTTPStatus.FOUND,
+                headers={
+                    "Location": uri_utils.rewrite_uri(
+                        self._settings.oauth.authorization_uri,
+                        {
+                            "client_id": self._settings.oauth.client_id,
+                            "response_type": "code",
+                            "redirect_uri": self._settings.oauth.redirect_uri,
+                            "scope": scope,
+                            "state": state,
+                        },
+                    )
+                },
+                session=session,
+            ),
+            None,
         )
 
     async def callback(
         self, *, query: Mapping[str, str], session: Session
-    ) -> BridgeResponse:
-        response = await self._callback(query=query, session=session)
-        if response.status < 400:
-            self._observe_outcome(types.Endpoint.CALLBACK, response, None)
-        return response
+    ) -> BridgeResult:
+        return await self._callback(query=query, session=session)
 
     async def _callback(
         self, *, query: Mapping[str, str], session: Session
-    ) -> BridgeResponse:
+    ) -> BridgeResult:
         client_state = session.get("client_state")
         state = session.get("state")
         cleared_session: Session = {}
@@ -215,11 +208,14 @@ class Bridge:
                 session=cleared_session,
             )
 
-        return self._callback_response(
-            client_id=str(client_id),
-            client_secret=client_secret,
-            state=client_state,
-            session=cleared_session,
+        return BridgeResult(
+            self._callback_response(
+                client_id=str(client_id),
+                client_secret=client_secret,
+                state=client_state,
+                session=cleared_session,
+            ),
+            None,
         )
 
     async def token(
@@ -228,21 +224,12 @@ class Bridge:
         form: Mapping[str, str],
         authorization: str | None,
         user_agent: str,
-    ) -> BridgeResponse:
-        try:
-            response = await self._token(
-                form=form,
-                authorization=authorization,
-                user_agent=user_agent,
-            )
-        except Exception as exception:
-            response = self._token_error_response(
-                OAuthError.SERVER_ERROR,
-                unhandled_exception=exception,
-            )
-        if response.status < 400:
-            self._observe_outcome(types.Endpoint.TOKEN, response, None)
-        return response
+    ) -> BridgeResult:
+        return await self._token(
+            form=form,
+            authorization=authorization,
+            user_agent=user_agent,
+        )
 
     async def _token(
         self,
@@ -250,7 +237,7 @@ class Bridge:
         form: Mapping[str, str],
         authorization: str | None,
         user_agent: str,
-    ) -> BridgeResponse:
+    ) -> BridgeResult:
         if form.get("grant_type") != "client_credentials":
             return self._token_error_response(
                 OAuthError.UNSUPPORTED_GRANT_TYPE,
@@ -312,7 +299,9 @@ class Bridge:
                 trace.get_current_span().add_event(
                     "Served revoked grant workaround token"
                 )
-                return BridgeResponse(status=HTTPStatus.OK, body=workaround_response)
+                return BridgeResult(
+                    BridgeResponse(status=HTTPStatus.OK, body=workaround_response), None
+                )
             return self._token_error_response(
                 OAuthError.INVALID_GRANT, "Grant has been revoked."
             )
@@ -326,7 +315,7 @@ class Bridge:
 
         if "refresh_token" not in result:
             telemetry.observe_token_grant_age_metric(record.created_at)
-            return BridgeResponse(status=HTTPStatus.OK, body=result)
+            return BridgeResult(BridgeResponse(status=HTTPStatus.OK, body=result), None)
 
         refresh_result = await self._fetch(
             self._settings.oauth.refresh_uri or self._settings.oauth.token_uri,
@@ -365,13 +354,15 @@ class Bridge:
             )
 
         telemetry.observe_token_grant_age_metric(record.created_at)
-        return BridgeResponse(status=HTTPStatus.OK, body=refresh_result)
+        return BridgeResult(
+            BridgeResponse(status=HTTPStatus.OK, body=refresh_result), None
+        )
 
     async def _handle_refresh_error(
         self,
         credentials: client.ClientCredentials,
         refresh_result: dict[str, Any],
-    ) -> BridgeResponse:
+    ) -> BridgeResult:
         refresh_outcome = oauth.token_endpoint_outcome(
             HTTPStatus.BAD_REQUEST,
             refresh_result,
@@ -415,9 +406,7 @@ class Bridge:
         description: str | None = None,
         uri: str | None = None,
         retry_after: Any = None,
-        *,
-        unhandled_exception: BaseException | None = None,
-    ) -> BridgeResponse:
+    ) -> BridgeResult:
         description = description or error.description
         body = error.json(description=description)
         if uri is not None:
@@ -431,18 +420,14 @@ class Bridge:
             status = HTTPStatus.SERVICE_UNAVAILABLE
             if retry_after is not None:
                 headers["Retry-After"] = str(retry_after)
-        if unhandled_exception is not None:
-            status = HTTPStatus.INTERNAL_SERVER_ERROR
-            logger.exception("Token request failed")
-            trace.get_current_span().record_exception(unhandled_exception)
-            telemetry.capture_unhandled_exception(unhandled_exception)
-        response = BridgeResponse(
-            status=status,
-            headers=headers,
-            body=cast(types.JsonDict, body),
+        return BridgeResult(
+            BridgeResponse(
+                status=status,
+                headers=headers,
+                body=body,
+            ),
+            error,
         )
-        self._observe_outcome(types.Endpoint.TOKEN, response, error)
-        return response
 
     def _revoked_grant_workaround_response(
         self, user_agent: str
@@ -464,7 +449,7 @@ class Bridge:
         session: Session,
         *,
         retry_after: Any = None,
-    ) -> BridgeResponse:
+    ) -> BridgeResult:
         status = HTTPStatus.BAD_REQUEST
         if error == OAuthError.INVALID_CLIENT:
             status = HTTPStatus.UNAUTHORIZED
@@ -490,8 +475,7 @@ class Bridge:
                 status=status,
                 headers={"Retry-After": str(retry_after)},
             )
-        self._observe_outcome(types.Endpoint.CALLBACK, response, error)
-        return response
+        return BridgeResult(response, error)
 
     def _callback_response(
         self,
@@ -504,47 +488,25 @@ class Bridge:
         status: HTTPStatus = HTTPStatus.OK,
         headers: dict[str, str] | None = None,
     ) -> BridgeResponse:
-        response = render_template(
+        response = render_browser_oauth_result(
             self._settings.callback_template,
-            {
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "state": state,
-                "error": error,
-                "description": description,
-            },
             status=status,
-            headers=headers,
             content_security_policy=self._settings.callback_content_security_policy,
+            client_id=client_id,
+            client_secret=client_secret,
+            state=state,
+            error=error,
+            description=description,
+            headers=headers,
         )
         return BridgeResponse(response.status, response.headers, response.body, session)
 
-    def _authorization_error(
-        self, error: OAuthError, description: str
-    ) -> BridgeResponse:
-        variables = {
-            "client_id": None,
-            "client_secret": None,
-            "state": None,
-            "error": error.value,
-            "description": description,
-        }
-        response = render_template(
+    def _authorization_error(self, error: OAuthError, description: str) -> BridgeResult:
+        response = render_browser_oauth_result(
             self._settings.callback_template,
-            variables,
             status=HTTPStatus.BAD_REQUEST,
             content_security_policy=self._settings.callback_content_security_policy,
+            error=error.value,
+            description=description,
         )
-        self._observe_outcome(types.Endpoint.AUTHORIZE, response, error)
-        return response
-
-    def _observe_outcome(
-        self,
-        endpoint: types.Endpoint,
-        response: BridgeResponse,
-        error: OAuthError | None,
-    ) -> None:
-        try:
-            self._observer.observe(endpoint, response.status, error)
-        except Exception:
-            return
+        return BridgeResult(response, error)
