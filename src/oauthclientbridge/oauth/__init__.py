@@ -1,7 +1,6 @@
 from ._core import (
     Error,
     error_handler,
-    fallback_error_handler,
     fetch,
     redirect,
     sanitize_for_logging,
@@ -20,7 +19,6 @@ __all__ = [
     "AUTHORIZATION_ERRORS",
     "TOKEN_ERRORS",
     "error_handler",
-    "fallback_error_handler",
     "fetch",
     "normalize_error",
     "redirect",
