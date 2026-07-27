@@ -22,3 +22,12 @@ class NullOAuthOutcomeObserver:
         error: OAuthError | None,
     ) -> None:
         pass
+
+
+class FallbackObserver(Protocol):
+    def observe(self, endpoint: types.Endpoint, exception: BaseException) -> None: ...
+
+
+class NullFallbackObserver:
+    def observe(self, endpoint: types.Endpoint, exception: BaseException) -> None:
+        pass
