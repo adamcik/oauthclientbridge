@@ -3,6 +3,7 @@ import importlib.metadata
 import random
 import re
 import time
+from collections.abc import Awaitable, Callable
 from http import HTTPStatus
 from typing import Any, override
 
@@ -132,7 +133,30 @@ async def fetch(
     uri: str, endpoint: str, auth: str | None = None, **data: str | None
 ) -> OAuthResponse:
     """Perform an upstream OAuth request without blocking the event loop."""
-    settings = current_settings.fetch.model_copy(deep=True)
+    return await _fetch_with_settings(
+        current_settings.fetch.model_copy(deep=True), uri, endpoint, auth, data
+    )
+
+
+def fetch_for(settings: FetchSettings) -> Callable[..., Awaitable[OAuthResponse]]:
+    """Bind explicit fetch settings for framework-independent application wiring."""
+    settings = settings.model_copy(deep=True)
+
+    async def bound_fetch(
+        uri: str, endpoint: str, auth: str | None = None, **data: str | None
+    ) -> OAuthResponse:
+        return await _fetch_with_settings(settings, uri, endpoint, auth, data)
+
+    return bound_fetch
+
+
+async def _fetch_with_settings(
+    settings: FetchSettings,
+    uri: str,
+    endpoint: str,
+    auth: str | None,
+    data: dict[str, str | None],
+) -> OAuthResponse:
     return await execution.run_sync(
         "oauth.fetch", _fetch_sync, uri, endpoint, auth, data, settings
     )
@@ -279,7 +303,9 @@ def _fetch_sync(
 
             if status is not None and "error" in result:
                 error_code = result["error"]
-                if error_code in settings.error_types:
+                if not isinstance(error_code, str):
+                    error_label = "invalid_error"
+                elif error_code in settings.error_types:
                     error_label = settings.error_types[error_code].value
                 elif error_code in OAuthError:
                     error_label = OAuthError(error_code).value

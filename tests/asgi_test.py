@@ -1,17 +1,27 @@
+import urllib.parse
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-import urllib.parse
+from dataclasses import dataclass, field
+from http import HTTPStatus
 
 import httpx
 import pytest
 from starlette.applications import Starlette
 
-from oauthclientbridge import crypto, db
+from oauthclientbridge import crypto, db, types
 from oauthclientbridge.asgi import create_app
 from oauthclientbridge.settings import Settings
 from tests.conftest import BridgeHarness
 
 type AsgiClient = Callable[[Starlette], AbstractAsyncContextManager[httpx.AsyncClient]]
+
+
+@dataclass
+class RecordingFallbackObserver:
+    failures: list[tuple[types.Endpoint, BaseException]] = field(default_factory=list)
+
+    def observe(self, endpoint: types.Endpoint, exception: BaseException) -> None:
+        self.failures.append((endpoint, exception))
 
 
 @pytest.fixture
@@ -121,7 +131,8 @@ async def test_starlette_adapter_uses_requests_backed_upstream_fetch(
         settings.oauth.token_uri,
         json={"token_type": "Bearer", "access_token": "provider-token"},
     )
-    app = create_app(settings)
+    fallback_observer = RecordingFallbackObserver()
+    app = create_app(settings, fallback_observer=fallback_observer)
 
     async with asgi_client(app) as client:
         authorization = await client.get("/")
@@ -132,4 +143,5 @@ async def test_starlette_adapter_uses_requests_backed_upstream_fetch(
             "/callback", params={"code": "authorization-code", "state": state}
         )
 
-    assert callback.status_code == 200
+    assert fallback_observer.failures == []
+    assert callback.status_code == HTTPStatus.OK
