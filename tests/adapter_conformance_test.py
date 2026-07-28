@@ -1,3 +1,5 @@
+"""HTTP conformance scenarios shared by the Flask and Starlette adapters."""
+
 import urllib.parse
 from http import HTTPStatus
 

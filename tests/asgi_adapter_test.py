@@ -1,3 +1,5 @@
+"""Starlette-specific adapter translation and fallback tests."""
+
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field
