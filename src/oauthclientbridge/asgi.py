@@ -9,10 +9,11 @@ from oauthclientbridge.asgi_context import AppContext
 from oauthclientbridge.routes import routes
 from oauthclientbridge.settings import Settings
 
+
 def create_app(
     settings: Settings,
     *,
-    fetch: Callable[..., Awaitable[dict[str, Any]]] = oauth.fetch,
+    fetch: Callable[..., Awaitable[dict[str, Any]]] | None = None,
     fallback_observer: observer.FallbackObserver | None = None,
     outcome_observer: observer.OAuthOutcomeObserver | None = None,
 ) -> Starlette:
@@ -20,7 +21,7 @@ def create_app(
     if settings.session_secret is None:
         raise ValueError("BRIDGE_SESSION_SECRET must be set for the ASGI adapter")
 
-    oauth_bridge = bridge.Bridge(settings, fetch)
+    oauth_bridge = bridge.Bridge(settings, fetch or oauth.fetch_for(settings.fetch))
     fallback_observer = fallback_observer or telemetry.fallback_observer()
     outcome_observer = outcome_observer or telemetry.oauth_outcome_observer()
 

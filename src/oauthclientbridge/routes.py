@@ -61,9 +61,7 @@ routes: list[BaseRoute] = [
 ]
 
 
-def _response(
-    request: Request, result: endpoint_execution.EndpointResult
-) -> Response:
+def _response(request: Request, result: endpoint_execution.EndpointResult) -> Response:
     structlog.contextvars.bind_contextvars(**result.log_context)
     response = result.response
     if response.session is not None:
@@ -72,15 +70,23 @@ def _response(
         else:
             request.session.pop(_SESSION_KEY, None)
     if isinstance(response.body, bytes):
-        return Response(response.body, status_code=response.status, headers=response.headers)
-    return JSONResponse(response.body, status_code=response.status, headers=response.headers)
+        return Response(
+            response.body, status_code=response.status, headers=response.headers
+        )
+    return JSONResponse(
+        response.body, status_code=response.status, headers=response.headers
+    )
 
 
 def _session(request: Request) -> dict[str, str]:
     session = request.session.get(_SESSION_KEY, {})
     if not isinstance(session, dict):
         return {}
-    return {key: value for key, value in session.items() if isinstance(value, str)}
+    return {
+        key: value
+        for key, value in cast(dict[object, object], session).items()
+        if isinstance(key, str) and isinstance(value, str)
+    }
 
 
 def _context(request: Request) -> AppContext:
