@@ -21,7 +21,8 @@ async def authorize(request: Request) -> Response:
         context.oauth_bridge.authorize,
         query=request.query_params,
     )
-    return _endpoint_response(request, result)
+    structlog.contextvars.bind_contextvars(**result.log_context)
+    return _response(request, result.response)
 
 
 async def callback(request: Request) -> Response:
@@ -35,28 +36,26 @@ async def callback(request: Request) -> Response:
         query=request.query_params,
         session=_session(request),
     )
-    return _endpoint_response(request, result)
+    structlog.contextvars.bind_contextvars(**result.log_context)
+    return _response(request, result.response)
 
 
 async def token(request: Request) -> Response:
     context = _context(request)
-
-    async def operation() -> bridge.BridgeResult:
-        form = await request.form()
-        return await context.oauth_bridge.token(
-            form={key: value for key, value in form.items() if isinstance(value, str)},
-            authorization=request.headers.get("Authorization"),
-            user_agent=request.headers.get("User-Agent", ""),
-        )
+    form = await request.form()
 
     result = await endpoint_execution.run(
         context.settings,
         context.fallback_observer,
         context.outcome_observer,
         types.Endpoint.TOKEN,
-        operation,
+        context.oauth_bridge.token,
+        form={key: value for key, value in form.items() if isinstance(value, str)},
+        authorization=request.headers.get("Authorization"),
+        user_agent=request.headers.get("User-Agent", ""),
     )
-    return _endpoint_response(request, result)
+    structlog.contextvars.bind_contextvars(**result.log_context)
+    return _response(request, result.response)
 
 
 routes: list[BaseRoute] = [
@@ -77,13 +76,6 @@ async def fallback(request: Request, exception: Exception) -> Response:
             exception,
         ),
     )
-
-
-def _endpoint_response(
-    request: Request, result: endpoint_execution.EndpointResult
-) -> Response:
-    structlog.contextvars.bind_contextvars(**result.log_context)
-    return _response(request, result.response)
 
 
 def _response(request: Request, response: bridge.BridgeResponse) -> Response:
