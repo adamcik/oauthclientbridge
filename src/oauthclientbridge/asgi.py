@@ -6,7 +6,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from oauthclientbridge import bridge, oauth, observer, telemetry
 from oauthclientbridge.asgi_context import AppContext
-from oauthclientbridge.routes import routes
+from oauthclientbridge.routes import fallback, routes
 from oauthclientbridge.settings import Settings
 
 
@@ -25,7 +25,7 @@ def create_app(
     fallback_observer = fallback_observer or telemetry.fallback_observer()
     outcome_observer = outcome_observer or telemetry.oauth_outcome_observer()
 
-    app = Starlette(routes=routes)
+    app = Starlette(routes=routes, exception_handlers={Exception: fallback})
     app.state.context = AppContext(
         settings=settings,
         oauth_bridge=oauth_bridge,
