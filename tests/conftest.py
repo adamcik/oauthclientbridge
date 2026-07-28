@@ -116,6 +116,7 @@ def settings() -> Settings:
     # https://github.com/pydantic/pydantic-settings/issues/201
     return Settings(
         callback_template="{{ variables|tojson }}",
+        session_secret=SecretStr("test-session-secret"),
         database=DatabaseSettings(
             database=":memory:",
         ),
