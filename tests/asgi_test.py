@@ -7,13 +7,17 @@ from http import HTTPStatus
 import httpx
 import pytest
 from starlette.applications import Starlette
+from starlette.requests import Request
 
-from oauthclientbridge import crypto, db, types
+from oauthclientbridge import bridge, crypto, db, types
 from oauthclientbridge.asgi import create_app
+from oauthclientbridge.routes import (
+    _response,  # pyright: ignore[reportPrivateUsage] # Adapter session-translation test.
+)
 from oauthclientbridge.settings import Settings
 from tests.conftest import BridgeHarness
 
-type AsgiClient = Callable[[Starlette], AbstractAsyncContextManager[httpx.AsyncClient]]
+type AsgiClient = Callable[..., AbstractAsyncContextManager[httpx.AsyncClient]]
 
 
 @dataclass
@@ -27,8 +31,12 @@ class RecordingFallbackObserver:
 @pytest.fixture
 def asgi_client() -> AsgiClient:
     @asynccontextmanager
-    async def _asgi_client(app: Starlette) -> AsyncIterator[httpx.AsyncClient]:
-        transport = httpx.ASGITransport(app=app)
+    async def _asgi_client(
+        app: Starlette, *, raise_app_exceptions: bool = True
+    ) -> AsyncIterator[httpx.AsyncClient]:
+        transport = httpx.ASGITransport(
+            app=app, raise_app_exceptions=raise_app_exceptions
+        )
         async with httpx.AsyncClient(
             transport=transport,
             base_url="https://bridge.example.com",
@@ -37,6 +45,39 @@ def asgi_client() -> AsgiClient:
             yield client
 
     return _asgi_client
+
+
+def test_starlette_adapter_replaces_only_bridge_session_values() -> None:
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "headers": [],
+            "query_string": b"",
+            "session": {
+                "unrelated": "value",
+                "oauthclientbridge": {"state": "stale-state"},
+            },
+        }
+    )
+
+    _ = _response(
+        request,
+        bridge.BridgeResponse(
+            status=HTTPStatus.OK,
+            session={"state": "next-state"},
+        ),
+    )
+
+    assert request.session == {
+        "unrelated": "value",
+        "oauthclientbridge": {"state": "next-state"},
+    }
+
+    _ = _response(request, bridge.BridgeResponse(status=HTTPStatus.OK, session={}))
+
+    assert request.session == {"unrelated": "value"}
 
 
 @pytest.mark.anyio
@@ -145,3 +186,27 @@ async def test_starlette_adapter_uses_requests_backed_upstream_fetch(
 
     assert fallback_observer.failures == []
     assert callback.status_code == HTTPStatus.OK
+
+
+@pytest.mark.anyio
+async def test_starlette_adapter_observes_unknown_application_fault(
+    settings: Settings, asgi_client: AsgiClient
+) -> None:
+    fallback_observer = RecordingFallbackObserver()
+    app = create_app(settings, fallback_observer=fallback_observer)
+
+    async def crash(_: Request) -> None:
+        raise RuntimeError("unexpected failure")
+
+    app.add_route("/crash", crash)
+
+    async with asgi_client(app, raise_app_exceptions=False) as client:
+        response = await client.get("/crash")
+
+    assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+    assert response.content == b"Internal Server Error"
+    assert response.headers["cache-control"] == "no-store"
+    assert len(fallback_observer.failures) == 1
+    endpoint, failure = fallback_observer.failures[0]
+    assert endpoint == types.Endpoint.UNKNOWN
+    assert isinstance(failure, RuntimeError)

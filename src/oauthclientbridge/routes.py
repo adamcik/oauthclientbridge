@@ -5,7 +5,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import BaseRoute, Route
 
-from oauthclientbridge import endpoint_execution, types
+from oauthclientbridge import bridge, endpoint_execution, types
 from oauthclientbridge.asgi_context import AppContext
 
 _SESSION_KEY = "oauthclientbridge"
@@ -19,9 +19,9 @@ async def authorize(request: Request) -> Response:
         context.outcome_observer,
         types.Endpoint.AUTHORIZE,
         context.oauth_bridge.authorize,
-        query=dict(request.query_params),
+        query=request.query_params,
     )
-    return _response(request, result)
+    return _endpoint_response(request, result)
 
 
 async def callback(request: Request) -> Response:
@@ -32,26 +32,31 @@ async def callback(request: Request) -> Response:
         context.outcome_observer,
         types.Endpoint.CALLBACK,
         context.oauth_bridge.callback,
-        query=dict(request.query_params),
+        query=request.query_params,
         session=_session(request),
     )
-    return _response(request, result)
+    return _endpoint_response(request, result)
 
 
 async def token(request: Request) -> Response:
-    form = await request.form()
     context = _context(request)
+
+    async def operation() -> bridge.BridgeResult:
+        form = await request.form()
+        return await context.oauth_bridge.token(
+            form={key: value for key, value in form.items() if isinstance(value, str)},
+            authorization=request.headers.get("Authorization"),
+            user_agent=request.headers.get("User-Agent", ""),
+        )
+
     result = await endpoint_execution.run(
         context.settings,
         context.fallback_observer,
         context.outcome_observer,
         types.Endpoint.TOKEN,
-        context.oauth_bridge.token,
-        form={key: value for key, value in form.items() if isinstance(value, str)},
-        authorization=request.headers.get("Authorization"),
-        user_agent=request.headers.get("User-Agent", ""),
+        operation,
     )
-    return _response(request, result)
+    return _endpoint_response(request, result)
 
 
 routes: list[BaseRoute] = [
@@ -61,9 +66,27 @@ routes: list[BaseRoute] = [
 ]
 
 
-def _response(request: Request, result: endpoint_execution.EndpointResult) -> Response:
+async def fallback(request: Request, exception: Exception) -> Response:
+    context = _context(request)
+    return _response(
+        request,
+        endpoint_execution.fallback(
+            context.settings,
+            context.fallback_observer,
+            types.Endpoint.UNKNOWN,
+            exception,
+        ),
+    )
+
+
+def _endpoint_response(
+    request: Request, result: endpoint_execution.EndpointResult
+) -> Response:
     structlog.contextvars.bind_contextvars(**result.log_context)
-    response = result.response
+    return _response(request, result.response)
+
+
+def _response(request: Request, response: bridge.BridgeResponse) -> Response:
     if response.session is not None:
         if response.session:
             request.session[_SESSION_KEY] = response.session
