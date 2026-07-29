@@ -14,14 +14,17 @@ from oauthclientbridge.settings import Settings
 
 
 def create_app(
-    settings: Settings,
+    settings: Settings | None = None,
     *,
     fetch: Callable[..., Awaitable[dict[str, Any]]] | None = None,
     fallback_observer: observer.FallbackObserver | None = None,
     outcome_observer: observer.OAuthOutcomeObserver | None = None,
     initialize_runtime: bool = True,
 ) -> Starlette:
-    """Create the in-process Starlette adapter without starting an ASGI runtime."""
+    """Create the ASGI application for an in-process client or ASGI server."""
+    if settings is None:
+        settings = Settings()
+
     if initialize_runtime:
         logs.init_logging(settings.log)
         telemetry.init_sentry(settings.sentry, "starlette")
@@ -64,6 +67,8 @@ def create_app(
         SessionMiddleware,
         secret_key=settings.session_secret.get_secret_value(),
         https_only=settings.session_cookie_secure,
+        domain=settings.session_cookie_domain,
+        path=settings.session_cookie_path,
     )
     telemetry.instrument_asgi_app(
         app,

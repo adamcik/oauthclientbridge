@@ -1,0 +1,36 @@
+[Unit]
+Description=OAuth Client Bridge ASGI canary (SoundCloud)
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+ContainerName=oauthclientbridge-soundcloud-asgi
+Image=ghcr.io/adamcik/oauthclientbridge:asgi
+Network=host
+
+EnvironmentFile=/etc/oauthclientbridge/soundcloud/asgi.env
+
+User=125:33
+
+ReadOnly=true
+DropCapability=all
+
+Tmpfs=/tmp:rw,nosuid,nodev,noexec,size=256m,mode=1777
+Tmpfs=/run/prom:rw,size=64m,mode=0777
+Volume=/var/lib/oauthclientbridge/soundcloud:/data:Z
+Volume=/run/oauthclientbridge/soundcloud:/run/asgi:Z
+Volume=/etc/oauthclientbridge/soundcloud/callback.html:/config/callback.html:ro,Z
+
+Exec=--uds /run/asgi/uvicorn.sock
+
+[Service]
+Restart=always
+RestartSec=5
+TimeoutStopSec=45
+NoNewPrivileges=yes
+
+# /run is tmpfs; recreate on each start
+ExecStartPre=/usr/bin/install -d -o root -g www-data -m 2775 /run/oauthclientbridge/soundcloud
+
+[Install]
+WantedBy=multi-user.target

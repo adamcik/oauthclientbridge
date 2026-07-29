@@ -106,3 +106,25 @@ async def test_starlette_adapter_observes_unknown_application_fault(
     endpoint, failure = fallback_observer.failures[0]
     assert endpoint == types.Endpoint.UNKNOWN
     assert isinstance(failure, RuntimeError)
+
+
+@pytest.mark.anyio
+async def test_starlette_adapter_scopes_session_cookie_per_instance(
+    settings: Settings, asgi_client: AsgiClient
+) -> None:
+    app = create_app(
+        settings.model_copy(
+            update={
+                "session_cookie_domain": "auth.mopidy.com",
+                "session_cookie_path": "/spotify",
+            }
+        ),
+        initialize_runtime=False,
+    )
+
+    async with asgi_client(app) as client:
+        response = await client.get("/", params={"state": "caller-state"})
+
+    cookie = response.headers["set-cookie"]
+    assert "domain=auth.mopidy.com" in cookie
+    assert "path=/spotify" in cookie
