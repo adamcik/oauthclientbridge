@@ -28,8 +28,9 @@ Volume=/etc/oauthclientbridge/oauthclientbridge/callback.html:/config/callback.h
 # Ephemeral multiprocess metrics dir; reset cleanly on service restart.
 Tmpfs=/run/prom:rw,size=64m,mode=0770,uid=33,gid=33
 
-# Append extra uWSGI args to image entrypoint.
-Exec=--socket /run/uwsgi/oauthclientbridge.sock --chmod-socket=660 --vacuum
+# Serve HTTP over the Unix socket; this keeps Flask/uWSGI in place while Caddy
+# stops speaking the uWSGI protocol.
+Exec=--http-socket /run/uwsgi/oauthclientbridge.sock --chmod-socket=660 --vacuum
 
 [Service]
 # We intentionally use ExecStartPre directory creation instead of
