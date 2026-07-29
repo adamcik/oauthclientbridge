@@ -29,6 +29,7 @@ async def test_adapter_translates_authorization_redirect(
     assert query["state"][0]
     assert response.headers["cache-control"] == "no-store"
     assert response.headers["pragma"] == "no-cache"
+    assert "secure" in response.headers["set-cookie"].lower()
 
 
 @pytest.mark.parametrize("adapter_client", ["flask", "starlette"], indirect=True)
