@@ -17,7 +17,7 @@ settings = Settings()
 
 logs.init_logging(settings.log)
 
-telemetry.init_sentry(settings.sentry)
+telemetry.init_sentry(settings.sentry, "flask")
 
 telemetry.instrument()
 telemetry.init_tracing(settings.otel)
