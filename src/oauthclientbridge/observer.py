@@ -42,14 +42,21 @@ class RequestLifecycleRequest:
 
 
 @dataclass(frozen=True)
+class RequestLifecycleResponseHeaders:
+    """Bounded response headers supplied by a framework adapter."""
+
+    content_type: str | None
+    content_length: int | None
+    cache_control: str | None
+
+
+@dataclass(frozen=True)
 class RequestLifecycleResponse:
     """Bounded final response values supplied by a framework adapter."""
 
     status_code: int
     body_size: int | None
-    content_type: str | None
-    content_length: int | None
-    cache_control: str | None
+    headers: RequestLifecycleResponseHeaders
 
 
 class RequestLifecycleObserver(Protocol):

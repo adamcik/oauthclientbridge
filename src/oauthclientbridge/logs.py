@@ -183,9 +183,11 @@ def lifecycle_response(resp: Response) -> observer.RequestLifecycleResponse:
     return observer.RequestLifecycleResponse(
         status_code=resp.status_code,
         body_size=len(resp.get_data()),
-        content_type=resp.content_type,
-        content_length=resp.content_length,
-        cache_control=resp.headers.get("Cache-Control"),
+        headers=observer.RequestLifecycleResponseHeaders(
+            content_type=resp.content_type,
+            content_length=resp.content_length,
+            cache_control=resp.headers.get("Cache-Control"),
+        ),
     )
 
 

@@ -53,7 +53,7 @@ from starlette.applications import Starlette
 
 # Import the leaf module directly; importing through telemetry's facade creates a cycle.
 import oauthclientbridge.telemetry._sentry as sentry
-from oauthclientbridge import types
+from oauthclientbridge import observer, types
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import (
     TelemetryComponent,
@@ -62,6 +62,7 @@ from oauthclientbridge.settings import (
 )
 from oauthclientbridge.utils import uri
 
+from . import _lifecycle
 from ._buckets import BYTES, TIME
 from ._resources import otel_log_attributes, resource_attributes
 
@@ -239,7 +240,13 @@ def instrument_app(app: Flask) -> None:
     )
 
 
-def instrument_asgi_app(app: Starlette) -> None:
+def instrument_asgi_app(
+    app: Starlette, lifecycle_observer: observer.RequestLifecycleObserver
+) -> None:
+    app.add_middleware(
+        _lifecycle.RequestLifecycleMiddleware,
+        lifecycle_observer=lifecycle_observer,
+    )
     app.add_middleware(OpenTelemetryMiddleware, server_request_hook=_asgi_request_hook)
 
 
