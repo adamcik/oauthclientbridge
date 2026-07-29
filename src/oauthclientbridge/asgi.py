@@ -63,8 +63,8 @@ def _request(scope: Scope) -> observer.RequestLifecycleRequest:
     headers = _headers(scope["headers"])
     scheme = scope.get("scheme", "http")
     server = scope.get("server") or ("localhost", 80)
-    host = headers.get("host", str(server[0]))
-    path = scope["path"]
+    host = _bounded(headers.get("host", str(server[0])))
+    path = _bounded(scope["path"])
     query = scope["query_string"].decode("ascii", "replace")
     url = uri.sanitize_url(f"{scheme}://{host}{path}?{query}")
     sanitized_query = url.split("?", 1)[1] if url is not None and "?" in url else ""
@@ -75,14 +75,14 @@ def _request(scope: Scope) -> observer.RequestLifecycleRequest:
             "http.request.method": scope["method"],
             "http.request.body.size": _content_length(headers),
             "http.route": None,
-            "network.protocol.version": scope.get("http_version"),
+            "network.protocol.version": _bounded(scope.get("http_version")),
             "server.address": host,
             "url.full": url,
             "url.path": path,
             "url.query": sanitized_query,
             "url.scheme": scheme,
-            "user_agent.original": headers.get("user-agent"),
-            "http.request.header.content_type": headers.get("content-type"),
+            "user_agent.original": _bounded(headers.get("user-agent")),
+            "http.request.header.content_type": _bounded(headers.get("content-type")),
             "http.request.header.content_length": _content_length(headers),
         }
     )
@@ -116,6 +116,10 @@ def _headers(raw_headers: list[tuple[bytes, bytes]]) -> dict[str, str]:
 def _content_length(headers: Mapping[str, str]) -> int | None:
     value = headers.get("content-length")
     return int(value) if value is not None and value.isdecimal() else None
+
+
+def _bounded(value: str | None) -> str | None:
+    return value[:1024] if value is not None else None
 
 
 def create_app(
