@@ -2,11 +2,11 @@ from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any
 
-from anyio import create_task_group
+from anyio import create_task_group, to_thread
 from starlette.applications import Starlette
 from starlette.middleware.sessions import SessionMiddleware
 
-from oauthclientbridge import bridge, logs, oauth, observer, telemetry
+from oauthclientbridge import bridge, db, logs, oauth, observer, telemetry
 from oauthclientbridge.asgi_context import AppContext, TokenStateRefresher
 from oauthclientbridge.proxy import ForwardedHeadersMiddleware
 from oauthclientbridge.routes import fallback, routes
@@ -40,8 +40,12 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: Starlette):
-        async with create_task_group() as task_spawner:
-            await token_state_refresher.start(task_spawner)
+        if not await to_thread.run_sync(db.is_initialized, settings.database):
+            raise RuntimeError(
+                "Database must be initialized before starting runtime services"
+            )
+        async with create_task_group() as group:
+            await token_state_refresher.start(group)
             yield
 
     app = Starlette(
