@@ -28,7 +28,7 @@ async def _client(
         yield app.test_client()
         return
 
-    app = create_asgi_app(settings)
+    app = create_asgi_app(settings, initialize_runtime=False)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(
         transport=transport,
