@@ -1,6 +1,7 @@
 """HTTP conformance scenarios shared by the Flask and Starlette adapters."""
 
 import urllib.parse
+from dataclasses import dataclass
 from http import HTTPStatus
 
 import pytest
@@ -30,6 +31,56 @@ async def test_adapter_translates_authorization_redirect(
     assert response.headers["cache-control"] == "no-store"
     assert response.headers["pragma"] == "no-cache"
     assert "secure" in response.headers["set-cookie"].lower()
+
+
+@dataclass(frozen=True)
+class BrowserErrorScenario:
+    name: str
+    query: dict[str, str]
+    error: str
+    allowed_scopes: set[str] | None = None
+
+
+@pytest.mark.parametrize("adapter_client", ["flask", "starlette"], indirect=True)
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        BrowserErrorScenario(
+            name="wrong redirect URI",
+            query={"redirect_uri": "https://wrong.example.com/callback"},
+            error="invalid_request",
+        ),
+        BrowserErrorScenario(
+            name="invalid scope",
+            query={"scope": "not-allowed"},
+            error="invalid_scope",
+            allowed_scopes={"allowed"},
+        ),
+    ],
+    ids=lambda scenario: scenario.name,
+)
+async def test_adapter_preserves_safe_browser_oauth_errors(
+    settings: Settings,
+    adapter_client: AdapterClient,
+    scenario: BrowserErrorScenario,
+) -> None:
+    if scenario.allowed_scopes is not None:
+        settings.oauth = settings.oauth.model_copy(
+            update={"allowed_scopes": scenario.allowed_scopes}
+        )
+
+    async with adapter_client(settings, None) as client:
+        response = await client.get("/", params=scenario.query)
+
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert response.json()["error"] == scenario.error
+    assert response.headers["content-type"] == "text/html; charset=UTF-8"
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["pragma"] == "no-cache"
+    assert response.headers["referrer-policy"] == "no-referrer"
+    assert response.headers["content-security-policy"] == (
+        "default-src 'none'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+    )
 
 
 @pytest.mark.parametrize("adapter_client", ["flask", "starlette"], indirect=True)
@@ -90,6 +141,36 @@ async def test_adapter_translates_token_form_and_basic_auth(
     assert response.status_code == HTTPStatus.OK
     assert response.json() == {"token_type": "Bearer", "access_token": "stored-token"}
     assert response.headers["cache-control"] == "no-store"
+
+
+@pytest.mark.parametrize("adapter_client", ["flask", "starlette"], indirect=True)
+async def test_adapter_preserves_token_error_headers(
+    settings: Settings, adapter_client: AdapterClient
+) -> None:
+    async with adapter_client(settings, None) as client:
+        response = await client.post(
+            "/token",
+            data={"grant_type": "authorization_code"},
+            auth=("client", "secret"),
+            headers={"User-Agent": "adapter-test"},
+        )
+
+    assert response.status_code == HTTPStatus.BAD_REQUEST
+    assert response.json()["error"] == "unsupported_grant_type"
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["pragma"] == "no-cache"
+
+
+@pytest.mark.parametrize("adapter_client", ["flask", "starlette"], indirect=True)
+async def test_adapter_keeps_native_routing_responses_framework_owned(
+    settings: Settings, adapter_client: AdapterClient
+) -> None:
+    async with adapter_client(settings, None) as client:
+        not_found = await client.get("/not-found")
+        method_not_allowed = await client.get("/token")
+
+    assert not_found.status_code == HTTPStatus.NOT_FOUND
+    assert method_not_allowed.status_code == HTTPStatus.METHOD_NOT_ALLOWED
 
 
 @pytest.mark.parametrize("adapter_client", ["flask", "starlette"], indirect=True)
