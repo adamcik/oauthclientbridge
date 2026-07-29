@@ -289,6 +289,12 @@ class Settings(BaseSettings):
     session_cookie_secure: bool = True
     """Only send the browser session cookie over HTTPS."""
 
+    session_cookie_domain: str | None = None
+    """Optional domain scope for the browser session cookie."""
+
+    session_cookie_path: str = "/"
+    """Path scope for the browser session cookie."""
+
     callback_template: str = """{% if error %}
   {{ error }}{% if description %}: {{ description }}{% endif %}
 {% else %}

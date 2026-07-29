@@ -4,7 +4,7 @@ This is the current deployment procedure for this host setup:
 
 - Debian
 - Podman with Quadlet support
-- Caddy speaking uWSGI over unix sockets
+- Caddy speaking uWSGI over Unix sockets
 - container runtime user `www-data` (`33:33`)
 
 This flow installs per-instance quadlets into `/etc/containers/systemd/`.
@@ -13,9 +13,13 @@ This flow installs per-instance quadlets into `/etc/containers/systemd/`.
 
 - `spotify/container`
 - `spotify/env`
+- `spotify/asgi.container`
+- `spotify/asgi.env`
 - `spotify/callback.html`
 - `soundcloud/container`
 - `soundcloud/env`
+- `soundcloud/asgi.container`
+- `soundcloud/asgi.env`
 - `soundcloud/callback.html`
 - `config.alloy`
 
@@ -38,12 +42,16 @@ sudo install -d -o root -g www-data -m 2775 /run/oauthclientbridge/soundcloud
 
 sudo cp deploy/spotify/env /etc/oauthclientbridge/spotify/env
 sudo cp deploy/soundcloud/env /etc/oauthclientbridge/soundcloud/env
+sudo cp deploy/spotify/asgi.env /etc/oauthclientbridge/spotify/asgi.env
+sudo cp deploy/soundcloud/asgi.env /etc/oauthclientbridge/soundcloud/asgi.env
 
 sudo cp deploy/spotify/callback.html /etc/oauthclientbridge/spotify/callback.html
 sudo cp deploy/soundcloud/callback.html /etc/oauthclientbridge/soundcloud/callback.html
 
 sudo editor /etc/oauthclientbridge/spotify/env
 sudo editor /etc/oauthclientbridge/soundcloud/env
+sudo editor /etc/oauthclientbridge/spotify/asgi.env
+sudo editor /etc/oauthclientbridge/soundcloud/asgi.env
 ```
 
 Image defaults (via nix2container) pin these settings:
@@ -151,10 +159,23 @@ sudo podman run --rm --network container:oauthclientbridge-soundcloud docker.io/
 
 ## 6) Caddy canary routing (parallel migration)
 
+Install and start the ASGI canaries alongside the existing uWSGI services. They
+use the `asgi` image tag and separate environment files because Starlette needs
+the framework-neutral session settings.
+
+```bash
+sudo install -D -m 0644 deploy/spotify/asgi.container /etc/containers/systemd/oauthclientbridge-spotify-asgi.container
+sudo install -D -m 0644 deploy/soundcloud/asgi.container /etc/containers/systemd/oauthclientbridge-soundcloud-asgi.container
+sudo systemctl daemon-reload
+sudo systemctl enable --now oauthclientbridge-spotify-asgi.service oauthclientbridge-soundcloud-asgi.service
+sudo systemctl status oauthclientbridge-spotify-asgi.service oauthclientbridge-soundcloud-asgi.service --no-pager
+sudo ls -l /run/oauthclientbridge/spotify/uvicorn.sock /run/oauthclientbridge/soundcloud/uvicorn.sock
+```
+
 Socket paths:
 
-- Spotify: `/run/oauthclientbridge/spotify/uwsgi.sock`
-- SoundCloud: `/run/oauthclientbridge/soundcloud/uwsgi.sock`
+- Spotify: `/run/oauthclientbridge/spotify/uvicorn.sock`
+- SoundCloud: `/run/oauthclientbridge/soundcloud/uvicorn.sock`
 
 Use canary match on your own source IP(s), route only canary to new sockets,
 keep legacy upstreams for everyone else.
@@ -167,7 +188,7 @@ route {
     redir /spotify /spotify/ 308
 
     handle_path /spotify/* {
-      reverse_proxy unix//run/oauthclientbridge/spotify/uwsgi.sock {
+      reverse_proxy unix//run/oauthclientbridge/spotify/uvicorn.sock {
         header_up X-Forwarded-For {remote_host}
         header_up X-Forwarded-Proto {scheme}
         header_up X-Forwarded-Host {host}
@@ -177,7 +198,7 @@ route {
 
     redir /soundcloud /soundcloud/ 308
     handle_path /soundcloud/* {
-      reverse_proxy unix//run/oauthclientbridge/soundcloud/uwsgi.sock {
+      reverse_proxy unix//run/oauthclientbridge/soundcloud/uvicorn.sock {
         header_up X-Forwarded-For {remote_host}
         header_up X-Forwarded-Proto {scheme}
         header_up X-Forwarded-Host {host}
@@ -215,16 +236,38 @@ sudo caddy validate --config /etc/caddy/Caddyfile
 sudo systemctl reload caddy
 ```
 
+From a source IP matched by `@canary`, verify that Caddy reaches each ASGI
+instance. Each request must return `302` and set a session cookie scoped to its
+provider path.
+
+```bash
+curl --silent --show-error --output /dev/null --dump-header - --write-out '%{http_code}\n' https://auth.mopidy.com/spotify/?state=canary
+curl --silent --show-error --output /dev/null --dump-header - --write-out '%{http_code}\n' https://auth.mopidy.com/soundcloud/?state=canary
+```
+
+After restoring the prior Caddy configuration and reloading Caddy, repeat these
+requests from the same source IP to confirm the legacy uWSGI routes are serving
+them before stopping the ASGI canaries.
+
+To roll back, restore the prior Caddy configuration, reload Caddy, then stop the
+ASGI canaries. The uWSGI services remain running throughout the canary.
+
+```bash
+sudo systemctl disable --now oauthclientbridge-spotify-asgi.service oauthclientbridge-soundcloud-asgi.service
+```
+
 ## Notes
 
-- The Caddy uWSGI transport sends Caddy's request host and remote address
-  directly; uWSGI derives the request scheme from `X-Forwarded-Proto`. Configure
-  Caddy's trusted proxy chain correctly and sanitize forwarded headers there.
+- The ASGI middleware applies the one trusted Caddy hop from forwarded headers.
+  Configure Caddy's trusted proxy chain correctly and sanitize forwarded headers
+  there. Uvicorn's proxy-header middleware is disabled to avoid a second
+  interpretation.
 - Keep `/metrics` internal. The application disables it by default; when it is
   enabled, configure `BRIDGE_METRICS_TOKEN` and additionally restrict the Caddy
   route to the monitoring network.
-- The Quadlet passes `--http-socket` directly. The Unix socket path, ownership,
-  and `--chmod-socket=660` contract are unchanged.
+- The `asgi` image starts the `oauthclientbridge.asgi:create_app` factory with one
+  app instance per `WORKERS` process. The existing `latest` image remains the
+  uWSGI runtime; only it includes the uWSGI base layer.
 - Containers run with `--read-only`; writable paths are provided via bind mounts and tmpfs.
 - `tmpfs /run/prom` is intentionally ephemeral to avoid stale Prometheus multiprocess files.
 - Secrets are currently mixed into env files; move to sops-managed env files later if desired.
