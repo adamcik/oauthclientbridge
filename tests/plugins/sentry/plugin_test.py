@@ -34,14 +34,14 @@ def capsentry(
     sentry_settings: SentrySettings,
     sentry_capture: SentryCapture,
 ) -> SentryCapture:
-    _sentry.init(sentry_settings, sentry_transport)
+    _sentry.init(sentry_settings, "flask", sentry_transport)
     return sentry_capture
 
 
 def test_init_sentry_disabled() -> None:
     """If sentry is disabled, we don't initialize."""
     with patch("sentry_sdk.init") as mock_init:
-        _sentry.init(SentrySettings(enabled=False))
+        _sentry.init(SentrySettings(enabled=False), "flask")
         mock_init.assert_not_called()
 
 
@@ -50,7 +50,7 @@ def test_init_sentry_sdk_installed(sentry_settings: SentrySettings) -> None:
     assert sentry_settings.dsn is not None
 
     with patch("sentry_sdk.init") as mock_init:
-        _sentry.init(sentry_settings)
+        _sentry.init(sentry_settings, "flask")
 
         mock_init.assert_called_once()
         call_kwargs = mock_init.call_args[1]
@@ -61,10 +61,16 @@ def test_init_sentry_sdk_installed(sentry_settings: SentrySettings) -> None:
 
 def test_trace_sampler_uses_path_overrides(sentry_settings: SentrySettings) -> None:
     sentry_settings.traces_sample_rate_overrides = {"/metrics": 0.1}
-    sample = _sentry._traces_sampler(sentry_settings)  # pyright: ignore[reportPrivateUsage] # Direct implementation test.
+    flask_sample = _sentry._traces_sampler(  # pyright: ignore[reportPrivateUsage] # Direct implementation test.
+        sentry_settings, "flask"
+    )
+    starlette_sample = _sentry._traces_sampler(  # pyright: ignore[reportPrivateUsage] # Direct implementation test.
+        sentry_settings, "starlette"
+    )
 
-    assert sample({"wsgi_environ": {"PATH_INFO": "/metrics"}}) == 0.1
-    assert sample({"wsgi_environ": {"PATH_INFO": "/authorize"}}) == 1.0
+    assert flask_sample({"wsgi_environ": {"PATH_INFO": "/metrics"}}) == 0.1
+    assert starlette_sample({"asgi_scope": {"path": "/metrics"}}) == 0.1
+    assert flask_sample({"wsgi_environ": {"PATH_INFO": "/authorize"}}) == 1.0
 
 
 def test_init_sentry_sdk_not_installed(
@@ -74,7 +80,7 @@ def test_init_sentry_sdk_not_installed(
     try:
         with patch.dict(sys.modules, {"sentry_sdk": None}):
             _ = importlib.reload(_sentry)
-            _sentry.init(sentry_settings)
+            _sentry.init(sentry_settings, "flask")
             assert (
                 "Sentry is enabled, but 'sentry-sdk' is not installed." in caplog.text
             )
