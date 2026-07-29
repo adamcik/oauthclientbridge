@@ -160,7 +160,10 @@ def _flask_response_hook(
     if not span or not span.is_recording():
         return
 
-    headers = CaseInsensitiveDict[str](headers)
+    _record_response_headers(span, CaseInsensitiveDict[str](headers))
+
+
+def _record_response_headers(span: trace.Span, headers: Mapping[str, str]) -> None:
     location = headers.get("Location")
     if location is not None:
         sanitized_location = uri.sanitize_url(location)
@@ -187,6 +190,12 @@ def _flask_response_hook(
             "http.response.header.retry_after",
             retry_after,
         )
+
+
+def _asgi_response_headers(headers: Mapping[str, str]) -> None:
+    _record_response_headers(
+        trace.get_current_span(), CaseInsensitiveDict[str](headers)
+    )
 
 
 def _flask_request_hook(span: trace.Span, environ: dict[str, Any]) -> None:
@@ -246,8 +255,12 @@ def instrument_asgi_app(
     app.add_middleware(
         _lifecycle.RequestLifecycleMiddleware,
         lifecycle_observer=lifecycle_observer,
+        response_header_observer=_asgi_response_headers,
     )
-    app.add_middleware(OpenTelemetryMiddleware, server_request_hook=_asgi_request_hook)
+    app.add_middleware(
+        OpenTelemetryMiddleware,
+        server_request_hook=_asgi_request_hook,
+    )
 
 
 def _asgi_request_hook(span: trace.Span, scope: dict[str, Any]) -> None:
