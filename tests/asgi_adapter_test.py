@@ -85,7 +85,11 @@ async def test_starlette_adapter_observes_unknown_application_fault(
     settings: Settings, asgi_client: AsgiClient
 ) -> None:
     fallback_observer = RecordingFallbackObserver()
-    app = create_app(settings, fallback_observer=fallback_observer)
+    app = create_app(
+        settings,
+        fallback_observer=fallback_observer,
+        initialize_runtime=False,
+    )
 
     async def crash(_: Request) -> None:
         raise RuntimeError("unexpected failure")

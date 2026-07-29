@@ -4,7 +4,7 @@ from typing import Any
 from starlette.applications import Starlette
 from starlette.middleware.sessions import SessionMiddleware
 
-from oauthclientbridge import bridge, oauth, observer, telemetry
+from oauthclientbridge import bridge, logs, oauth, observer, telemetry
 from oauthclientbridge.asgi_context import AppContext
 from oauthclientbridge.routes import fallback, routes
 from oauthclientbridge.settings import Settings
@@ -16,8 +16,17 @@ def create_app(
     fetch: Callable[..., Awaitable[dict[str, Any]]] | None = None,
     fallback_observer: observer.FallbackObserver | None = None,
     outcome_observer: observer.OAuthOutcomeObserver | None = None,
+    initialize_runtime: bool = True,
 ) -> Starlette:
     """Create the in-process Starlette adapter without starting an ASGI runtime."""
+    if initialize_runtime:
+        logs.init_logging(settings.log)
+        telemetry.init_sentry(settings.sentry)
+        telemetry.instrument()
+        telemetry.init_tracing(settings.otel)
+        telemetry.init_metrics(settings.otel)
+        telemetry.set_build_info_metric(settings.otel)
+
     if settings.session_secret is None:
         raise ValueError("BRIDGE_SESSION_SECRET must be set for the ASGI adapter")
 
