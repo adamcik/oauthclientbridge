@@ -1,6 +1,6 @@
 import string
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextvars import ContextVar
 from http import HTTPStatus
 from typing import Any
@@ -104,24 +104,43 @@ class RequestLifecycleMiddleware:
     """Adapt ASGI messages to the shared request lifecycle observer."""
 
     def __init__(
-        self, app: ASGIApp, *, lifecycle_observer: observer.RequestLifecycleObserver
+        self,
+        app: ASGIApp,
+        *,
+        lifecycle_observer: observer.RequestLifecycleObserver,
+        response_header_observer: Callable[[Mapping[str, str]], None],
     ) -> None:
         self.app = app
         self.lifecycle_observer = lifecycle_observer
+        self.response_header_observer = response_header_observer
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
 
-        self.lifecycle_observer.start(_asgi_request(scope))
+        request = _asgi_request(scope)
+        self.lifecycle_observer.start(request)
         response: observer.RequestLifecycleResponse | None = None
         response_size = 0
+        request_size = 0
 
-        async def observe(message: Message) -> None:
+        async def observe_receive() -> Message:
+            nonlocal request_size
+            message = await receive()
+            if message["type"] == "http.request":
+                request_size += len(message.get("body", b""))
+                request.attributes[HTTP_REQUEST_BODY_SIZE] = request_size
+            return message
+
+        async def observe_send(message: Message) -> None:
             nonlocal response, response_size
             if message["type"] == "http.response.start":
                 headers = _headers(message["headers"])
+                try:
+                    self.response_header_observer(headers)
+                except Exception:
+                    pass
                 response = observer.RequestLifecycleResponse(
                     status_code=message["status"],
                     body_size=None,
@@ -144,7 +163,7 @@ class RequestLifecycleMiddleware:
                     )
             await send(message)
 
-        await self.app(scope, receive, observe)
+        await self.app(scope, observe_receive, observe_send)
 
 
 def _asgi_request(scope: Scope) -> observer.RequestLifecycleRequest:
@@ -161,7 +180,7 @@ def _asgi_request(scope: Scope) -> observer.RequestLifecycleRequest:
         attributes={
             "client.address": client[0] if client is not None else None,
             "http.request.method": scope["method"],
-            "http.request.body.size": _content_length(headers),
+            "http.request.body.size": 0,
             "http.route": None,
             "network.protocol.version": _bounded(scope.get("http_version")),
             "server.address": host,

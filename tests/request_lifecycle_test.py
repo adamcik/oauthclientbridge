@@ -85,6 +85,9 @@ async def test_request_lifecycle_sanitizes_and_clears_context(
         )
         assert server_span.attributes["url.query"] == "state=<REDACTED>"
         assert "secret-state" not in server_span.attributes["url.full"]
+        assert server_span.attributes["http.response.header.location"].startswith(
+            "https://provider.example.com/auth?"
+        )
 
 
 @pytest.mark.anyio
