@@ -59,6 +59,7 @@ def create_app(
     app.add_middleware(
         SessionMiddleware,
         secret_key=settings.session_secret.get_secret_value(),
+        https_only=settings.session_cookie_secure,
     )
     telemetry.instrument_asgi_app(
         app,

@@ -1,8 +1,10 @@
 from http import HTTPStatus
 
 import flask
+import pytest
 
-from oauthclientbridge import bridge
+from oauthclientbridge import bridge, create_app
+from oauthclientbridge.settings import Settings
 from oauthclientbridge.views import (
     _flask_response,  # pyright: ignore[reportPrivateUsage] # Adapter translation test.
 )
@@ -27,3 +29,14 @@ def test_flask_adapter_applies_session_and_binary_bridge_response(
     assert response.status_code == HTTPStatus.CREATED
     assert response.data == b"callback body"
     assert response.headers["X-Bridge"] == "yes"
+
+
+def test_flask_accepts_legacy_session_secret(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings.session_secret = None
+    monkeypatch.setenv("FLASK_SECRET_KEY", "legacy-secret")
+
+    app = create_app(settings)
+
+    assert app.secret_key == "legacy-secret"

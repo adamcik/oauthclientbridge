@@ -284,7 +284,10 @@ class Settings(BaseSettings):
     """Optional bearer token required to access the metrics endpoint."""
 
     session_secret: SecretStr | None = None
-    """Secret used to sign the ASGI adapter's browser session cookie."""
+    """Secret used to sign the browser session cookie in every runtime."""
+
+    session_cookie_secure: bool = True
+    """Only send the browser session cookie over HTTPS."""
 
     callback_template: str = """{% if error %}
   {{ error }}{% if description %}: {{ description }}{% endif %}

@@ -1,6 +1,7 @@
 # pyright: reportImportCycles=none
 
 from importlib.metadata import version
+from typing import cast
 
 import structlog
 from flask import Flask
@@ -36,6 +37,15 @@ def create_app(settings: Settings | None = None) -> Flask:
     )
     app.config["SETTINGS"] = settings
     _ = app.config.from_prefixed_env()
+    session_secret = settings.session_secret
+    if session_secret is None:
+        legacy_secret = cast(object, app.config["SECRET_KEY"])
+        if not isinstance(legacy_secret, str) or not legacy_secret:
+            raise ValueError("BRIDGE_SESSION_SECRET or FLASK_SECRET_KEY must be set")
+        app.secret_key = legacy_secret
+    else:
+        app.secret_key = session_secret.get_secret_value()
+    app.config["SESSION_COOKIE_SECURE"] = settings.session_cookie_secure
 
     outcome_observer = telemetry.oauth_outcome_observer()
     oauth_bridge = bridge.Bridge(settings, oauth.fetch)
