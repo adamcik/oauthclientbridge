@@ -240,7 +240,27 @@ def instrument_app(app: Flask) -> None:
 
 
 def instrument_asgi_app(app: Starlette) -> None:
-    app.add_middleware(OpenTelemetryMiddleware)
+    app.add_middleware(OpenTelemetryMiddleware, server_request_hook=_asgi_request_hook)
+
+
+def _asgi_request_hook(span: trace.Span, scope: dict[str, Any]) -> None:
+    if not span or not span.is_recording():
+        return
+
+    scheme = scope.get("scheme", "http")
+    server = scope.get("server") or ("localhost", 80)
+    headers = dict(scope.get("headers", []))
+    host = headers.get(b"host", str(server[0]).encode("latin-1")).decode("latin-1")
+    path = scope.get("path", "")
+    query = scope.get("query_string", b"").decode("ascii", "replace")
+    sanitized_url = uri.sanitize_url(f"{scheme}://{host}{path}?{query}")
+    if sanitized_url is None:
+        return
+    sanitized_url = sanitized_url[:1024]
+    span.set_attribute("http.url", sanitized_url)
+    span.set_attribute("url.full", sanitized_url)
+    sanitized_url_parts = urlsplit(sanitized_url)
+    span.set_attribute("url.query", sanitized_url_parts.query)
 
 
 def init_tracing(

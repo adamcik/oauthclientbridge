@@ -76,9 +76,15 @@ async def test_request_lifecycle_sanitizes_and_clears_context(
     assert "oauth_endpoint" not in records[1]
 
     if adapter == "starlette":
-        assert any(
-            span.name.startswith("GET") for span in otel_mock.get_finished_spans()
+        server_span = next(
+            span
+            for span in otel_mock.get_finished_spans()
+            if span.name.startswith("GET")
+            and span.attributes is not None
+            and "url.full" in span.attributes
         )
+        assert server_span.attributes["url.query"] == "state=<REDACTED>"
+        assert "secret-state" not in server_span.attributes["url.full"]
 
 
 @pytest.mark.anyio
