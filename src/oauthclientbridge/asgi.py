@@ -24,7 +24,7 @@ def create_app(
     """Create the in-process Starlette adapter without starting an ASGI runtime."""
     if initialize_runtime:
         logs.init_logging(settings.log)
-        telemetry.init_sentry(settings.sentry)
+        telemetry.init_sentry(settings.sentry, "starlette")
         telemetry.instrument()
         telemetry.init_tracing(settings.otel)
         telemetry.init_metrics(settings.otel)
