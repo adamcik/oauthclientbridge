@@ -67,12 +67,25 @@ def upgrade() -> None:
             c.execute("ALTER TABLE tokens ADD COLUMN last_updated_at INTEGER")
 
 
-def is_initialized(connection: sqlite3.Connection | None = None) -> bool:
-    with cursor(name="check_tokens_table", connection=connection) as c:
-        c.execute(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'tokens'"
-        )
-        return c.fetchone() is not None
+def is_initialized(database: DatabaseSettings | None = None) -> bool:
+    """Return whether the configured database has the bridge schema."""
+    if database is None:
+        with cursor(name="check_tokens_table", connection=None) as c:
+            c.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'tokens'"
+            )
+            return c.fetchone() is not None
+
+    with _connect(database) as connection:
+        with cursor(
+            name="check_tokens_table",
+            connection=connection,
+            database_name=database.database,
+        ) as c:
+            c.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'tokens'"
+            )
+            return c.fetchone() is not None
 
 
 # TODO: Make this internal in favour of always needing to have a cursor
