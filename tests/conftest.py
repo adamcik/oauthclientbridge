@@ -138,7 +138,7 @@ def adapter_client(
             settings: Settings,
             fetch: Callable[..., Awaitable[dict[str, Any]]] | None,
         ) -> AsyncIterator[AdapterRequests]:
-            app = create_asgi_app(settings, fetch=fetch)
+            app = create_asgi_app(settings, fetch=fetch, initialize_runtime=False)
             transport = httpx.ASGITransport(app=app)
             async with httpx.AsyncClient(
                 transport=transport,
