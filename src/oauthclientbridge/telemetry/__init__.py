@@ -3,6 +3,7 @@ from http import HTTPStatus
 
 from . import (
     _fallback,
+    _lifecycle,
     _oauth_outcome,
     _otel,
     _prometheus,
@@ -15,12 +16,12 @@ __all__ = [
     "add_refresher",
     "export_metrics",
     "fallback_observer",
-    "finalize_request_metrics",
     "init_metrics",
     "init_sentry",
     "init_tracing",
     "instrument",
     "instrument_app",
+    "instrument_asgi_app",
     "observe_token_grant_age_metric",
     "oauth_outcome_observer",
     "record_client_attempt_metric",
@@ -37,11 +38,11 @@ __all__ = [
     "record_retry_decision_metric",
     "record_server_error_metric",
     "record_workaround_metric",
+    "request_lifecycle_observer",
     "request_refresh",
     "set_build_info_metric",
     "set_client_id_context",
     "set_token_state_counts_metric",
-    "start_request_metrics",
     "start_background_refresh",
     "stop_background_refresh",
     "uninstrument",
@@ -56,6 +57,7 @@ record_oauth_error_trace = _otel.record_oauth_error_trace
 instrument = _otel.instrument
 uninstrument = _otel.uninstrument
 instrument_app = _otel.instrument_app
+instrument_asgi_app = _otel.instrument_asgi_app
 init_tracing = _otel.init_tracing
 init_metrics = _otel.init_metrics
 init_sentry = _sentry.init
@@ -64,9 +66,8 @@ fallback_observer = _fallback.FallbackObserver
 
 otel_log_attributes = _resources.otel_log_attributes
 
-start_request_metrics = _prometheus.start_request_metrics
-finalize_request_metrics = _prometheus.finalize_request_metrics
 export_metrics = _prometheus.export_metrics
+request_lifecycle_observer = _lifecycle.RequestLifecycleObserver
 observe_token_grant_age_metric = _prometheus.observe_token_grant_age_metric
 set_build_info_metric = _prometheus.set_build_info_metric
 set_token_state_counts_metric = _prometheus.set_token_state_counts_metric
@@ -88,7 +89,7 @@ def record_server_error_metric(
     status: HTTPStatus, error: str, endpoint: str | None = None
 ) -> None:
     _prometheus.ServerErrorCounter.labels(
-        endpoint=endpoint or _prometheus.endpoint(),
+        endpoint=endpoint or "unknown",
         status=_prometheus.status(status),
         error=error,
     ).inc()

@@ -1,14 +1,16 @@
 import re
-import time
 from datetime import datetime
 from http import HTTPStatus
 from pathlib import Path
 
-import flask
 import prometheus_client
 import prometheus_client.multiprocess
 
-from oauthclientbridge.settings import TelemetrySettings, current_settings
+from oauthclientbridge.settings import (
+    PrometheusSettings,
+    TelemetrySettings,
+    current_settings,
+)
 from oauthclientbridge.utils import time as time_utils
 
 from ._buckets import BYTES, TIME, TOKEN_GRANT_AGE
@@ -158,37 +160,9 @@ def status(code: HTTPStatus) -> str:
     return HTTP_STATUS_LABELS[code]
 
 
-def endpoint() -> str:
-    return getattr(flask.request.url_rule, "endpoint", "notfound")
-
-
-def start_request_metrics() -> None:
-    flask.g.stats_latency_start_time = time.time()
-
-
-def finalize_request_metrics(response: flask.Response) -> flask.Response:
-    request_latency = time.time() - flask.g.stats_latency_start_time
-    labels = {
-        "endpoint": endpoint(),
-        "status": status(HTTPStatus(response.status_code)),
-    }
-
-    ServerLatencyHistogram.labels(**labels).observe(request_latency)
-    response_content_length = response.headers.get("Content-Length")
-    if response_content_length is not None:
-        ServerResponseSizeHistogram.labels(**labels).observe(
-            int(response_content_length)
-        )
-    if flask.request.content_length is not None:
-        ServerRequestSizeHistogram.labels(**labels).observe(
-            flask.request.content_length
-        )
-    return response
-
-
-def export_metrics() -> flask.Response:
+def export_metrics(settings: PrometheusSettings | None = None) -> bytes:
     metrics_registry = registry
-    multiproc_dir = current_settings.prometheus.multiproc_dir
+    multiproc_dir = (settings or current_settings.prometheus).multiproc_dir
     if multiproc_dir:
         metrics_registry = _multiprocess_registries.get(multiproc_dir)
         if metrics_registry is None:
@@ -200,7 +174,7 @@ def export_metrics() -> flask.Response:
             _multiprocess_registries[multiproc_dir] = metrics_registry
 
     text = prometheus_client.generate_latest(metrics_registry)
-    return flask.Response(text, mimetype=prometheus_client.CONTENT_TYPE_LATEST)
+    return text
 
 
 def observe_token_grant_age_metric(created_at: datetime | None) -> None:
