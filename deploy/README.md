@@ -172,7 +172,6 @@ route {
         header_up X-Forwarded-Proto {scheme}
         header_up X-Forwarded-Host {host}
         header_up X-Forwarded-Port {server_port}
-        transport uwsgi
       }
     }
 
@@ -183,7 +182,6 @@ route {
         header_up X-Forwarded-Proto {scheme}
         header_up X-Forwarded-Host {host}
         header_up X-Forwarded-Port {server_port}
-        transport uwsgi
       }
     }
   }
@@ -225,8 +223,8 @@ sudo systemctl reload caddy
 - Keep `/metrics` internal. The application disables it by default; when it is
   enabled, configure `BRIDGE_METRICS_TOKEN` and additionally restrict the Caddy
   route to the monitoring network.
-- Image entrypoint does not implicitly bind an HTTP port. Listener mode is set explicitly
-  via container args (for example `--socket ...` in this deployment).
+- The Quadlet passes `--http-socket` directly. The Unix socket path, ownership,
+  and `--chmod-socket=660` contract are unchanged.
 - Containers run with `--read-only`; writable paths are provided via bind mounts and tmpfs.
 - `tmpfs /run/prom` is intentionally ephemeral to avoid stale Prometheus multiprocess files.
 - Secrets are currently mixed into env files; move to sops-managed env files later if desired.
