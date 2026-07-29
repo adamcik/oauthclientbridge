@@ -1,12 +1,11 @@
 import logging
 import string
-import time
 from collections.abc import Mapping, Sequence
 from typing import Any, cast
 from urllib.parse import urlsplit
 
 import structlog
-from flask import Flask, Request, Response, g, request
+from flask import Flask, Request, Response, request
 from opentelemetry.semconv.attributes.client_attributes import CLIENT_ADDRESS
 from opentelemetry.semconv.attributes.http_attributes import (
     HTTP_REQUEST_HEADER_TEMPLATE,
@@ -28,7 +27,7 @@ from opentelemetry.semconv.attributes.url_attributes import (
 from opentelemetry.semconv.attributes.user_agent_attributes import USER_AGENT_ORIGINAL
 from structlog.types import EventDict
 
-from oauthclientbridge import telemetry
+from oauthclientbridge import observer, telemetry, types
 from oauthclientbridge.settings import LogSettings
 from oauthclientbridge.utils import uri
 
@@ -174,32 +173,53 @@ def get_response_info(resp: Response) -> dict[str, Any]:
     }
 
 
+def lifecycle_request(req: Request) -> observer.RequestLifecycleRequest:
+    return observer.RequestLifecycleRequest(
+        attributes=get_request_info(req, duration_ns=0)
+    )
+
+
+def lifecycle_response(resp: Response) -> observer.RequestLifecycleResponse:
+    return observer.RequestLifecycleResponse(
+        status_code=resp.status_code,
+        body_size=len(resp.get_data()),
+        content_type=resp.content_type,
+        content_length=resp.content_length,
+        cache_control=resp.headers.get("Cache-Control"),
+    )
+
+
+def lifecycle_endpoint(name: str | None) -> types.Endpoint:
+    endpoints = {
+        "views.authorize": types.Endpoint.AUTHORIZE,
+        "views.callback": types.Endpoint.CALLBACK,
+        "views.token": types.Endpoint.TOKEN,
+        "views.metrics": types.Endpoint.METRICS,
+    }
+    return (
+        endpoints.get(name, types.Endpoint.UNKNOWN)
+        if name is not None
+        else types.Endpoint.UNKNOWN
+    )
+
+
 def init_access_logs(settings: LogSettings, app: Flask) -> None:
     if app.extensions.get("oauthclientbridge_access_logs_initialized"):
         logger.warning("Access logs already initialized for app")
         return
     app.extensions["oauthclientbridge_access_logs_initialized"] = True
 
-    formatter = AccessLogFormatter()
+    lifecycle_observer = telemetry.request_lifecycle_observer(
+        settings.access_log_format
+    )
 
     def _before_request_log_context() -> None:
-        structlog.contextvars.clear_contextvars()
-        g.start_time_ns = time.perf_counter_ns()
+        lifecycle_observer.start(lifecycle_request(request))
 
     def _after_request_log_context(response: Response) -> Response:
-        data = dict(
-            **get_request_info(
-                request,
-                time.perf_counter_ns() - g.start_time_ns,
-            ),
-            **get_response_info(response),
+        lifecycle_observer.complete(
+            lifecycle_endpoint(request.endpoint), lifecycle_response(response)
         )
-
-        access_logger.info(
-            formatter.format(settings.access_log_format, **data),
-            **data,
-        )
-
         return response
 
     _ = app.before_request(_before_request_log_context)

@@ -1,3 +1,4 @@
+import hmac
 from typing import cast
 
 import structlog
@@ -5,7 +6,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import BaseRoute, Route
 
-from oauthclientbridge import bridge, endpoint_execution, types
+from oauthclientbridge import bridge, endpoint_execution, telemetry, types
 from oauthclientbridge.asgi_context import AppContext
 
 _SESSION_KEY = "oauthclientbridge"
@@ -58,10 +59,41 @@ async def token(request: Request) -> Response:
     return _response(request, result.response)
 
 
+async def metrics(request: Request) -> Response:
+    settings = _context(request).settings
+    if not settings.metrics_enabled:
+        return Response(status_code=404)
+
+    token = settings.metrics_token
+    if token is not None:
+        authorization = request.headers.get("Authorization", "")
+        expected = f"Bearer {token.get_secret_value()}"
+        if not hmac.compare_digest(authorization, expected):
+            return Response(status_code=401, headers={"WWW-Authenticate": "Bearer"})
+
+    try:
+        return Response(
+            telemetry.export_metrics(settings.prometheus),
+            media_type="text/plain; version=0.0.4",
+        )
+    except Exception as exception:
+        context = _context(request)
+        return _response(
+            request,
+            endpoint_execution.fallback(
+                context.settings,
+                context.fallback_observer,
+                types.Endpoint.METRICS,
+                exception,
+            ),
+        )
+
+
 routes: list[BaseRoute] = [
     Route("/", authorize, methods=["GET"]),
     Route("/callback", callback, methods=["GET"]),
     Route("/token", token, methods=["POST"]),
+    Route("/metrics", metrics, methods=["GET"]),
 ]
 
 
