@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from http import HTTPStatus
 from typing import Protocol
 
@@ -31,3 +32,29 @@ class FallbackObserver(Protocol):
 class NullFallbackObserver:
     def observe(self, endpoint: types.Endpoint, exception: BaseException) -> None:
         pass
+
+
+@dataclass(frozen=True)
+class RequestLifecycleRequest:
+    """Bounded request values supplied by a framework adapter."""
+
+    attributes: dict[str, str | int | float | None]
+
+
+@dataclass(frozen=True)
+class RequestLifecycleResponse:
+    """Bounded final response values supplied by a framework adapter."""
+
+    status_code: int
+    body_size: int | None
+    content_type: str | None
+    content_length: int | None
+    cache_control: str | None
+
+
+class RequestLifecycleObserver(Protocol):
+    def start(self, request: RequestLifecycleRequest) -> None: ...
+
+    def complete(
+        self, endpoint: types.Endpoint, response: RequestLifecycleResponse
+    ) -> None: ...

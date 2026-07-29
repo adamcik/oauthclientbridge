@@ -12,6 +12,9 @@ from opentelemetry import trace
 from opentelemetry.baggage.propagation import W3CBaggagePropagator
 from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.asgi import (  # pyright: ignore[reportMissingTypeStubs]
+    OpenTelemetryMiddleware,
+)
 from opentelemetry.instrumentation.flask import FlaskInstrumentor
 from opentelemetry.instrumentation.logging import LoggingInstrumentor
 from opentelemetry.instrumentation.propagators import (
@@ -46,6 +49,7 @@ from opentelemetry.sdk.trace.export import (
 )
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 from requests.structures import CaseInsensitiveDict
+from starlette.applications import Starlette
 
 # Import the leaf module directly; importing through telemetry's facade creates a cycle.
 import oauthclientbridge.telemetry._sentry as sentry
@@ -233,6 +237,10 @@ def instrument_app(app: Flask) -> None:
         request_hook=_flask_request_hook,
         response_hook=_flask_response_hook,
     )
+
+
+def instrument_asgi_app(app: Starlette) -> None:
+    app.add_middleware(OpenTelemetryMiddleware)
 
 
 def init_tracing(
