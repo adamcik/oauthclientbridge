@@ -38,6 +38,7 @@ async def callback(request: Request) -> Response:
         session=_session(request),
     )
     structlog.contextvars.bind_contextvars(**result.log_context)
+    await context.token_state_refresher.request()
     return _response(request, result.response)
 
 
@@ -56,6 +57,7 @@ async def token(request: Request) -> Response:
         user_agent=request.headers.get("User-Agent", ""),
     )
     structlog.contextvars.bind_contextvars(**result.log_context)
+    await context.token_state_refresher.request()
     return _response(request, result.response)
 
 
