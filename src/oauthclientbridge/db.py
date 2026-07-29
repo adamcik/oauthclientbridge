@@ -304,10 +304,10 @@ def update(
     return rowcount
 
 
-def token_state_counts() -> dict[str, int]:
+def token_state_counts(database: DatabaseSettings | None = None) -> dict[str, int]:
     """Count stored token records by coarse database state."""
 
-    with _connect() as connection:
+    with _connect(database) as connection:
         return _token_state_counts(connection)
 
 

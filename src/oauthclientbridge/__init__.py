@@ -4,6 +4,7 @@ from importlib.metadata import version
 
 import structlog
 from flask import Flask
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from oauthclientbridge import (
     bridge,
@@ -26,6 +27,13 @@ def create_app(settings: Settings | None = None) -> Flask:
         settings = Settings()
 
     app = Flask(__name__)
+    app.wsgi_app = ProxyFix(
+        app.wsgi_app,
+        x_for=1,
+        x_host=1,
+        x_port=1,
+        x_proto=1,
+    )
     app.config["SETTINGS"] = settings
     _ = app.config.from_prefixed_env()
 
