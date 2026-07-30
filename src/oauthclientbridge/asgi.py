@@ -49,7 +49,11 @@ def create_app(
             )
         async with create_task_group() as group:
             await token_state_refresher.start(group)
-            yield
+            telemetry.start_asyncio_monitor(group, "main")
+            try:
+                yield
+            finally:
+                group.cancel_scope.cancel()
 
     app = Starlette(
         routes=routes,

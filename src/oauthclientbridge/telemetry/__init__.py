@@ -1,7 +1,10 @@
+from collections.abc import Awaitable, Callable
 from contextlib import AbstractContextManager
 from http import HTTPStatus
+from typing import Protocol
 
 from . import (
+    _asyncio,
     _fallback,
     _lifecycle,
     _oauth_outcome,
@@ -43,6 +46,7 @@ __all__ = [
     "set_build_info_metric",
     "set_client_id_context",
     "set_token_state_counts_metric",
+    "start_asyncio_monitor",
     "start_background_refresh",
     "stop_background_refresh",
     "uninstrument",
@@ -75,6 +79,16 @@ add_refresher = _refresh.add_refresher
 request_refresh = _refresh.request_refresh
 start_background_refresh = _refresh.start_background_refresh
 stop_background_refresh = _refresh.stop_background_refresh
+
+
+class _TaskSpawner(Protocol):
+    def start_soon(self, func: Callable[[], Awaitable[None]]) -> None: ...
+
+
+def start_asyncio_monitor(task_spawner: _TaskSpawner, name: str) -> None:
+    """Start event-loop health monitoring in an application task group."""
+    monitor = _asyncio.AsyncioMonitor(name)
+    task_spawner.start_soon(monitor.run)
 
 
 def record_database_latency_metric(name: str) -> AbstractContextManager[object]:
