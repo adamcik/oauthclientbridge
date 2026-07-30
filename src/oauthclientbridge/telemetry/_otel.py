@@ -394,6 +394,11 @@ def init_metrics(
                     instrument_name="oauth.client.retries",
                     attribute_keys={"operation", "final.result", "error.type"},
                 ),
+                View(
+                    instrument_name="asyncio.event_loop.schedule_delay",
+                    aggregation=ExplicitBucketHistogramAggregation(boundaries=TIME),
+                    attribute_keys={"asyncio.loop.name"},
+                ),
             ],
         )
     )
