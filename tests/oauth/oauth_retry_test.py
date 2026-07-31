@@ -24,7 +24,7 @@ from oauthclientbridge.settings import current_settings
 
 
 def run_fetch(*args: str, **data: str | None) -> OAuthResponse:
-    return asyncio.run(oauth.fetch(*args, **data))
+    return asyncio.run(oauth.fetch_with_requests(*args, **data))
 
 
 @dataclass

@@ -36,7 +36,7 @@ from .plugins import otel
 
 
 def run_fetch(*args: str, **data: str | None) -> OAuthResponse:
-    return asyncio.run(oauth.fetch(*args, **data))
+    return asyncio.run(oauth.fetch_with_requests(*args, **data))
 
 
 logger: structlog.BoundLogger = structlog.get_logger()
