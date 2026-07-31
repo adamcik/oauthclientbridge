@@ -173,8 +173,8 @@ async def test_adapter_keeps_native_routing_responses_framework_owned(
     assert method_not_allowed.status_code == HTTPStatus.METHOD_NOT_ALLOWED
 
 
-@pytest.mark.parametrize("adapter_client", ["flask", "starlette"], indirect=True)
-async def test_adapter_uses_requests_backed_upstream_fetch(
+@pytest.mark.parametrize("adapter_client", ["flask"], indirect=True)
+async def test_flask_adapter_uses_requests_backed_upstream_fetch(
     settings: Settings,
     adapter_client: AdapterClient,
     requests_mock: object,

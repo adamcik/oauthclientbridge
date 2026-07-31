@@ -3,7 +3,7 @@ from http import HTTPStatus
 import flask
 import pytest
 
-from oauthclientbridge import bridge, create_app
+from oauthclientbridge import bridge, create_app, oauth
 from oauthclientbridge.settings import Settings
 from oauthclientbridge.views import (
     _flask_response,  # pyright: ignore[reportPrivateUsage] # Adapter translation test.
@@ -37,6 +37,6 @@ def test_flask_accepts_legacy_session_secret(
     settings.session_secret = None
     monkeypatch.setenv("FLASK_SECRET_KEY", "legacy-secret")
 
-    app = create_app(settings)
+    app = create_app(settings, fetch=oauth.fetch_with_requests)
 
     assert app.secret_key == "legacy-secret"
