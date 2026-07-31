@@ -1,4 +1,5 @@
 import importlib.metadata
+from http import HTTPStatus
 
 import anyio
 import httpx
@@ -7,7 +8,8 @@ from oauthclientbridge import types
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import FetchSettings
 
-from ._outcome import OAuthResponse
+from ._core import jitter_delay, parse_retry
+from ._outcome import OAuthResponse, token_endpoint_outcome
 
 
 class HttpxFetcher:
@@ -56,42 +58,93 @@ async def _fetch(
     auth: str | None = None,
 ) -> OAuthResponse:
     _ = upstream_grant_type
+    timed_out_result: OAuthResponse | None = None
     try:
         with anyio.fail_after(settings.total_timeout):
-            headers = {
-                "User-Agent": "oauthclientbridge %s"
-                % importlib.metadata.version("oauthclientbridge")
-            }
-            if auth is None:
-                response = await client.post(uri, data=data, headers=headers)
-            else:
-                response = await client.post(
-                    uri,
-                    data=data,
-                    auth=httpx.BasicAuth(auth, ""),
-                    headers=headers,
+            for attempt in range(settings.total_retries + 1):
+                retry_after = 0
+                status: HTTPStatus | None = None
+                try:
+                    headers = {
+                        "User-Agent": "oauthclientbridge %s"
+                        % importlib.metadata.version("oauthclientbridge")
+                    }
+                    if auth is None:
+                        response = await client.post(uri, data=data, headers=headers)
+                    else:
+                        response = await client.post(
+                            uri,
+                            data=data,
+                            auth=httpx.BasicAuth(auth, ""),
+                            headers=headers,
+                        )
+                except httpx.TimeoutException:
+                    result = OAuthError.SERVER_ERROR.json(
+                        description="Request timed out while connecting to provider."
+                    )
+                except httpx.HTTPError:
+                    result = OAuthError.SERVER_ERROR.json(
+                        description="An error occurred while connecting to the provider."
+                    )
+                else:
+                    status = HTTPStatus(response.status_code)
+                    retry_after = parse_retry(response.headers.get("retry-after"))
+                    if response.is_redirect:
+                        result = OAuthError.SERVER_ERROR.json(
+                            description="Unhandled provider error (HTTP %s)."
+                            % response.status_code
+                        )
+                    else:
+                        try:
+                            result = response.json()
+                        except ValueError:
+                            if status in settings.unavailable_status_codes:
+                                result = OAuthError.TEMPORARILY_UNAVAILABLE.json(
+                                    description="Provider is unavailable."
+                                )
+                            else:
+                                result = OAuthError.SERVER_ERROR.json(
+                                    description="Unhandled provider error (HTTP %s)."
+                                    % response.status_code
+                                )
+
+                outcome = token_endpoint_outcome(
+                    status,
+                    result,
+                    retry_status_codes=settings.retry_status_codes,
+                    error_types=settings.error_types,
                 )
+                if not outcome.retryable:
+                    return result
+
+                description = result.get("error_description")
+                result = (outcome.normalized_error or OAuthError.SERVER_ERROR).json(
+                    description=description if isinstance(description, str) else None
+                )
+                if retry_after:
+                    result["retry_after"] = retry_after
+                if attempt == settings.total_retries:
+                    return result
+
+                timed_out_result = result
+
+                delay = (
+                    retry_after or (2 ** (attempt + 1) - 1) * settings.backoff_factor
+                )
+                if delay:
+                    sleep_for = jitter_delay(
+                        delay, settings, preserve_floor=retry_after > 0
+                    )
+                    if retry_after:
+                        sleep_for = max(retry_after, sleep_for)
+                    await anyio.sleep(sleep_for)
     except TimeoutError:
+        if timed_out_result is not None:
+            return timed_out_result
         return OAuthError.SERVER_ERROR.json(
             description="Request timed out while connecting to provider."
         )
-    except httpx.HTTPError:
-        return OAuthError.SERVER_ERROR.json(
-            description="An error occurred while connecting to the provider."
-        )
 
-    if response.is_redirect:
-        return OAuthError.SERVER_ERROR.json(
-            description="Unhandled provider error (HTTP %s)." % response.status_code
-        )
-    try:
-        return response.json()
-    except ValueError:
-        pass
-    if response.status_code in settings.unavailable_status_codes:
-        return OAuthError.TEMPORARILY_UNAVAILABLE.json(
-            description="Provider is unavailable."
-        )
     return OAuthError.SERVER_ERROR.json(
-        description="Unhandled provider error (HTTP %s)." % response.status_code
+        description="An unknown error occurred while talking to provider."
     )
