@@ -1,5 +1,3 @@
-import asyncio
-
 import pytest
 from opentelemetry.sdk.metrics.export import HistogramDataPoint, NumberDataPoint
 
@@ -8,17 +6,26 @@ from oauthclientbridge.telemetry import _asyncio
 from .plugins import otel
 
 
-@pytest.mark.anyio
-async def test_asyncio_monitor_reports_named_loop_health(
-    otel_mock: otel.OTelMocker,
+def test_asyncio_monitor_reports_named_loop_health(
+    otel_mock: otel.OTelMocker, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    class ScheduledHandle:
+        def __init__(self, *, cancelled: bool) -> None:
+            self._cancelled = cancelled
+
+        def cancelled(self) -> bool:
+            return self._cancelled
+
+    class Loop:
+        _ready = (object(),)
+        _scheduled = (
+            ScheduledHandle(cancelled=False),
+            ScheduledHandle(cancelled=True),
+        )
+
     monitor = _asyncio.AsyncioMonitor("main")
-    loop = asyncio.get_running_loop()
-    monitor._loop = loop  # pyright: ignore[reportPrivateUsage] # Implementation test.
-    loop.call_soon(lambda: None)
-    loop.call_later(60, lambda: None)
-    cancelled = loop.call_later(60, lambda: None)
-    cancelled.cancel()
+    monitor._loop = Loop()  # type: ignore[assignment] # Controlled loop internals.
+    monkeypatch.setattr(_asyncio.asyncio, "all_tasks", lambda _loop: set())
 
     monitor._snapshot()  # pyright: ignore[reportPrivateUsage] # Implementation test.
     monitor._record_tick(0.25)  # pyright: ignore[reportPrivateUsage] # Implementation test.
