@@ -23,7 +23,7 @@ __version__ = version("oauthclientbridge")
 logger: structlog.BoundLogger = structlog.get_logger()
 
 
-def create_app(settings: Settings | None = None) -> Flask:
+def create_app(settings: Settings | None = None, *, fetch: oauth.Fetcher) -> Flask:
     if settings is None:
         settings = Settings()
 
@@ -48,7 +48,7 @@ def create_app(settings: Settings | None = None) -> Flask:
     app.config["SESSION_COOKIE_SECURE"] = settings.session_cookie_secure
 
     outcome_observer = telemetry.oauth_outcome_observer()
-    oauth_bridge = bridge.Bridge(settings, oauth.fetch)
+    oauth_bridge = bridge.Bridge(settings, fetch)
     app.extensions["oauth_bridge"] = oauth_bridge
     app.extensions["oauth_fallback_observer"] = telemetry.fallback_observer()
     app.extensions["oauth_outcome_observer"] = outcome_observer

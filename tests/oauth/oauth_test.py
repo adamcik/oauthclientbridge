@@ -14,7 +14,7 @@ from oauthclientbridge.settings import current_settings
 
 
 def run_fetch(*args: str, **data: str | None):
-    return asyncio.run(oauth.fetch(*args, **data))
+    return asyncio.run(oauth.fetch_with_requests(*args, **data))
 
 
 def test_oauth_fetch_is_async(
@@ -25,7 +25,9 @@ def test_oauth_fetch_is_async(
         json={"access_token": "mock_token", "token_type": "Bearer"},
     )
 
-    result = asyncio.run(oauth.fetch(current_settings.oauth.token_uri, "test_endpoint"))
+    result = asyncio.run(
+        oauth.fetch_with_requests(current_settings.oauth.token_uri, "test_endpoint")
+    )
 
     assert result["access_token"] == "mock_token"
 

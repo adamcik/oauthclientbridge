@@ -18,3 +18,9 @@ class Endpoint(StrEnum):
     TOKEN = "token"
     METRICS = "metrics"
     UNKNOWN = "unknown"
+
+
+class UpstreamGrantType(StrEnum):
+    # TODO: migrate OAuth client metric labels to upstream grant types.
+    AUTHORIZATION_CODE = "token"
+    REFRESH_TOKEN = "refresh"

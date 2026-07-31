@@ -3,16 +3,15 @@ import importlib.metadata
 import random
 import re
 import time
-from collections.abc import Awaitable, Callable
 from http import HTTPStatus
-from typing import Any, override
+from typing import Any, Protocol, override
 
 import flask
 import requests
 import structlog
 from opentelemetry import metrics, trace
 
-from oauthclientbridge import execution, telemetry
+from oauthclientbridge import execution, telemetry, types
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import FetchSettings, current_settings
 from oauthclientbridge.utils import uri as uri_utils
@@ -57,6 +56,16 @@ _oauth_client_retries_histogram = meter.create_histogram(
 )
 
 URIParam = dict[str, str]
+
+
+class Fetcher(Protocol):
+    async def __call__(
+        self,
+        uri: str,
+        upstream_grant_type: types.UpstreamGrantType,
+        auth: str | None = None,
+        **data: str | None,
+    ) -> OAuthResponse: ...
 
 
 class Error(Exception):
@@ -129,31 +138,26 @@ def _record_retry_decision(endpoint: str, decision: RetryDecision) -> None:
     telemetry.record_retry_decision_metric(endpoint, decision.action, decision.reason)
 
 
-async def fetch(
-    uri: str, endpoint: str, auth: str | None = None, **data: str | None
+async def fetch_with_requests(
+    uri: str,
+    upstream_grant_type: types.UpstreamGrantType,
+    auth: str | None = None,
+    **data: str | None,
 ) -> OAuthResponse:
     """Perform an upstream OAuth request without blocking the event loop."""
     return await _fetch_with_settings(
-        current_settings.fetch.model_copy(deep=True), uri, endpoint, auth, data
+        current_settings.fetch.model_copy(deep=True),
+        uri,
+        upstream_grant_type,
+        auth,
+        data,
     )
-
-
-def fetch_for(settings: FetchSettings) -> Callable[..., Awaitable[OAuthResponse]]:
-    """Bind explicit fetch settings for framework-independent application wiring."""
-    settings = settings.model_copy(deep=True)
-
-    async def bound_fetch(
-        uri: str, endpoint: str, auth: str | None = None, **data: str | None
-    ) -> OAuthResponse:
-        return await _fetch_with_settings(settings, uri, endpoint, auth, data)
-
-    return bound_fetch
 
 
 async def _fetch_with_settings(
     settings: FetchSettings,
     uri: str,
-    endpoint: str,
+    endpoint: types.UpstreamGrantType,
     auth: str | None,
     data: dict[str, str | None],
 ) -> OAuthResponse:
@@ -164,7 +168,7 @@ async def _fetch_with_settings(
 
 def _fetch_sync(
     uri: str,
-    endpoint: str,
+    endpoint: types.UpstreamGrantType,
     auth: str | None,
     data: dict[str, str | None],
     settings: FetchSettings,
@@ -364,7 +368,7 @@ def _fetch(
     span: trace.Span,
     prepared: requests.PreparedRequest,
     timeout: float,
-    endpoint: str,
+    endpoint: types.UpstreamGrantType,
     settings: FetchSettings,
 ) -> tuple[OAuthResponse, HTTPStatus | None, int]:
     timeout = min(settings.timeout, timeout)
@@ -450,12 +454,18 @@ def _decode(
             e,
         )
 
-    if resp.status_code in settings.unavailable_status_codes:
+    return _unexpected_response_error(resp.status_code, settings)
+
+
+def _unexpected_response_error(
+    status_code: int, settings: FetchSettings
+) -> OAuthResponse:
+    if status_code in settings.unavailable_status_codes:
         error = OAuthError.TEMPORARILY_UNAVAILABLE
         description = "Provider is unavailable."
     else:
         error = OAuthError.SERVER_ERROR
-        description = "Unhandled provider error (HTTP %s)." % resp.status_code
+        description = "Unhandled provider error (HTTP %s)." % status_code
 
     return error.json(description=description)
 

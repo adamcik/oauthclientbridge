@@ -12,7 +12,7 @@ import pytest
 from flask.testing import FlaskClient
 from prometheus_client.parser import text_string_to_metric_families
 
-from oauthclientbridge import create_app, logs
+from oauthclientbridge import create_app, logs, oauth
 from oauthclientbridge.asgi import create_app as create_asgi_app
 from oauthclientbridge.settings import Settings
 from pytest_otel_capture import OTelMocker
@@ -23,7 +23,7 @@ async def _client(
     adapter: Literal["flask", "starlette"], settings: Settings
 ) -> AsyncIterator[httpx.AsyncClient | FlaskClient]:
     if adapter == "flask":
-        app = create_app(settings)
+        app = create_app(settings, fetch=oauth.fetch_with_requests)
         app.secret_key = "test-secret-key"
         yield app.test_client()
         return

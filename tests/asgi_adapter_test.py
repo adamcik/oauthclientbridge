@@ -4,6 +4,9 @@ from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field
 from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from threading import Thread
+from urllib.parse import parse_qs, urlsplit
 
 import httpx
 import pytest
@@ -128,3 +131,74 @@ async def test_starlette_adapter_scopes_session_cookie_per_instance(
     cookie = response.headers["set-cookie"]
     assert "domain=auth.mopidy.com" in cookie
     assert "path=/spotify" in cookie
+
+
+@pytest.mark.anyio
+async def test_asgi_callback_reuses_its_upstream_connection(
+    settings: Settings, bridge_harness: object
+) -> None:
+    _ = bridge_harness  # Keeps the initialized shared-memory database alive.
+
+    class OAuthHandler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+        connections: set[tuple[str, int]] = set()
+        response_status = HTTPStatus.OK
+
+        def do_POST(self) -> None:  # noqa: N802 # Required by BaseHTTPRequestHandler.
+            self.connections.add(self.client_address)
+            length = int(self.headers["Content-Length"])
+            self.rfile.read(length)
+            body = b'{"access_token":"provider-token","token_type":"Bearer"}'
+            self.send_response(self.response_status)
+            if self.response_status.is_redirection:
+                self.send_header("Location", "http://redirected.example.com/token")
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, _format: str, *_args: object) -> None:
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), OAuthHandler)
+    server_thread = Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
+    host, port = server.server_address
+    settings.oauth.token_uri = f"http://{host}:{port}/token"
+
+    try:
+        app = create_app(settings, initialize_runtime=False)
+        transport = httpx.ASGITransport(app=app)
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=transport,
+                base_url="https://bridge.example.com",
+                follow_redirects=False,
+            ) as client:
+                for _ in range(2):
+                    authorization = await client.get("/")
+                    state = parse_qs(urlsplit(authorization.headers["location"]).query)[
+                        "state"
+                    ][0]
+                    callback = await client.get(
+                        "/callback",
+                        params={"code": "authorization-code", "state": state},
+                    )
+                    assert callback.status_code == HTTPStatus.OK
+
+                OAuthHandler.response_status = HTTPStatus.FOUND
+                authorization = await client.get("/")
+                state = parse_qs(urlsplit(authorization.headers["location"]).query)[
+                    "state"
+                ][0]
+                callback = await client.get(
+                    "/callback",
+                    params={"code": "authorization-code", "state": state},
+                )
+                assert callback.status_code == HTTPStatus.BAD_REQUEST
+    finally:
+        server.shutdown()
+        server.server_close()
+        server_thread.join()
+
+    assert len(OAuthHandler.connections) == 1

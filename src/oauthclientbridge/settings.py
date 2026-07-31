@@ -70,6 +70,18 @@ class FetchSettings(BaseSettings):
     upstream OAuth endpoint for a single fetch attempt.
     """
 
+    pool_max_connections: int = 3
+    """Maximum concurrent upstream HTTP connections."""
+
+    pool_max_keepalive_connections: int = 1
+    """Maximum idle upstream HTTP connections to retain."""
+
+    pool_timeout: float = 1.0
+    """Maximum time to wait for an available upstream connection."""
+
+    pool_keepalive_expiry: float = 5.0
+    """Maximum idle lifetime for an upstream HTTP connection."""
+
     total_retries: int = 3
     """Maximum number of retries for fetching oauth data."""
 

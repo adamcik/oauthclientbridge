@@ -19,7 +19,7 @@ from flask.testing import FlaskClient
 from pydantic import SecretStr
 from werkzeug.datastructures import Headers
 
-from oauthclientbridge import bridge, create_app, crypto, db, types
+from oauthclientbridge import bridge, create_app, crypto, db, oauth, types
 from oauthclientbridge.asgi import create_app as create_asgi_app
 from oauthclientbridge.oauth import (
     _retry as oauth_retry,  # pyright: ignore[reportPrivateUsage] # Global retry limiter reset.
@@ -177,7 +177,7 @@ def adapter_client(
             settings: Settings,
             fetch: Callable[..., Awaitable[dict[str, Any]]] | None,
         ) -> AsyncIterator[AdapterRequests]:
-            app = create_app(settings)
+            app = create_app(settings, fetch=fetch or oauth.fetch_with_requests)
             app.secret_key = "test-secret-key"
             if fetch is not None:
                 app.extensions["oauth_bridge"] = bridge.Bridge(settings, fetch)
@@ -267,7 +267,7 @@ def settings() -> Settings:
 
 @pytest.fixture
 def app(settings: Settings) -> Flask:
-    app = create_app(settings)
+    app = create_app(settings, fetch=oauth.fetch_with_requests)
     app.secret_key = "test-secret-key"
     return app
 

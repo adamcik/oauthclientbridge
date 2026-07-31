@@ -11,6 +11,7 @@ from pydantic import SecretStr
 from oauthclientbridge import (
     create_app,
     db,
+    oauth,
     start_runtime_services,
     stop_runtime_services,
     telemetry,
@@ -36,7 +37,10 @@ def test_metrics(client: FlaskClient):
 
 
 def test_metrics_can_be_disabled(settings: Settings):
-    app = create_app(settings.model_copy(update={"metrics_enabled": False}))
+    app = create_app(
+        settings.model_copy(update={"metrics_enabled": False}),
+        fetch=oauth.fetch_with_requests,
+    )
 
     response = app.test_client().get("/metrics")
 
@@ -47,7 +51,8 @@ def test_metrics_requires_configured_bearer_token(settings: Settings):
     app = create_app(
         settings.model_copy(
             update={"metrics_token": SecretStr("metrics-secret")},
-        )
+        ),
+        fetch=oauth.fetch_with_requests,
     )
     client = app.test_client()
 
@@ -96,7 +101,7 @@ def test_metrics_exposes_build_info(settings: Settings):
         vcs_revision="abc1234",
     )
 
-    app = create_app(settings)
+    app = create_app(settings, fetch=oauth.fetch_with_requests)
     app.secret_key = "test-secret-key"
 
     with app.app_context():

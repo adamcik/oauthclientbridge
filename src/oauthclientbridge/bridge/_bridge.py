@@ -1,5 +1,5 @@
 import re
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Mapping
 from http import HTTPStatus
 from typing import Any
 
@@ -13,6 +13,7 @@ from oauthclientbridge import (
     execution,
     oauth,
     telemetry,
+    types,
 )
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import LogLevel, Settings
@@ -22,7 +23,6 @@ from . import _basic_auth
 from ._template import render_browser_oauth_result
 from ._types import BridgeResponse, BridgeResult, Session
 
-Fetch = Callable[..., Awaitable[dict[str, Any]]]
 logger: structlog.BoundLogger = structlog.get_logger()
 
 
@@ -42,7 +42,7 @@ class Bridge:
     def __init__(
         self,
         settings: Settings,
-        fetch: Fetch,
+        fetch: oauth.Fetcher,
     ):
         self._settings = settings
         self._fetch = fetch
@@ -150,12 +150,12 @@ class Bridge:
 
         result = await self._fetch(
             self._settings.oauth.token_uri,
+            types.UpstreamGrantType.AUTHORIZATION_CODE,
             client_id=self._settings.oauth.client_id,
             client_secret=self._settings.oauth.client_secret.get_secret_value(),
             code=code,
             grant_type="authorization_code",
             redirect_uri=self._settings.oauth.redirect_uri,
-            endpoint="token",
         )
         if "error" in result:
             error = oauth.normalize_error(
@@ -319,11 +319,11 @@ class Bridge:
 
         refresh_result = await self._fetch(
             self._settings.oauth.refresh_uri or self._settings.oauth.token_uri,
+            types.UpstreamGrantType.REFRESH_TOKEN,
             client_id=self._settings.oauth.client_id,
             client_secret=self._settings.oauth.client_secret.get_secret_value(),
             grant_type=self._settings.oauth.grant_type,
             refresh_token=result["refresh_token"],
-            endpoint="refresh",
         )
         if "error" in refresh_result:
             return await self._handle_refresh_error(credentials, refresh_result)

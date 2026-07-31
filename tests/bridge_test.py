@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 from jinja2 import TemplateSyntaxError
 
-from oauthclientbridge import bridge, crypto, db
+from oauthclientbridge import bridge, crypto, db, types
 from oauthclientbridge.bridge import (
     _bridge as bridge_implementation,  # pyright: ignore[reportPrivateUsage] # Direct integrity-failure test.
 )
@@ -148,7 +148,7 @@ async def test_callback_stores_token_and_consumes_session(
     assert bridge_harness.oauth.calls == [
         (
             settings.oauth.token_uri,
-            "token",
+            types.UpstreamGrantType.AUTHORIZATION_CODE,
             {
                 "client_id": settings.oauth.client_id,
                 "client_secret": settings.oauth.client_secret.get_secret_value(),

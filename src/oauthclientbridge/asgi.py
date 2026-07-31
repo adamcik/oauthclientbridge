@@ -1,6 +1,4 @@
-from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
-from typing import Any
 
 from anyio import create_task_group, to_thread
 from starlette.applications import Starlette
@@ -16,7 +14,7 @@ from oauthclientbridge.settings import Settings
 def create_app(
     settings: Settings | None = None,
     *,
-    fetch: Callable[..., Awaitable[dict[str, Any]]] | None = None,
+    fetch: oauth.Fetcher | None = None,
     fallback_observer: observer.FallbackObserver | None = None,
     outcome_observer: observer.OAuthOutcomeObserver | None = None,
     initialize_runtime: bool = True,
@@ -37,7 +35,9 @@ def create_app(
         raise ValueError("BRIDGE_SESSION_SECRET must be set for the ASGI adapter")
 
     token_state_refresher = TokenStateRefresher(settings.database)
-    oauth_bridge = bridge.Bridge(settings, fetch or oauth.fetch_for(settings.fetch))
+    if fetch is None:
+        fetch = oauth.create_httpx_fetcher(settings.fetch)
+    oauth_bridge = bridge.Bridge(settings, fetch)
     fallback_observer = fallback_observer or telemetry.fallback_observer()
     outcome_observer = outcome_observer or telemetry.oauth_outcome_observer()
 
@@ -53,6 +53,8 @@ def create_app(
             try:
                 yield
             finally:
+                if isinstance(fetch, oauth.HttpxFetcher):
+                    await fetch.aclose()
                 group.cancel_scope.cancel()
 
     app = Starlette(

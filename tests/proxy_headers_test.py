@@ -6,7 +6,7 @@ from flask import jsonify, request
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from oauthclientbridge import create_app
+from oauthclientbridge import create_app, oauth
 from oauthclientbridge.asgi import create_app as create_asgi_app
 from oauthclientbridge.settings import Settings
 
@@ -19,7 +19,7 @@ FORWARDED_HEADERS = {
 
 
 def test_flask_adapter_uses_caddy_forwarded_headers(settings: Settings) -> None:
-    app = create_app(settings)
+    app = create_app(settings, fetch=oauth.fetch_with_requests)
 
     @app.get("/request-info")
     def request_info():
