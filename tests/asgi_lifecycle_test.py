@@ -48,10 +48,10 @@ async def test_asgi_lifespan_starts_token_state_refresh(
 
 
 @pytest.mark.anyio
-async def test_asgi_lifespan_closes_only_runtime_owned_httpx_fetcher(
+async def test_asgi_lifespan_closes_only_runtime_owned_httpx_client(
     settings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    class RecordingFetcher(oauth.HttpxFetcher):
+    class RecordingClient(oauth.HttpxUpstreamClient):
         closed = False
 
         async def aclose(self) -> None:
@@ -59,12 +59,12 @@ async def test_asgi_lifespan_closes_only_runtime_owned_httpx_fetcher(
             await super().aclose()
 
     monkeypatch.setattr(db, "is_initialized", lambda _: True)
-    runtime_owned = RecordingFetcher(settings.fetch)
-    monkeypatch.setattr(oauth, "create_httpx_fetcher", lambda _: runtime_owned)
-    injected = RecordingFetcher(settings.fetch)
+    runtime_owned = RecordingClient(settings.fetch)
+    monkeypatch.setattr(oauth, "create_httpx_upstream_client", lambda _: runtime_owned)
+    injected = RecordingClient(settings.fetch)
 
     runtime_app = create_app(settings, initialize_runtime=False)
-    injected_app = create_app(settings, fetch=injected, initialize_runtime=False)
+    injected_app = create_app(settings, fetch=injected.fetch, initialize_runtime=False)
 
     async with runtime_app.router.lifespan_context(runtime_app):
         pass
@@ -75,8 +75,8 @@ async def test_asgi_lifespan_closes_only_runtime_owned_httpx_fetcher(
     assert injected.closed is False
     await injected.aclose()
 
-    failed_startup = RecordingFetcher(settings.fetch)
-    monkeypatch.setattr(oauth, "create_httpx_fetcher", lambda _: failed_startup)
+    failed_startup = RecordingClient(settings.fetch)
+    monkeypatch.setattr(oauth, "create_httpx_upstream_client", lambda _: failed_startup)
     monkeypatch.setattr(db, "is_initialized", lambda _: False)
     failed_app = create_app(settings, initialize_runtime=False)
 

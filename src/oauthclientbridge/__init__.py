@@ -23,7 +23,9 @@ __version__ = version("oauthclientbridge")
 logger: structlog.BoundLogger = structlog.get_logger()
 
 
-def create_app(settings: Settings | None = None, *, fetch: oauth.Fetcher) -> Flask:
+def create_app(
+    settings: Settings | None = None, *, fetch: oauth.UpstreamFetcher
+) -> Flask:
     if settings is None:
         settings = Settings()
 

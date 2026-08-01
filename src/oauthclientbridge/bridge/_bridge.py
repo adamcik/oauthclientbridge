@@ -42,7 +42,7 @@ class Bridge:
     def __init__(
         self,
         settings: Settings,
-        fetch: oauth.Fetcher,
+        fetch: oauth.UpstreamFetcher,
     ):
         self._settings = settings
         self._fetch = fetch
