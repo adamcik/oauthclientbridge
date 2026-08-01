@@ -74,3 +74,14 @@ async def test_asgi_lifespan_closes_only_runtime_owned_httpx_fetcher(
     assert runtime_owned.closed is True
     assert injected.closed is False
     await injected.aclose()
+
+    failed_startup = RecordingFetcher(settings.fetch)
+    monkeypatch.setattr(oauth, "create_httpx_fetcher", lambda _: failed_startup)
+    monkeypatch.setattr(db, "is_initialized", lambda _: False)
+    failed_app = create_app(settings, initialize_runtime=False)
+
+    with pytest.raises(RuntimeError, match="Database must be initialized"):
+        async with failed_app.router.lifespan_context(failed_app):
+            pass
+
+    assert failed_startup.closed is True
