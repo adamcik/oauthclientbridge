@@ -58,7 +58,7 @@ _oauth_client_retries_histogram = meter.create_histogram(
 URIParam = dict[str, str]
 
 
-class Fetcher(Protocol):
+class UpstreamFetcher(Protocol):
     async def __call__(
         self,
         uri: str,
