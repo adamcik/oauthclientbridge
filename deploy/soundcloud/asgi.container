@@ -26,6 +26,7 @@ Exec=--uds /run/asgi/uvicorn.sock
 [Service]
 Restart=always
 RestartSec=5
+# Leaves 20 seconds after Uvicorn's 25-second request drain for ASGI cleanup.
 TimeoutStopSec=45
 NoNewPrivileges=yes
 
