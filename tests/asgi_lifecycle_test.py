@@ -1,6 +1,6 @@
 import pytest
 
-from oauthclientbridge import db
+from oauthclientbridge import db, oauth
 from oauthclientbridge.asgi import create_app
 from oauthclientbridge.asgi_context import TokenStateRefresher
 from oauthclientbridge.settings import Settings
@@ -45,3 +45,32 @@ async def test_asgi_lifespan_starts_token_state_refresh(
 
     async with app.router.lifespan_context(app):
         assert started is True
+
+
+@pytest.mark.anyio
+async def test_asgi_lifespan_closes_only_runtime_owned_httpx_fetcher(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class RecordingFetcher(oauth.HttpxFetcher):
+        closed = False
+
+        async def aclose(self) -> None:
+            self.closed = True
+            await super().aclose()
+
+    monkeypatch.setattr(db, "is_initialized", lambda _: True)
+    runtime_owned = RecordingFetcher(settings.fetch)
+    monkeypatch.setattr(oauth, "create_httpx_fetcher", lambda _: runtime_owned)
+    injected = RecordingFetcher(settings.fetch)
+
+    runtime_app = create_app(settings, initialize_runtime=False)
+    injected_app = create_app(settings, fetch=injected, initialize_runtime=False)
+
+    async with runtime_app.router.lifespan_context(runtime_app):
+        pass
+    async with injected_app.router.lifespan_context(injected_app):
+        pass
+
+    assert runtime_owned.closed is True
+    assert injected.closed is False
+    await injected.aclose()
