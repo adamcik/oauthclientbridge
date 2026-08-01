@@ -115,7 +115,19 @@ async def _fetch(
                     error_types=settings.error_types,
                 )
                 if not outcome.retryable:
-                    return result
+                    if (
+                        status is not None
+                        and status.is_success
+                        and outcome.normalized_error is None
+                    ):
+                        return result
+
+                    description = result.get("error_description")
+                    return (outcome.normalized_error or OAuthError.SERVER_ERROR).json(
+                        description=description
+                        if isinstance(description, str)
+                        else None
+                    )
 
                 description = result.get("error_description")
                 result = (outcome.normalized_error or OAuthError.SERVER_ERROR).json(
