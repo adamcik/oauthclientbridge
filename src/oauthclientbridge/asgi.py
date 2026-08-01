@@ -35,8 +35,10 @@ def create_app(
         raise ValueError("BRIDGE_SESSION_SECRET must be set for the ASGI adapter")
 
     token_state_refresher = TokenStateRefresher(settings.database)
+    runtime_fetcher: oauth.HttpxFetcher | None = None
     if fetch is None:
-        fetch = oauth.create_httpx_fetcher(settings.fetch)
+        runtime_fetcher = oauth.create_httpx_fetcher(settings.fetch)
+        fetch = runtime_fetcher
     oauth_bridge = bridge.Bridge(settings, fetch)
     fallback_observer = fallback_observer or telemetry.fallback_observer()
     outcome_observer = outcome_observer or telemetry.oauth_outcome_observer()
@@ -53,8 +55,8 @@ def create_app(
             try:
                 yield
             finally:
-                if isinstance(fetch, oauth.HttpxFetcher):
-                    await fetch.aclose()
+                if runtime_fetcher is not None:
+                    await runtime_fetcher.aclose()
                 group.cancel_scope.cancel()
 
     app = Starlette(
