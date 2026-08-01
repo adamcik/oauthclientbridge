@@ -23,14 +23,9 @@ def create_app(
     if settings is None:
         settings = Settings()
 
-    if not (
-        settings.fetch.total_timeout
-        < settings.asgi.graceful_shutdown_timeout
-        < settings.asgi.service_stop_timeout
-    ):
+    if settings.fetch.total_timeout >= settings.asgi.graceful_shutdown_timeout:
         raise ValueError(
-            "ASGI graceful shutdown timeout must exceed the fetch deadline and "
-            "be less than the service stop timeout"
+            "ASGI graceful shutdown timeout must exceed the fetch deadline"
         )
 
     if initialize_runtime:

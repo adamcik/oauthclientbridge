@@ -141,9 +141,6 @@ class AsgiSettings(BaseSettings):
     graceful_shutdown_timeout: int = 25
     """Seconds Uvicorn drains active requests after it stops accepting new ones."""
 
-    service_stop_timeout: int = 45
-    """Seconds the service manager permits before it forcefully stops the process."""
-
 
 class DatabaseSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="DB_")
