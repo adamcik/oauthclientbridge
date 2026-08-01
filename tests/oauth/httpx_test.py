@@ -10,158 +10,87 @@ from oauthclientbridge.oauth import (
     _httpx as httpx_implementation,  # pyright: ignore[reportPrivateUsage] # Deterministic retry-delay cancellation.
 )
 from oauthclientbridge.settings import FetchSettings
+from tests.oauth_server import OAuthServer
 
 
 @pytest.mark.anyio
-async def test_httpx_fetcher_retries_retryable_upstream_failure() -> None:
-    class OAuthHandler(BaseHTTPRequestHandler):
-        protocol_version = "HTTP/1.1"
-        requests = 0
-
-        def do_POST(self) -> None:  # noqa: N802 # Required by BaseHTTPRequestHandler.
-            type(self).requests += 1
-            self.rfile.read(int(self.headers["Content-Length"]))
-            if self.requests == 1:
-                self.send_response(HTTPStatus.SERVICE_UNAVAILABLE)
-                self.send_header("Content-Length", "0")
-                self.end_headers()
-                return
-
-            body = b'{"access_token":"provider-token","token_type":"Bearer"}'
-            self.send_response(HTTPStatus.OK)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-
-        def log_message(self, _format: str, *_args: object) -> None:
-            pass
-
-    server = ThreadingHTTPServer(("127.0.0.1", 0), OAuthHandler)
-    server_thread = Thread(target=server.serve_forever, daemon=True)
-    server_thread.start()
-    host, port = server.server_address
+async def test_httpx_fetcher_retries_retryable_upstream_failure(
+    oauth_server: OAuthServer,
+) -> None:
+    oauth_server.expect("/token").respond(status=HTTPStatus.SERVICE_UNAVAILABLE)
+    oauth_server.expect("/token").respond(
+        {"access_token": "provider-token", "token_type": "Bearer"}
+    )
     client = oauth.create_httpx_upstream_client(
         FetchSettings(total_attempts=2, backoff_factor=0)
     )
 
     try:
         result = await client.fetch(
-            f"http://{host}:{port}/token",
+            oauth_server.url_for("/token"),
             types.UpstreamGrantType.AUTHORIZATION_CODE,
         )
     finally:
         await client.aclose()
-        server.shutdown()
-        server.server_close()
-        server_thread.join()
 
     assert result == {"access_token": "provider-token", "token_type": "Bearer"}
-    assert OAuthHandler.requests == 2
+    assert len(oauth_server.requests) == 2
 
 
 @pytest.mark.anyio
-async def test_httpx_fetcher_skips_retry_when_budget_is_exhausted() -> None:
-    class OAuthHandler(BaseHTTPRequestHandler):
-        protocol_version = "HTTP/1.1"
-        requests = 0
-
-        def do_POST(self) -> None:  # noqa: N802 # Required by BaseHTTPRequestHandler.
-            type(self).requests += 1
-            self.rfile.read(int(self.headers["Content-Length"]))
-            self.send_response(HTTPStatus.SERVICE_UNAVAILABLE)
-            self.send_header("Content-Length", "0")
-            self.end_headers()
-
-        def log_message(self, _format: str, *_args: object) -> None:
-            pass
-
-    server = ThreadingHTTPServer(("127.0.0.1", 0), OAuthHandler)
-    server_thread = Thread(target=server.serve_forever, daemon=True)
-    server_thread.start()
-    host, port = server.server_address
+async def test_httpx_fetcher_skips_retry_when_budget_is_exhausted(
+    oauth_server: OAuthServer,
+) -> None:
+    oauth_server.expect("/token").respond(status=HTTPStatus.SERVICE_UNAVAILABLE)
     client = oauth.create_httpx_upstream_client(
         FetchSettings(total_attempts=2, backoff_factor=0, retry_budget_capacity=0)
     )
 
     try:
         result = await client.fetch(
-            f"http://{host}:{port}/token",
+            oauth_server.url_for("/token"),
             types.UpstreamGrantType.AUTHORIZATION_CODE,
         )
     finally:
         await client.aclose()
-        server.shutdown()
-        server.server_close()
-        server_thread.join()
 
     assert result == {
         "error": "temporarily_unavailable",
         "error_description": "Provider is unavailable.",
     }
-    assert OAuthHandler.requests == 1
+    assert len(oauth_server.requests) == 1
 
 
 @pytest.mark.anyio
-async def test_httpx_fetcher_limits_requests_to_total_attempts() -> None:
-    class OAuthHandler(BaseHTTPRequestHandler):
-        protocol_version = "HTTP/1.1"
-        requests = 0
-
-        def do_POST(self) -> None:  # noqa: N802 # Required by BaseHTTPRequestHandler.
-            type(self).requests += 1
-            self.rfile.read(int(self.headers["Content-Length"]))
-            self.send_response(HTTPStatus.SERVICE_UNAVAILABLE)
-            self.send_header("Content-Length", "0")
-            self.end_headers()
-
-        def log_message(self, _format: str, *_args: object) -> None:
-            pass
-
-    server = ThreadingHTTPServer(("127.0.0.1", 0), OAuthHandler)
-    server_thread = Thread(target=server.serve_forever, daemon=True)
-    server_thread.start()
-    host, port = server.server_address
+async def test_httpx_fetcher_limits_requests_to_total_attempts(
+    oauth_server: OAuthServer,
+) -> None:
+    for _ in range(3):
+        oauth_server.expect("/token").respond({}, status=HTTPStatus.SERVICE_UNAVAILABLE)
     client = oauth.create_httpx_upstream_client(
         FetchSettings(total_attempts=3, backoff_factor=0)
     )
 
     try:
         await client.fetch(
-            f"http://{host}:{port}/token",
+            oauth_server.url_for("/token"),
             types.UpstreamGrantType.AUTHORIZATION_CODE,
         )
     finally:
         await client.aclose()
-        server.shutdown()
-        server.server_close()
-        server_thread.join()
 
-    assert OAuthHandler.requests == 3
+    assert len(oauth_server.requests) == 3
 
 
 @pytest.mark.anyio
-async def test_httpx_fetcher_does_not_spend_budget_on_deadline_skipped_retry() -> None:
-    class OAuthHandler(BaseHTTPRequestHandler):
-        protocol_version = "HTTP/1.1"
-        requests = 0
-
-        def do_POST(self) -> None:  # noqa: N802 # Required by BaseHTTPRequestHandler.
-            type(self).requests += 1
-            self.rfile.read(int(self.headers["Content-Length"]))
-            self.send_response(HTTPStatus.SERVICE_UNAVAILABLE)
-            if self.requests == 1:
-                self.send_header("Retry-After", "1")
-            self.send_header("Content-Length", "0")
-            self.end_headers()
-
-        def log_message(self, _format: str, *_args: object) -> None:
-            pass
-
-    server = ThreadingHTTPServer(("127.0.0.1", 0), OAuthHandler)
-    server_thread = Thread(target=server.serve_forever, daemon=True)
-    server_thread.start()
-    host, port = server.server_address
+async def test_httpx_fetcher_does_not_spend_budget_on_deadline_skipped_retry(
+    oauth_server: OAuthServer,
+) -> None:
+    oauth_server.expect("/token").respond(
+        {}, status=HTTPStatus.SERVICE_UNAVAILABLE, headers={"Retry-After": "1"}
+    )
+    for _ in range(2):
+        oauth_server.expect("/token").respond({}, status=HTTPStatus.SERVICE_UNAVAILABLE)
     client = oauth.create_httpx_upstream_client(
         FetchSettings(
             total_attempts=2,
@@ -174,20 +103,17 @@ async def test_httpx_fetcher_does_not_spend_budget_on_deadline_skipped_retry() -
 
     try:
         await client.fetch(
-            f"http://{host}:{port}/token",
+            oauth_server.url_for("/token"),
             types.UpstreamGrantType.AUTHORIZATION_CODE,
         )
         await client.fetch(
-            f"http://{host}:{port}/token",
+            oauth_server.url_for("/token"),
             types.UpstreamGrantType.AUTHORIZATION_CODE,
         )
     finally:
         await client.aclose()
-        server.shutdown()
-        server.server_close()
-        server_thread.join()
 
-    assert OAuthHandler.requests == 3
+    assert len(oauth_server.requests) == 3
 
 
 @pytest.mark.anyio
@@ -200,35 +126,18 @@ async def test_httpx_fetcher_does_not_spend_budget_on_deadline_skipped_retry() -
 )
 async def test_httpx_fetcher_rejects_non_success_token_payload(
     upstream_grant_type: types.UpstreamGrantType,
+    oauth_server: OAuthServer,
 ) -> None:
-    class OAuthHandler(BaseHTTPRequestHandler):
-        protocol_version = "HTTP/1.1"
-
-        def do_POST(self) -> None:  # noqa: N802 # Required by BaseHTTPRequestHandler.
-            self.rfile.read(int(self.headers["Content-Length"]))
-            body = b'{"access_token":"provider-token","token_type":"Bearer"}'
-            self.send_response(HTTPStatus.BAD_REQUEST)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-
-        def log_message(self, _format: str, *_args: object) -> None:
-            pass
-
-    server = ThreadingHTTPServer(("127.0.0.1", 0), OAuthHandler)
-    server_thread = Thread(target=server.serve_forever, daemon=True)
-    server_thread.start()
-    host, port = server.server_address
+    oauth_server.expect("/token").respond(
+        {"access_token": "provider-token", "token_type": "Bearer"},
+        status=HTTPStatus.BAD_REQUEST,
+    )
     client = oauth.create_httpx_upstream_client(FetchSettings(total_attempts=1))
 
     try:
-        result = await client.fetch(f"http://{host}:{port}/token", upstream_grant_type)
+        result = await client.fetch(oauth_server.url_for("/token"), upstream_grant_type)
     finally:
         await client.aclose()
-        server.shutdown()
-        server.server_close()
-        server_thread.join()
 
     assert result["error"] == "server_error"
     assert "access_token" not in result
@@ -244,33 +153,18 @@ async def test_httpx_fetcher_rejects_non_success_token_payload(
 )
 async def test_httpx_fetcher_rejects_redirect(
     upstream_grant_type: types.UpstreamGrantType,
+    oauth_server: OAuthServer,
 ) -> None:
-    class OAuthHandler(BaseHTTPRequestHandler):
-        protocol_version = "HTTP/1.1"
-
-        def do_POST(self) -> None:  # noqa: N802 # Required by BaseHTTPRequestHandler.
-            self.rfile.read(int(self.headers["Content-Length"]))
-            self.send_response(HTTPStatus.FOUND)
-            self.send_header("Location", "https://untrusted.example.com/token")
-            self.send_header("Content-Length", "0")
-            self.end_headers()
-
-        def log_message(self, _format: str, *_args: object) -> None:
-            pass
-
-    server = ThreadingHTTPServer(("127.0.0.1", 0), OAuthHandler)
-    server_thread = Thread(target=server.serve_forever, daemon=True)
-    server_thread.start()
-    host, port = server.server_address
+    oauth_server.expect("/token").respond(
+        status=HTTPStatus.FOUND,
+        headers={"Location": "https://untrusted.example.com/token"},
+    )
     client = oauth.create_httpx_upstream_client(FetchSettings(total_attempts=1))
 
     try:
-        result = await client.fetch(f"http://{host}:{port}/token", upstream_grant_type)
+        result = await client.fetch(oauth_server.url_for("/token"), upstream_grant_type)
     finally:
         await client.aclose()
-        server.shutdown()
-        server.server_close()
-        server_thread.join()
 
     assert result["error"] == "server_error"
 
@@ -278,49 +172,31 @@ async def test_httpx_fetcher_rejects_redirect(
 @pytest.mark.anyio
 async def test_httpx_fetcher_preserves_retryable_response_when_retry_delay_is_cancelled(
     monkeypatch: pytest.MonkeyPatch,
+    oauth_server: OAuthServer,
 ) -> None:
-    class OAuthHandler(BaseHTTPRequestHandler):
-        protocol_version = "HTTP/1.1"
-        requests = 0
-
-        def do_POST(self) -> None:  # noqa: N802 # Required by BaseHTTPRequestHandler.
-            type(self).requests += 1
-            self.rfile.read(int(self.headers["Content-Length"]))
-            self.send_response(HTTPStatus.SERVICE_UNAVAILABLE)
-            self.send_header("Retry-After", "1")
-            self.send_header("Content-Length", "0")
-            self.end_headers()
-
-        def log_message(self, _format: str, *_args: object) -> None:
-            pass
-
     async def cancel_retry_delay(_: float) -> None:
         raise TimeoutError
 
     monkeypatch.setattr(httpx_implementation, "_sleep", cancel_retry_delay)
-    server = ThreadingHTTPServer(("127.0.0.1", 0), OAuthHandler)
-    server_thread = Thread(target=server.serve_forever, daemon=True)
-    server_thread.start()
-    host, port = server.server_address
+    oauth_server.expect("/token").respond(
+        status=HTTPStatus.SERVICE_UNAVAILABLE, headers={"Retry-After": "1"}
+    )
     client = oauth.create_httpx_upstream_client(FetchSettings(total_attempts=2))
 
     try:
         result = await client.fetch(
-            f"http://{host}:{port}/token",
+            oauth_server.url_for("/token"),
             types.UpstreamGrantType.AUTHORIZATION_CODE,
         )
     finally:
         await client.aclose()
-        server.shutdown()
-        server.server_close()
-        server_thread.join()
 
     assert result == {
         "error": "temporarily_unavailable",
         "error_description": "Provider is unavailable.",
         "retry_after": 1,
     }
-    assert OAuthHandler.requests == 1
+    assert len(oauth_server.requests) == 1
 
 
 @pytest.mark.anyio
@@ -333,43 +209,24 @@ async def test_httpx_fetcher_preserves_retryable_response_when_retry_delay_is_ca
 )
 async def test_httpx_fetcher_reuses_http11_connection(
     upstream_grant_type: types.UpstreamGrantType,
+    oauth_server: OAuthServer,
 ) -> None:
-    class OAuthHandler(BaseHTTPRequestHandler):
-        protocol_version = "HTTP/1.1"
-        client_addresses: set[tuple[str, int]] = set()
-
-        def do_POST(self) -> None:  # noqa: N802 # Required by BaseHTTPRequestHandler.
-            type(self).client_addresses.add(self.client_address)
-            self.rfile.read(int(self.headers["Content-Length"]))
-            body = b'{"access_token":"provider-token","token_type":"Bearer"}'
-            self.send_response(HTTPStatus.OK)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-
-        def log_message(self, _format: str, *_args: object) -> None:
-            pass
-
-    server = ThreadingHTTPServer(("127.0.0.1", 0), OAuthHandler)
-    server_thread = Thread(target=server.serve_forever, daemon=True)
-    server_thread.start()
-    host, port = server.server_address
+    for _ in range(2):
+        oauth_server.expect("/token").respond(
+            {"access_token": "provider-token", "token_type": "Bearer"}
+        )
     client = oauth.create_httpx_upstream_client(FetchSettings(total_attempts=1))
 
     try:
         for _ in range(2):
             result = await client.fetch(
-                f"http://{host}:{port}/token", upstream_grant_type
+                oauth_server.url_for("/token"), upstream_grant_type
             )
             assert result == {"access_token": "provider-token", "token_type": "Bearer"}
     finally:
         await client.aclose()
-        server.shutdown()
-        server.server_close()
-        server_thread.join()
 
-    assert len(OAuthHandler.client_addresses) == 1
+    assert len({request.client_address for request in oauth_server.requests}) == 1
 
 
 @pytest.mark.anyio
