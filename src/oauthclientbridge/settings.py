@@ -82,8 +82,8 @@ class FetchSettings(BaseSettings):
     pool_keepalive_expiry: float = 5.0
     """Maximum idle lifetime for an upstream HTTP connection."""
 
-    total_retries: int = 3
-    """Maximum number of retries for fetching oauth data."""
+    total_attempts: int = Field(3, ge=1)
+    """Maximum initial and retry attempts for fetching OAuth data."""
 
     retry_budget_capacity: int = 8
     """Per-process maximum number of outgoing retries held in budget."""

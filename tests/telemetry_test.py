@@ -467,7 +467,7 @@ def test_outgoing_request_span_records_retry_after_header(
     app_context: flask.ctx.AppContext,
     instrumented: None,
 ) -> None:
-    current_settings.fetch.total_retries = 1
+    current_settings.fetch.total_attempts = 2
     requests_mock.post(
         current_settings.oauth.token_uri,
         status_code=429,
@@ -968,7 +968,7 @@ def test_oauth_client_retry_metrics_record_deadline_skip(
     monkeypatch: pytest.MonkeyPatch,
 ):
     current_settings.fetch.total_timeout = 1.0
-    current_settings.fetch.total_retries = 2
+    current_settings.fetch.total_attempts = 3
     current_settings.fetch.backoff_factor = 0.8
 
     fake_time = [0.0]
@@ -1020,7 +1020,7 @@ def test_oauth_client_retry_metrics_record_attempt_limit_skip(
     requests_mock: Mocker,
     client: FlaskClient,
 ):
-    current_settings.fetch.total_retries = 1
+    current_settings.fetch.total_attempts = 2
     endpoint = "attempt-limit-reason-test"
     requests_mock.post(
         current_settings.oauth.token_uri,

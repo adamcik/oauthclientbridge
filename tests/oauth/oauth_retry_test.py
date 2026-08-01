@@ -82,7 +82,7 @@ def test_oauth_fetch_normalizes_retryable_invalid_client_to_temporarily_unavaila
     app_context: flask.ctx.AppContext,
     requests_mock: RequestsMocker,
 ) -> None:
-    current_settings.fetch.total_retries = 0
+    current_settings.fetch.total_attempts = 1
     requests_mock.post(
         current_settings.oauth.token_uri,
         status_code=503,
@@ -94,11 +94,11 @@ def test_oauth_fetch_normalizes_retryable_invalid_client_to_temporarily_unavaila
     assert result["error"] == OAuthError.TEMPORARILY_UNAVAILABLE
 
 
-def test_oauth_fetch_still_runs_initial_attempt_when_total_retries_is_zero(
+def test_oauth_fetch_still_runs_initial_attempt_when_total_attempts_is_one(
     app_context: flask.ctx.AppContext,
     requests_mock: RequestsMocker,
 ) -> None:
-    current_settings.fetch.total_retries = 0
+    current_settings.fetch.total_attempts = 1
     requests_mock.post(
         current_settings.oauth.token_uri,
         json={"access_token": "mock_token", "token_type": "Bearer"},
@@ -111,11 +111,11 @@ def test_oauth_fetch_still_runs_initial_attempt_when_total_retries_is_zero(
     assert len(requests_mock.request_history) == 1
 
 
-def test_oauth_fetch_total_retries_allows_one_retry(
+def test_oauth_fetch_total_attempts_allows_one_retry(
     app_context: flask.ctx.AppContext,
     requests_mock: RequestsMocker,
 ) -> None:
-    current_settings.fetch.total_retries = 1
+    current_settings.fetch.total_attempts = 2
     requests_mock.post(
         current_settings.oauth.token_uri,
         [
@@ -140,7 +140,7 @@ def test_oauth_fetch_does_not_start_retry_after_sleep_exhausts_deadline(
     mock_time: MockTime,
 ) -> None:
     current_settings.fetch.total_timeout = 1.0
-    current_settings.fetch.total_retries = 2
+    current_settings.fetch.total_attempts = 3
     current_settings.fetch.backoff_factor = 0.8
 
     first_result = (
@@ -182,7 +182,7 @@ def test_oauth_fetch_total_deadline_uses_monotonic_clock(
     mock_time: MockTime,
 ) -> None:
     current_settings.fetch.total_timeout = 1.0
-    current_settings.fetch.total_retries = 1
+    current_settings.fetch.total_attempts = 2
     current_settings.fetch.backoff_factor = 0.3
 
     observed_timeouts: list[float] = []
@@ -226,7 +226,7 @@ def test_oauth_fetch_uses_remaining_budget_for_retry_timeout(
     mock_time: MockTime,
 ) -> None:
     current_settings.fetch.total_timeout = 1.0
-    current_settings.fetch.total_retries = 2
+    current_settings.fetch.total_attempts = 3
     current_settings.fetch.backoff_factor = 0.3
 
     observed_timeouts: list[float] = []

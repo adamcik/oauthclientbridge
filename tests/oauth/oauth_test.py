@@ -36,7 +36,7 @@ def test_oauth_fetch_does_not_call_requests_with_expired_deadline(
     app_context: flask.ctx.AppContext,
 ) -> None:
     current_settings.fetch.total_timeout = 0.0
-    current_settings.fetch.total_retries = 1
+    current_settings.fetch.total_attempts = 2
 
     with unittest.mock.patch("requests.request") as mock_request:
         result = run_fetch(current_settings.oauth.token_uri, "test_endpoint")
@@ -205,7 +205,7 @@ def test_oauth_fetch_fails_after_all_retries_exhausted(
     requests_mock: RequestsMocker,
 ) -> None:
     """Verify that oauth.fetch fails after all retries are exhausted."""
-    current_settings.fetch.total_retries = 2
+    current_settings.fetch.total_attempts = 3
     # Simulate 3 failures (504 status code): 1 initial attempt + 2 retries.
     requests_mock.post(
         current_settings.oauth.token_uri,

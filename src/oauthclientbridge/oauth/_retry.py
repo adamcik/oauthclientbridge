@@ -16,7 +16,8 @@ class RetryDecisionAction(StrEnum):
     SKIP = "skip"
 
 
-class RetryReason(StrEnum):
+class RetryCondition(StrEnum):
+    BUDGET_EXHAUSTED = "budget_exhausted"
     UNAVAILABLE = "unavailable"
     RESOURCE_EXHAUSTED = "resource_exhausted"
     DEADLINE_EXCEEDED = "deadline_exceeded"
@@ -26,23 +27,22 @@ class RetryReason(StrEnum):
 @dataclass(frozen=True)
 class RetryDecision:
     action: RetryDecisionAction
-    reason: RetryReason
+    reason: RetryCondition
 
 
 @functools.lru_cache()
 def get_retry_limiter(capacity: int, refill_per_initial: float) -> Bucket:
-    """Process-local retry budget retained for the later httpx transport."""
-    # TODO: Re-enable this protection once the transition reaches httpx.
+    """Return the process-local retry budget for matching settings."""
     return Bucket(capacity, refill_per_initial)
 
 
-def retry_reason_for_status(status: HTTPStatus) -> RetryReason:
+def retry_condition_for_status(status: HTTPStatus) -> RetryCondition:
     if status == HTTPStatus.TOO_MANY_REQUESTS:
-        return RetryReason.RESOURCE_EXHAUSTED
+        return RetryCondition.RESOURCE_EXHAUSTED
     if status in {
         HTTPStatus.BAD_GATEWAY,
         HTTPStatus.SERVICE_UNAVAILABLE,
         HTTPStatus.GATEWAY_TIMEOUT,
     }:
-        return RetryReason.UNAVAILABLE
-    return RetryReason.UNKNOWN
+        return RetryCondition.UNAVAILABLE
+    return RetryCondition.UNKNOWN

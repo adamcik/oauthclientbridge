@@ -24,9 +24,9 @@ from ._outcome import (
 )
 from ._retry import (
     RetryAttemptKind,
+    RetryCondition,
     RetryDecision,
     RetryDecisionAction,
-    RetryReason,
 )
 
 logger: structlog.BoundLogger = structlog.get_logger()
@@ -188,7 +188,7 @@ def _fetch_sync(
             description="An unknown error occurred talking to provider."
         )
 
-        for i in range(settings.total_retries + 1):
+        for i in range(settings.total_attempts):
             prefix = "attempt #%d %s" % (i + 1, uri)
             backoff = (2**i - 1) * settings.backoff_factor
             remaining_timeout = deadline - time.monotonic()
@@ -199,7 +199,7 @@ def _fetch_sync(
                         endpoint,
                         RetryDecision(
                             RetryDecisionAction.SKIP,
-                            RetryReason.DEADLINE_EXCEEDED,
+                            RetryCondition.DEADLINE_EXCEEDED,
                         ),
                     )
                     span.add_event("No timeout remaining")
@@ -217,7 +217,7 @@ def _fetch_sync(
                             endpoint,
                             RetryDecision(
                                 RetryDecisionAction.SKIP,
-                                RetryReason.DEADLINE_EXCEEDED,
+                                RetryCondition.DEADLINE_EXCEEDED,
                             ),
                         )
                         span.add_event("No timeout remaining")
@@ -234,7 +234,7 @@ def _fetch_sync(
                             endpoint,
                             RetryDecision(
                                 RetryDecisionAction.SKIP,
-                                RetryReason.DEADLINE_EXCEEDED,
+                                RetryCondition.DEADLINE_EXCEEDED,
                             ),
                         )
                         span.add_event("No timeout remaining")
@@ -257,7 +257,7 @@ def _fetch_sync(
                     endpoint,
                     RetryDecision(
                         RetryDecisionAction.SKIP,
-                        RetryReason.DEADLINE_EXCEEDED,
+                        RetryCondition.DEADLINE_EXCEEDED,
                     ),
                 )
                 span.add_event("No timeout remaining")
@@ -292,7 +292,7 @@ def _fetch_sync(
                 result = normalized_error.json(description=description)
                 pending_retry_decision = RetryDecision(
                     RetryDecisionAction.RETRY,
-                    outcome.retry_reason or RetryReason.UNKNOWN,
+                    outcome.retry_condition or RetryCondition.UNKNOWN,
                 )
             elif status is not None and status.is_success:
                 span.add_event("Success")
