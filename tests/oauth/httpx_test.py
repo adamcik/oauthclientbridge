@@ -58,6 +58,48 @@ async def test_httpx_fetcher_retries_retryable_upstream_failure() -> None:
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    "upstream_grant_type",
+    [
+        types.UpstreamGrantType.AUTHORIZATION_CODE,
+        types.UpstreamGrantType.REFRESH_TOKEN,
+    ],
+)
+async def test_httpx_fetcher_rejects_non_success_token_payload(
+    upstream_grant_type: types.UpstreamGrantType,
+) -> None:
+    class OAuthHandler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:  # noqa: N802 # Required by BaseHTTPRequestHandler.
+            self.rfile.read(int(self.headers["Content-Length"]))
+            body = b'{"access_token":"provider-token","token_type":"Bearer"}'
+            self.send_response(HTTPStatus.BAD_REQUEST)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, _format: str, *_args: object) -> None:
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), OAuthHandler)
+    server_thread = Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
+    host, port = server.server_address
+    fetcher = oauth.create_httpx_fetcher(FetchSettings(total_retries=0))
+
+    try:
+        result = await fetcher(f"http://{host}:{port}/token", upstream_grant_type)
+    finally:
+        await fetcher.aclose()
+        server.shutdown()
+        server.server_close()
+        server_thread.join()
+
+    assert result["error"] == "server_error"
+    assert "access_token" not in result
+
+
+@pytest.mark.anyio
 async def test_httpx_fetcher_preserves_retryable_response_when_retry_delay_is_cancelled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
