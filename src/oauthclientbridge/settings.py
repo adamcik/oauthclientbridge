@@ -135,6 +135,16 @@ class FetchSettings(BaseSettings):
     """Upper multiplier bound for retry backoff jitter around the base delay."""
 
 
+class AsgiSettings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="ASGI_")
+
+    graceful_shutdown_timeout: int = 25
+    """Seconds Uvicorn drains active requests after it stops accepting new ones."""
+
+    service_stop_timeout: int = 45
+    """Seconds the service manager permits before it forcefully stops the process."""
+
+
 class DatabaseSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="DB_")
 
@@ -372,6 +382,7 @@ class Settings(BaseSettings):
 
     oauth: OAuthSettings = Field(default_factory=_settings_factory(OAuthSettings))
     fetch: FetchSettings = Field(default_factory=_settings_factory(FetchSettings))
+    asgi: AsgiSettings = Field(default_factory=_settings_factory(AsgiSettings))
     database: DatabaseSettings = Field(
         default_factory=_settings_factory(DatabaseSettings)
     )

@@ -185,7 +185,8 @@ runtime-owned HTTPX client. Set `ASGI_GRACEFUL_SHUTDOWN_TIMEOUT` higher than
 `FETCH_TOTAL_TIMEOUT`; the supplied 25-second and 20-second defaults provide a
 five-second drain margin. Keep the Uvicorn timeout below systemd's
 `TimeoutStopSec`, which is 45 seconds in the supplied units, so ASGI cleanup can
-finish before systemd sends `SIGKILL`.
+finish before systemd sends `SIGKILL`. The image rejects an invalid timeout
+ordering at startup.
 
 Use canary match on your own source IP(s), route only canary to new sockets,
 keep legacy upstreams for everyone else.

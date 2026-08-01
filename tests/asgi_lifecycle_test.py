@@ -29,6 +29,27 @@ async def test_asgi_lifespan_requires_initialized_database(settings: Settings) -
             pass
 
 
+@pytest.mark.parametrize(
+    ("fetch_timeout", "shutdown_timeout", "service_stop_timeout"),
+    [
+        pytest.param(25, 25, 45, id="drain-must-exceed-fetch"),
+        pytest.param(20, 45, 45, id="drain-must-finish-before-service-stop"),
+    ],
+)
+def test_asgi_factory_requires_ordered_shutdown_deadlines(
+    settings: Settings,
+    fetch_timeout: float,
+    shutdown_timeout: int,
+    service_stop_timeout: int,
+) -> None:
+    settings.fetch.total_timeout = fetch_timeout
+    settings.asgi.graceful_shutdown_timeout = shutdown_timeout
+    settings.asgi.service_stop_timeout = service_stop_timeout
+
+    with pytest.raises(ValueError, match="ASGI graceful shutdown timeout"):
+        create_app(settings, initialize_runtime=False)
+
+
 @pytest.mark.anyio
 async def test_asgi_lifespan_starts_token_state_refresh(
     settings: Settings, monkeypatch: pytest.MonkeyPatch

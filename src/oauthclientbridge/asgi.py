@@ -23,6 +23,16 @@ def create_app(
     if settings is None:
         settings = Settings()
 
+    if not (
+        settings.fetch.total_timeout
+        < settings.asgi.graceful_shutdown_timeout
+        < settings.asgi.service_stop_timeout
+    ):
+        raise ValueError(
+            "ASGI graceful shutdown timeout must exceed the fetch deadline and "
+            "be less than the service stop timeout"
+        )
+
     if initialize_runtime:
         logs.init_logging(settings.log)
         telemetry.init_sentry(settings.sentry, "starlette")
