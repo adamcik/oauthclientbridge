@@ -12,7 +12,7 @@ from ._core import jitter_delay, parse_retry
 from ._outcome import OAuthResponse, token_endpoint_outcome
 
 
-class HttpxFetcher:
+class HttpxUpstreamClient:
     def __init__(self, settings: FetchSettings) -> None:
         self._settings = settings
         self._client = httpx.AsyncClient(
@@ -30,7 +30,7 @@ class HttpxFetcher:
             ),
         )
 
-    async def __call__(
+    async def fetch(
         self,
         uri: str,
         upstream_grant_type: types.UpstreamGrantType,
@@ -45,8 +45,8 @@ class HttpxFetcher:
         await self._client.aclose()
 
 
-def create_fetcher(settings: FetchSettings) -> HttpxFetcher:
-    return HttpxFetcher(settings)
+def create_upstream_client(settings: FetchSettings) -> HttpxUpstreamClient:
+    return HttpxUpstreamClient(settings)
 
 
 async def _fetch(

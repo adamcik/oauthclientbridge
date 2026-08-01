@@ -38,17 +38,17 @@ async def test_httpx_fetcher_retries_retryable_upstream_failure() -> None:
     server_thread = Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
     host, port = server.server_address
-    fetcher = oauth.create_httpx_fetcher(
+    client = oauth.create_httpx_upstream_client(
         FetchSettings(total_retries=1, backoff_factor=0)
     )
 
     try:
-        result = await fetcher(
+        result = await client.fetch(
             f"http://{host}:{port}/token",
             types.UpstreamGrantType.AUTHORIZATION_CODE,
         )
     finally:
-        await fetcher.aclose()
+        await client.aclose()
         server.shutdown()
         server.server_close()
         server_thread.join()
@@ -85,12 +85,12 @@ async def test_httpx_fetcher_rejects_non_success_token_payload(
     server_thread = Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
     host, port = server.server_address
-    fetcher = oauth.create_httpx_fetcher(FetchSettings(total_retries=0))
+    client = oauth.create_httpx_upstream_client(FetchSettings(total_retries=0))
 
     try:
-        result = await fetcher(f"http://{host}:{port}/token", upstream_grant_type)
+        result = await client.fetch(f"http://{host}:{port}/token", upstream_grant_type)
     finally:
-        await fetcher.aclose()
+        await client.aclose()
         server.shutdown()
         server.server_close()
         server_thread.join()
@@ -124,12 +124,12 @@ async def test_httpx_fetcher_rejects_redirect(
     server_thread = Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
     host, port = server.server_address
-    fetcher = oauth.create_httpx_fetcher(FetchSettings(total_retries=0))
+    client = oauth.create_httpx_upstream_client(FetchSettings(total_retries=0))
 
     try:
-        result = await fetcher(f"http://{host}:{port}/token", upstream_grant_type)
+        result = await client.fetch(f"http://{host}:{port}/token", upstream_grant_type)
     finally:
-        await fetcher.aclose()
+        await client.aclose()
         server.shutdown()
         server.server_close()
         server_thread.join()
@@ -162,15 +162,15 @@ async def test_httpx_fetcher_preserves_retryable_response_when_retry_delay_is_ca
     server_thread = Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
     host, port = server.server_address
-    fetcher = oauth.create_httpx_fetcher(FetchSettings(total_retries=1))
+    client = oauth.create_httpx_upstream_client(FetchSettings(total_retries=1))
 
     try:
-        result = await fetcher(
+        result = await client.fetch(
             f"http://{host}:{port}/token",
             types.UpstreamGrantType.AUTHORIZATION_CODE,
         )
     finally:
-        await fetcher.aclose()
+        await client.aclose()
         server.shutdown()
         server.server_close()
         server_thread.join()
