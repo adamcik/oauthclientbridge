@@ -177,6 +177,16 @@ Socket paths:
 - Spotify: `/run/oauthclientbridge/spotify/uvicorn.sock`
 - SoundCloud: `/run/oauthclientbridge/soundcloud/uvicorn.sock`
 
+### Graceful shutdown
+
+On `SIGTERM`, Uvicorn stops accepting new connections and drains active request
+tasks before it runs the application lifespan shutdown that closes the
+runtime-owned HTTPX client. Set `ASGI_GRACEFUL_SHUTDOWN_TIMEOUT` higher than
+`FETCH_TOTAL_TIMEOUT`; the supplied 25-second and 20-second defaults provide a
+five-second drain margin. Keep the Uvicorn timeout below systemd's
+`TimeoutStopSec`, which is 45 seconds in the supplied units, so ASGI cleanup can
+finish before systemd sends `SIGKILL`.
+
 Use canary match on your own source IP(s), route only canary to new sockets,
 keep legacy upstreams for everyone else.
 
