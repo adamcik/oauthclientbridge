@@ -45,19 +45,21 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: Starlette):
-        if not await to_thread.run_sync(db.is_initialized, settings.database):
-            raise RuntimeError(
-                "Database must be initialized before starting runtime services"
-            )
-        async with create_task_group() as group:
-            await token_state_refresher.start(group)
-            telemetry.start_asyncio_monitor(group, "main")
-            try:
-                yield
-            finally:
-                if runtime_fetcher is not None:
-                    await runtime_fetcher.aclose()
-                group.cancel_scope.cancel()
+        try:
+            if not await to_thread.run_sync(db.is_initialized, settings.database):
+                raise RuntimeError(
+                    "Database must be initialized before starting runtime services"
+                )
+            async with create_task_group() as group:
+                await token_state_refresher.start(group)
+                telemetry.start_asyncio_monitor(group, "main")
+                try:
+                    yield
+                finally:
+                    group.cancel_scope.cancel()
+        finally:
+            if runtime_fetcher is not None:
+                await runtime_fetcher.aclose()
 
     app = Starlette(
         routes=routes,
