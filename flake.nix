@@ -317,6 +317,7 @@
             exec ${runtimeVenv}/bin/uvicorn \
               --factory oauthclientbridge.asgi:create_app \
               --no-proxy-headers \
+              --timeout-graceful-shutdown "''${ASGI_GRACEFUL_SHUTDOWN_TIMEOUT:-25}" \
               --workers "''${WORKERS:-4}" \
               "$@"
           '';
