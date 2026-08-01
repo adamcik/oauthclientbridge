@@ -23,11 +23,6 @@ def create_app(
     if settings is None:
         settings = Settings()
 
-    if settings.fetch.total_timeout >= settings.asgi.graceful_shutdown_timeout:
-        raise ValueError(
-            "ASGI graceful shutdown timeout must exceed the fetch deadline"
-        )
-
     if initialize_runtime:
         logs.init_logging(settings.log)
         telemetry.init_sentry(settings.sentry, "starlette")
