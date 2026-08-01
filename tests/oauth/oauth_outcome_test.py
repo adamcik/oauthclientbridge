@@ -10,7 +10,7 @@ from oauthclientbridge.oauth import (
     _outcome as oauth_outcome,  # pyright: ignore[reportPrivateUsage] # Direct implementation test.
 )
 from oauthclientbridge.oauth._retry import (
-    RetryReason,  # pyright: ignore[reportPrivateUsage] # Direct implementation test.
+    RetryCondition,  # pyright: ignore[reportPrivateUsage] # Direct implementation test.
 )
 from oauthclientbridge.settings import current_settings
 
@@ -53,7 +53,7 @@ class TokenEndpointOutcomeCase:
     expected_retryable: bool
     expected_normalized_error: OAuthError | None
     expected_invalidate_refresh_token: bool
-    expected_retry_reason: RetryReason | None
+    expected_retry_condition: RetryCondition | None
 
 
 @pytest.mark.parametrize(
@@ -66,7 +66,7 @@ class TokenEndpointOutcomeCase:
             expected_retryable=False,
             expected_normalized_error=None,
             expected_invalidate_refresh_token=False,
-            expected_retry_reason=None,
+            expected_retry_condition=None,
         ),
         TokenEndpointOutcomeCase(
             name="success invalid grant payload",
@@ -75,7 +75,7 @@ class TokenEndpointOutcomeCase:
             expected_retryable=False,
             expected_normalized_error=OAuthError.INVALID_GRANT,
             expected_invalidate_refresh_token=False,
-            expected_retry_reason=None,
+            expected_retry_condition=None,
         ),
         TokenEndpointOutcomeCase(
             name="bad request invalid grant",
@@ -84,7 +84,7 @@ class TokenEndpointOutcomeCase:
             expected_retryable=False,
             expected_normalized_error=OAuthError.INVALID_GRANT,
             expected_invalidate_refresh_token=True,
-            expected_retry_reason=None,
+            expected_retry_condition=None,
         ),
         TokenEndpointOutcomeCase(
             name="bad request invalid client",
@@ -93,7 +93,7 @@ class TokenEndpointOutcomeCase:
             expected_retryable=False,
             expected_normalized_error=OAuthError.INVALID_CLIENT,
             expected_invalidate_refresh_token=False,
-            expected_retry_reason=None,
+            expected_retry_condition=None,
         ),
         TokenEndpointOutcomeCase(
             name="bad request invalid request",
@@ -102,7 +102,7 @@ class TokenEndpointOutcomeCase:
             expected_retryable=False,
             expected_normalized_error=OAuthError.INVALID_REQUEST,
             expected_invalidate_refresh_token=False,
-            expected_retry_reason=None,
+            expected_retry_condition=None,
         ),
         TokenEndpointOutcomeCase(
             name="unauthorized invalid client",
@@ -111,7 +111,7 @@ class TokenEndpointOutcomeCase:
             expected_retryable=False,
             expected_normalized_error=OAuthError.INVALID_CLIENT,
             expected_invalidate_refresh_token=False,
-            expected_retry_reason=None,
+            expected_retry_condition=None,
         ),
         TokenEndpointOutcomeCase(
             name="too many requests retryable",
@@ -120,7 +120,7 @@ class TokenEndpointOutcomeCase:
             expected_retryable=True,
             expected_normalized_error=OAuthError.TEMPORARILY_UNAVAILABLE,
             expected_invalidate_refresh_token=False,
-            expected_retry_reason=RetryReason.RESOURCE_EXHAUSTED,
+            expected_retry_condition=RetryCondition.RESOURCE_EXHAUSTED,
         ),
         TokenEndpointOutcomeCase(
             name="service unavailable invalid grant",
@@ -129,7 +129,7 @@ class TokenEndpointOutcomeCase:
             expected_retryable=True,
             expected_normalized_error=OAuthError.TEMPORARILY_UNAVAILABLE,
             expected_invalidate_refresh_token=False,
-            expected_retry_reason=RetryReason.UNAVAILABLE,
+            expected_retry_condition=RetryCondition.UNAVAILABLE,
         ),
         TokenEndpointOutcomeCase(
             name="service unavailable invalid client",
@@ -138,7 +138,7 @@ class TokenEndpointOutcomeCase:
             expected_retryable=True,
             expected_normalized_error=OAuthError.TEMPORARILY_UNAVAILABLE,
             expected_invalidate_refresh_token=False,
-            expected_retry_reason=RetryReason.UNAVAILABLE,
+            expected_retry_condition=RetryCondition.UNAVAILABLE,
         ),
         TokenEndpointOutcomeCase(
             name="service unavailable oauth unavailable",
@@ -147,7 +147,7 @@ class TokenEndpointOutcomeCase:
             expected_retryable=True,
             expected_normalized_error=OAuthError.TEMPORARILY_UNAVAILABLE,
             expected_invalidate_refresh_token=False,
-            expected_retry_reason=RetryReason.UNAVAILABLE,
+            expected_retry_condition=RetryCondition.UNAVAILABLE,
         ),
         TokenEndpointOutcomeCase(
             name="transport failure",
@@ -156,7 +156,7 @@ class TokenEndpointOutcomeCase:
             expected_retryable=True,
             expected_normalized_error=OAuthError.TEMPORARILY_UNAVAILABLE,
             expected_invalidate_refresh_token=False,
-            expected_retry_reason=RetryReason.UNAVAILABLE,
+            expected_retry_condition=RetryCondition.UNAVAILABLE,
         ),
         TokenEndpointOutcomeCase(
             name="service unavailable success payload",
@@ -165,7 +165,7 @@ class TokenEndpointOutcomeCase:
             expected_retryable=True,
             expected_normalized_error=OAuthError.TEMPORARILY_UNAVAILABLE,
             expected_invalidate_refresh_token=False,
-            expected_retry_reason=RetryReason.UNAVAILABLE,
+            expected_retry_condition=RetryCondition.UNAVAILABLE,
         ),
         TokenEndpointOutcomeCase(
             name="success token with refresh token",
@@ -178,7 +178,7 @@ class TokenEndpointOutcomeCase:
             expected_retryable=False,
             expected_normalized_error=None,
             expected_invalidate_refresh_token=False,
-            expected_retry_reason=None,
+            expected_retry_condition=None,
         ),
     ],
     ids=lambda case: case.name,
@@ -197,4 +197,4 @@ def test_token_endpoint_outcome(
     assert actual.retryable == case.expected_retryable
     assert actual.normalized_error == case.expected_normalized_error
     assert actual.invalidate_refresh_token == case.expected_invalidate_refresh_token
-    assert actual.retry_reason == case.expected_retry_reason
+    assert actual.retry_condition == case.expected_retry_condition
