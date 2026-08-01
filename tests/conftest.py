@@ -29,6 +29,7 @@ from oauthclientbridge.settings import (
     OAuthSettings,
     Settings,
 )
+from tests.oauth_server import OAuthServer
 
 pytest_plugins = ["tests.plugins.sentry", "tests.plugins.otel"]
 
@@ -53,6 +54,15 @@ def reset_logging_handlers():
 @pytest.fixture(autouse=True)
 def reset_retry_limiter():
     oauth_retry.get_retry_limiter.cache_clear()
+
+
+@pytest.fixture
+def oauth_server() -> Generator[OAuthServer, None, None]:
+    server = OAuthServer()
+    try:
+        yield server
+    finally:
+        server.close()
 
 
 class ResponseTuple(NamedTuple):
