@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from collections.abc import Iterable, Sized
-from typing import Protocol, cast
+from typing import ClassVar, Protocol, cast
 
 import anyio
 from opentelemetry import metrics
@@ -26,7 +26,10 @@ class _LoopInternals(Protocol):
 class AsyncioMonitor:
     """Collect health signals for one explicitly named asyncio event loop."""
 
+    _monitors: ClassVar[dict[str, "AsyncioMonitor"]] = {}
+
     def __init__(self, name: str) -> None:
+        self._name = name
         self._attributes = {"asyncio.loop.name": name}
         self._loop: asyncio.AbstractEventLoop | None = None
         self._introspection_enabled = True
@@ -34,6 +37,7 @@ class AsyncioMonitor:
         self._scheduled_callbacks = 0
         self._active_tasks = 0
         self._cancelling_tasks = 0
+        self._monitors[name] = self
 
         meter = metrics.get_meter(__name__)
         self._schedule_delay = meter.create_histogram(
@@ -75,16 +79,19 @@ class AsyncioMonitor:
         """Run the watchdog until the enclosing task group cancels it."""
         self._loop = asyncio.get_running_loop()
         deadline = anyio.current_time() + _WATCHDOG_INTERVAL_SECONDS
-        while True:
-            await anyio.sleep_until(deadline)
-            now = anyio.current_time()
-            self._record_tick(max(now - deadline, 0))
-            self._snapshot()
+        try:
+            while True:
+                await anyio.sleep_until(deadline)
+                now = anyio.current_time()
+                self._record_tick(max(now - deadline, 0))
+                self._snapshot()
 
-            # Preserve a fixed cadence without producing a burst after a stall.
-            deadline += _WATCHDOG_INTERVAL_SECONDS
-            while deadline <= now:
+                # Preserve a fixed cadence without producing a burst after a stall.
                 deadline += _WATCHDOG_INTERVAL_SECONDS
+                while deadline <= now:
+                    deadline += _WATCHDOG_INTERVAL_SECONDS
+        finally:
+            self._introspection_enabled = False
 
     def _record_tick(self, delay: float) -> None:
         self._schedule_delay.record(delay, self._attributes)
@@ -113,16 +120,23 @@ class AsyncioMonitor:
             )
 
     def _observe_ready_callbacks(self, _: CallbackOptions) -> Iterable[Observation]:
-        return self._observe(self._ready_callbacks)
+        monitor = self._active_monitor()
+        return monitor._observe(monitor._ready_callbacks) if monitor else ()
 
     def _observe_scheduled_callbacks(self, _: CallbackOptions) -> Iterable[Observation]:
-        return self._observe(self._scheduled_callbacks)
+        monitor = self._active_monitor()
+        return monitor._observe(monitor._scheduled_callbacks) if monitor else ()
 
     def _observe_active_tasks(self, _: CallbackOptions) -> Iterable[Observation]:
-        return self._observe(self._active_tasks)
+        monitor = self._active_monitor()
+        return monitor._observe(monitor._active_tasks) if monitor else ()
 
     def _observe_cancelling_tasks(self, _: CallbackOptions) -> Iterable[Observation]:
-        return self._observe(self._cancelling_tasks)
+        monitor = self._active_monitor()
+        return monitor._observe(monitor._cancelling_tasks) if monitor else ()
+
+    def _active_monitor(self) -> "AsyncioMonitor | None":
+        return self._monitors.get(self._name)
 
     def _observe(self, value: int) -> Iterable[Observation]:
         if self._loop is None or not self._introspection_enabled:
