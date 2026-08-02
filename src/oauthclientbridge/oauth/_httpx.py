@@ -143,7 +143,7 @@ async def _fetch(
                         description="Provider connection pool is unavailable."
                     )
                 except httpx.ReadTimeout:
-                    result = OAuthError.TEMPORARILY_UNAVAILABLE.json(
+                    return OAuthError.TEMPORARILY_UNAVAILABLE.json(
                         description="Request timed out while connecting to provider."
                     )
                 except httpx.TimeoutException:
