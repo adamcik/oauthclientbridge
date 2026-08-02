@@ -116,12 +116,13 @@ async def _fetch(
     retry_limiter = get_retry_limiter(
         settings.retry_budget_capacity, settings.retry_budget_refill_per_initial
     )
-    retry_limiter.add(settings.retry_budget_refill_per_initial)
     timed_out_result: OAuthResponse | None = None
     try:
         with anyio.fail_after(settings.total_timeout):
             deadline = anyio.current_time() + settings.total_timeout
             for attempt in range(settings.total_attempts):
+                if attempt == 0:
+                    retry_limiter.add(settings.retry_budget_refill_per_initial)
                 retry_after_seconds = 0
                 status: HTTPStatus | None = None
                 try:
@@ -143,9 +144,14 @@ async def _fetch(
                         description="Provider connection pool is unavailable."
                     )
                 except httpx.ReadTimeout:
-                    return OAuthError.TEMPORARILY_UNAVAILABLE.json(
-                        description="Request timed out while connecting to provider."
+                    result = OAuthError.TEMPORARILY_UNAVAILABLE.json(
+                        description="Request timed out while reading from provider."
                     )
+                    if (
+                        upstream_grant_type
+                        not in settings.read_timeout_retry_grant_types
+                    ):
+                        return result
                 except httpx.TimeoutException:
                     result = OAuthError.SERVER_ERROR.json(
                         description="Request timed out while connecting to provider."
