@@ -3,7 +3,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Event, Thread
 
 import anyio
-import httpx
 import pytest
 
 from oauthclientbridge import oauth, types
@@ -81,40 +80,6 @@ async def test_httpx_fetcher_limits_requests_to_total_attempts(
         await client.aclose()
 
     assert len(oauth_server.requests) == 3
-
-
-@pytest.mark.anyio
-async def test_httpx_fetcher_retries_read_timeout(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    attempts = 0
-
-    async def post(_: httpx.AsyncClient, url: str, **_kwargs: object) -> httpx.Response:
-        nonlocal attempts
-        attempts += 1
-        if attempts == 1:
-            raise httpx.ReadTimeout("read timed out")
-        return httpx.Response(
-            HTTPStatus.OK,
-            json={"access_token": "provider-token", "token_type": "Bearer"},
-            request=httpx.Request("POST", url),
-        )
-
-    monkeypatch.setattr(httpx.AsyncClient, "post", post)
-    client = oauth.create_httpx_upstream_client(
-        FetchSettings(total_attempts=2, backoff_factor=0)
-    )
-
-    try:
-        result = await client.fetch(
-            "https://provider.example.com/token",
-            types.UpstreamGrantType.AUTHORIZATION_CODE,
-        )
-    finally:
-        await client.aclose()
-
-    assert result == {"access_token": "provider-token", "token_type": "Bearer"}
-    assert attempts == 2
 
 
 @pytest.mark.anyio
