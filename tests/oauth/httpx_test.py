@@ -3,6 +3,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Event, Thread
 
 import anyio
+import httpx
 import pytest
 
 from oauthclientbridge import oauth, types
@@ -80,6 +81,40 @@ async def test_httpx_fetcher_limits_requests_to_total_attempts(
         await client.aclose()
 
     assert len(oauth_server.requests) == 3
+
+
+@pytest.mark.anyio
+async def test_httpx_fetcher_retries_read_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts = 0
+
+    async def post(_: httpx.AsyncClient, url: str, **_kwargs: object) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise httpx.ReadTimeout("read timed out")
+        return httpx.Response(
+            HTTPStatus.OK,
+            json={"access_token": "provider-token", "token_type": "Bearer"},
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+    client = oauth.create_httpx_upstream_client(
+        FetchSettings(total_attempts=2, backoff_factor=0)
+    )
+
+    try:
+        result = await client.fetch(
+            "https://provider.example.com/token",
+            types.UpstreamGrantType.AUTHORIZATION_CODE,
+        )
+    finally:
+        await client.aclose()
+
+    assert result == {"access_token": "provider-token", "token_type": "Bearer"}
+    assert attempts == 2
 
 
 @pytest.mark.anyio
@@ -245,11 +280,20 @@ async def test_httpx_fetcher_cancels_inflight_request_and_closes_within_deadline
 
     class OAuthHandler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
+        requests = 0
 
         def do_POST(self) -> None:  # noqa: N802 # Required by BaseHTTPRequestHandler.
+            type(self).requests += 1
             self.rfile.read(int(self.headers["Content-Length"]))
-            request_started.set()
-            assert release_request.wait(timeout=1)
+            if self.requests == 1:
+                request_started.set()
+                assert release_request.wait(timeout=1)
+            body = b'{"access_token":"provider-token","token_type":"Bearer"}'
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
 
         def log_message(self, _format: str, *_args: object) -> None:
             pass
@@ -259,7 +303,9 @@ async def test_httpx_fetcher_cancels_inflight_request_and_closes_within_deadline
     server_thread = Thread(target=server.serve_forever, daemon=True)
     server_thread.start()
     host, port = server.server_address
-    client = oauth.create_httpx_upstream_client(FetchSettings(total_attempts=1))
+    client = oauth.create_httpx_upstream_client(
+        FetchSettings(total_attempts=2, backoff_factor=0)
+    )
     cancelled = False
 
     async def fetch() -> None:
@@ -275,6 +321,8 @@ async def test_httpx_fetcher_cancels_inflight_request_and_closes_within_deadline
             assert await anyio.to_thread.run_sync(request_started.wait, 1)
             task_group.cancel_scope.cancel()
 
+        release_request.set()
+        result = await client.fetch(f"http://{host}:{port}/token", upstream_grant_type)
         with anyio.fail_after(1):
             await client.aclose()
     finally:
@@ -284,3 +332,52 @@ async def test_httpx_fetcher_cancels_inflight_request_and_closes_within_deadline
         server_thread.join()
 
     assert cancelled is True
+    assert result == {"access_token": "provider-token", "token_type": "Bearer"}
+    assert OAuthHandler.requests == 2
+
+
+@pytest.mark.anyio
+async def test_httpx_upstream_client_shutdown_rejects_new_fetches_while_draining_active_work() -> (
+    None
+):
+    request_started = Event()
+    release_request = Event()
+
+    class OAuthHandler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def do_POST(self) -> None:  # noqa: N802 # Required by BaseHTTPRequestHandler.
+            self.rfile.read(int(self.headers["Content-Length"]))
+            request_started.set()
+            assert release_request.wait(timeout=1)
+
+        def log_message(self, _format: str, *_args: object) -> None:
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), OAuthHandler)
+    server.daemon_threads = True
+    server_thread = Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
+    host, port = server.server_address
+    uri = f"http://{host}:{port}/token"
+    client = oauth.create_httpx_upstream_client(
+        FetchSettings(total_attempts=1, total_timeout=0.1)
+    )
+
+    async def fetch() -> None:
+        await client.fetch(uri, types.UpstreamGrantType.AUTHORIZATION_CODE)
+
+    try:
+        async with anyio.create_task_group() as task_group:
+            task_group.start_soon(fetch)
+            assert await anyio.to_thread.run_sync(request_started.wait, 1)
+            task_group.start_soon(client.aclose)
+            await anyio.sleep(0)
+
+            with pytest.raises(RuntimeError, match="shutting down"):
+                await client.fetch(uri, types.UpstreamGrantType.AUTHORIZATION_CODE)
+    finally:
+        release_request.set()
+        server.shutdown()
+        server.server_close()
+        server_thread.join()

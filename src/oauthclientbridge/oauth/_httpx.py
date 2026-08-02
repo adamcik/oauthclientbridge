@@ -20,6 +20,12 @@ from ._retry import (
 class HttpxUpstreamClient:
     def __init__(self, settings: FetchSettings) -> None:
         self._settings = settings
+        self._lock = anyio.Lock()
+        self._fetch_scopes: set[anyio.CancelScope] = set()
+        self._fetches_drained = anyio.Event()
+        self._fetches_drained.set()
+        self._close_complete = anyio.Event()
+        self._closing = False
         self._client = httpx.AsyncClient(
             follow_redirects=False,
             limits=httpx.Limits(
@@ -42,12 +48,56 @@ class HttpxUpstreamClient:
         auth: str | None = None,
         **data: str | None,
     ) -> OAuthResponse:
-        return await _fetch(
-            self._client, self._settings, uri, upstream_grant_type, data, auth
-        )
+        fetch_scope = anyio.CancelScope()
+        result: OAuthResponse | None = None
+        async with self._lock:
+            if self._closing:
+                raise RuntimeError("Upstream HTTP client is shutting down")
+            if not self._fetch_scopes:
+                self._fetches_drained = anyio.Event()
+            self._fetch_scopes.add(fetch_scope)
+
+        try:
+            with fetch_scope:
+                result = await _fetch(
+                    self._client, self._settings, uri, upstream_grant_type, data, auth
+                )
+            if fetch_scope.cancelled_caught:
+                raise anyio.get_cancelled_exc_class()
+            assert result is not None
+            return result
+        finally:
+            with anyio.CancelScope(shield=True):
+                async with self._lock:
+                    self._fetch_scopes.remove(fetch_scope)
+                    if not self._fetch_scopes:
+                        self._fetches_drained.set()
 
     async def aclose(self) -> None:
-        await self._client.aclose()
+        with anyio.CancelScope(shield=True):
+            fetches_drained: anyio.Event | None = None
+            async with self._lock:
+                if self._closing:
+                    close_complete = self._close_complete
+                else:
+                    self._closing = True
+                    close_complete = None
+                    fetches_drained = self._fetches_drained
+
+            if close_complete is not None:
+                await close_complete.wait()
+                return
+
+            assert fetches_drained is not None
+            with anyio.move_on_after(self._settings.total_timeout) as shutdown_timeout:
+                await fetches_drained.wait()
+            if shutdown_timeout.cancel_called:
+                async with self._lock:
+                    for fetch_scope in self._fetch_scopes:
+                        fetch_scope.cancel()
+
+            await self._client.aclose()
+            self._close_complete.set()
 
 
 def create_upstream_client(settings: FetchSettings) -> HttpxUpstreamClient:
@@ -93,7 +143,7 @@ async def _fetch(
                         description="Provider connection pool is unavailable."
                     )
                 except httpx.ReadTimeout:
-                    return OAuthError.TEMPORARILY_UNAVAILABLE.json(
+                    result = OAuthError.TEMPORARILY_UNAVAILABLE.json(
                         description="Request timed out while connecting to provider."
                     )
                 except httpx.TimeoutException:
