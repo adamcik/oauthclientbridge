@@ -14,6 +14,7 @@ from pydantic_settings import (
 )
 from werkzeug.local import LocalProxy
 
+from oauthclientbridge import types
 from oauthclientbridge.errors import OAuthError
 
 
@@ -90,6 +91,9 @@ class FetchSettings(BaseSettings):
 
     retry_budget_refill_per_initial: float = 0.25
     """How much retry budget each initial outgoing request replenishes."""
+
+    read_timeout_retry_grant_types: tuple[types.UpstreamGrantType, ...] = ()
+    """Grant types whose providers explicitly permit retries after read timeouts."""
 
     retry_status_codes: tuple[HTTPStatus, ...] = Field(
         (

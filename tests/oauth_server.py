@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from threading import Lock, Thread
+from threading import Event, Lock, Thread
 from typing import Self, cast
 
 from oauthclientbridge import types
@@ -26,6 +26,8 @@ class _Expectation:
     status: HTTPStatus
     headers: Mapping[str, str]
     body: bytes
+    request_started: Event | None
+    hold_until: Event | None
 
 
 class _RequestHandler(BaseHTTPRequestHandler):
@@ -42,12 +44,19 @@ class _RequestHandler(BaseHTTPRequestHandler):
                 client_address=self.client_address,
             )
         )
+        if expectation.request_started is not None:
+            expectation.request_started.set()
+        if expectation.hold_until is not None:
+            assert expectation.hold_until.wait(timeout=1)
         self.send_response(expectation.status)
         for name, value in expectation.headers.items():
             self.send_header(name, value)
         self.send_header("Content-Length", str(len(expectation.body)))
         self.end_headers()
-        self.wfile.write(expectation.body)
+        try:
+            self.wfile.write(expectation.body)
+        except BrokenPipeError:
+            pass
 
     def log_message(self, _format: str, *_args: object) -> None:
         pass
@@ -68,6 +77,8 @@ class Expectation:
         *,
         status: int = HTTPStatus.OK,
         headers: Mapping[str, str] | None = None,
+        request_started: Event | None = None,
+        hold_until: Event | None = None,
     ) -> None:
         body = b"" if response is None else json.dumps(response).encode()
         response_headers = (
@@ -76,7 +87,15 @@ class Expectation:
         if headers is not None:
             response_headers.update(headers)
         self._oauth_server._expectations.append(
-            _Expectation("POST", self._path, HTTPStatus(status), response_headers, body)
+            _Expectation(
+                "POST",
+                self._path,
+                HTTPStatus(status),
+                response_headers,
+                body,
+                request_started,
+                hold_until,
+            )
         )
 
 

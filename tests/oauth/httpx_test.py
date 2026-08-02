@@ -83,6 +83,96 @@ async def test_httpx_fetcher_limits_requests_to_total_attempts(
 
 
 @pytest.mark.anyio
+async def test_httpx_fetcher_retries_read_timeout_when_grant_type_is_configured(
+    oauth_server: OAuthServer,
+) -> None:
+    request_started = Event()
+    release_request = Event()
+    oauth_server.expect("/token").respond(
+        request_started=request_started,
+        hold_until=release_request,
+    )
+    oauth_server.expect("/token").respond(
+        {"access_token": "provider-token", "token_type": "Bearer"}
+    )
+    client = oauth.create_httpx_upstream_client(
+        FetchSettings(
+            total_attempts=2,
+            timeout=0.1,
+            backoff_factor=0,
+            read_timeout_retry_grant_types=(
+                types.UpstreamGrantType.AUTHORIZATION_CODE,
+            ),
+        )
+    )
+
+    result: dict[str, object] | None = None
+
+    async def fetch() -> None:
+        nonlocal result
+        result = await client.fetch(
+            oauth_server.url_for("/token"),
+            types.UpstreamGrantType.AUTHORIZATION_CODE,
+        )
+
+    try:
+        async with anyio.create_task_group() as task_group:
+            task_group.start_soon(fetch)
+            assert await anyio.to_thread.run_sync(request_started.wait, 1)
+    finally:
+        release_request.set()
+        await client.aclose()
+
+    assert result is not None
+    assert result == {"access_token": "provider-token", "token_type": "Bearer"}
+    assert len(oauth_server.requests) == 2
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "upstream_grant_type",
+    [
+        types.UpstreamGrantType.AUTHORIZATION_CODE,
+        types.UpstreamGrantType.REFRESH_TOKEN,
+    ],
+)
+async def test_httpx_fetcher_does_not_retry_read_timeout_by_default(
+    upstream_grant_type: types.UpstreamGrantType,
+    oauth_server: OAuthServer,
+) -> None:
+    request_started = Event()
+    release_request = Event()
+    oauth_server.expect("/token").respond(
+        request_started=request_started,
+        hold_until=release_request,
+    )
+    client = oauth.create_httpx_upstream_client(
+        FetchSettings(total_attempts=2, timeout=0.1, backoff_factor=0)
+    )
+
+    result: dict[str, object] | None = None
+
+    async def fetch() -> None:
+        nonlocal result
+        result = await client.fetch(oauth_server.url_for("/token"), upstream_grant_type)
+
+    try:
+        async with anyio.create_task_group() as task_group:
+            task_group.start_soon(fetch)
+            assert await anyio.to_thread.run_sync(request_started.wait, 1)
+    finally:
+        release_request.set()
+        await client.aclose()
+
+    assert result is not None
+    assert result == {
+        "error": "temporarily_unavailable",
+        "error_description": "Request timed out while reading from provider.",
+    }
+    assert len(oauth_server.requests) == 1
+
+
+@pytest.mark.anyio
 async def test_httpx_fetcher_does_not_spend_budget_on_deadline_skipped_retry(
     oauth_server: OAuthServer,
 ) -> None:
