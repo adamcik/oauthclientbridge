@@ -14,7 +14,7 @@ from opentelemetry import metrics, trace
 from opentelemetry.sdk.metrics.export import HistogramDataPoint, NumberDataPoint
 from requests_mock import Mocker
 
-from oauthclientbridge import db, oauth, telemetry
+from oauthclientbridge import db, oauth, telemetry, types
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.oauth import (
     _core as oauth_core,  # pyright: ignore[reportPrivateUsage] # Direct implementation test.
@@ -667,7 +667,7 @@ def test_db_cursor_duration_metric(
     app_context: flask.ctx.AppContext,
     otel_mock: otel.OTelMocker,
 ):
-    with db.cursor("test_operation", transaction=True) as c:
+    with db.cursor(types.DatabaseOperation.INSERT_TOKEN, transaction=True) as c:
         # Perform some dummy DB operations using the provided cursor 'c'
         c.execute("CREATE TABLE IF NOT EXISTS test_table (id INTEGER PRIMARY KEY)")
         c.execute("INSERT INTO test_table (id) VALUES (1)")
@@ -677,12 +677,12 @@ def test_db_cursor_duration_metric(
         metrics,
         "oauth.db.cursor.duration",
         HistogramDataPoint,
-        attributes={"db.operation": "test_operation"},
+        attributes={"db.operation": "insert_token"},
         scope="oauthclientbridge.db",
     )
 
     assert data.attributes is not None
-    assert data.attributes["db.operation"] == "test_operation"
+    assert data.attributes["db.operation"] == "insert_token"
     assert "error.type" not in data.attributes
     assert data.count == 1
 
@@ -691,7 +691,7 @@ def test_db_cursor_count_metric_success(
     app_context: flask.ctx.AppContext,
     otel_mock: otel.OTelMocker,
 ):
-    with db.cursor("test_operation", transaction=True) as c:
+    with db.cursor(types.DatabaseOperation.INSERT_TOKEN, transaction=True) as c:
         c.execute("CREATE TABLE IF NOT EXISTS test_table (id INTEGER PRIMARY KEY)")
         c.execute("INSERT INTO test_table (id) VALUES (1)")
 
@@ -700,12 +700,12 @@ def test_db_cursor_count_metric_success(
         metrics,
         "oauth.db.cursor.total",
         NumberDataPoint,
-        attributes={"db.operation": "test_operation"},
+        attributes={"db.operation": "insert_token"},
         scope="oauthclientbridge.db",
     )
 
     assert data.attributes is not None
-    assert data.attributes["db.operation"] == "test_operation"
+    assert data.attributes["db.operation"] == "insert_token"
     assert data.attributes["transaction"] is True
     assert data.attributes["db.system"] == "sqlite"
     assert data.attributes["db.name"] == current_settings.database.database
@@ -718,7 +718,7 @@ def test_db_cursor_duration_metric_error(
     otel_mock: otel.OTelMocker,
 ):
     with pytest.raises(sqlite3.Error):
-        with db.cursor("test_error_operation") as c:
+        with db.cursor(types.DatabaseOperation.LOOKUP_TOKEN) as c:
             c.execute("INVALID SQL QUERY")
 
     metrics = otel_mock.get_metrics_data()
@@ -726,12 +726,12 @@ def test_db_cursor_duration_metric_error(
         metrics,
         "oauth.db.cursor.duration",
         HistogramDataPoint,
-        attributes={"db.operation": "test_error_operation"},
+        attributes={"db.operation": "lookup_token"},
         scope="oauthclientbridge.db",
     )
 
     assert data.attributes is not None
-    assert data.attributes["db.operation"] == "test_error_operation"
+    assert data.attributes["db.operation"] == "lookup_token"
     assert data.attributes["error.type"] == "OperationalError"
     assert data.count == 1
 
@@ -741,7 +741,7 @@ def test_db_cursor_count_metric_error(
     otel_mock: otel.OTelMocker,
 ):
     with pytest.raises(sqlite3.Error):
-        with db.cursor("test_error_operation") as c:
+        with db.cursor(types.DatabaseOperation.LOOKUP_TOKEN) as c:
             c.execute("INVALID SQL QUERY")
 
     metrics = otel_mock.get_metrics_data()
@@ -749,12 +749,12 @@ def test_db_cursor_count_metric_error(
         metrics,
         "oauth.db.cursor.total",
         NumberDataPoint,
-        attributes={"db.operation": "test_error_operation"},
+        attributes={"db.operation": "lookup_token"},
         scope="oauthclientbridge.db",
     )
 
     assert data.attributes is not None
-    assert data.attributes["db.operation"] == "test_error_operation"
+    assert data.attributes["db.operation"] == "lookup_token"
     assert data.attributes["transaction"] is False
     assert data.attributes["db.system"] == "sqlite"
     assert data.attributes["db.name"] == current_settings.database.database

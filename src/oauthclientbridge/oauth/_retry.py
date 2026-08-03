@@ -1,27 +1,13 @@
 import functools
 from dataclasses import dataclass
-from enum import StrEnum
 from http import HTTPStatus
 
+from oauthclientbridge import types
 from oauthclientbridge.utils.bucket import Bucket
 
-
-class RetryAttemptKind(StrEnum):
-    INITIAL = "initial"
-    RETRY = "retry"
-
-
-class RetryDecisionAction(StrEnum):
-    RETRY = "retry"
-    SKIP = "skip"
-
-
-class RetryCondition(StrEnum):
-    BUDGET_EXHAUSTED = "budget_exhausted"
-    UNAVAILABLE = "unavailable"
-    RESOURCE_EXHAUSTED = "resource_exhausted"
-    DEADLINE_EXCEEDED = "deadline_exceeded"
-    UNKNOWN = "unknown"
+RetryAttemptKind = types.RetryAttemptKind
+RetryDecisionAction = types.RetryDecisionAction
+RetryCondition = types.RetryCondition
 
 
 @dataclass(frozen=True)
