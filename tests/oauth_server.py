@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from threading import Event, Lock, Thread
+from threading import Condition, Event, Lock, Thread
 from typing import Self, cast
 
 from oauthclientbridge import types
@@ -103,6 +103,7 @@ class OAuthServer:
     def __init__(self) -> None:
         self._expectations: deque[_Expectation] = deque()
         self._lock = Lock()
+        self._requests_ready = Condition(self._lock)
         self.requests: list[ObservedRequest] = []
         self._server = _OAuthServer(("127.0.0.1", 0), _RequestHandler)
         self._server.oauth_server = self
@@ -121,9 +122,16 @@ class OAuthServer:
         self._server.server_close()
         self._thread.join()
 
+    def wait_for_requests(self, count: int, timeout: float) -> bool:
+        with self._requests_ready:
+            return self._requests_ready.wait_for(
+                lambda: len(self.requests) >= count, timeout=timeout
+            )
+
     def _next_expectation(self, request: ObservedRequest) -> _Expectation:
         with self._lock:
             self.requests.append(request)
+            self._requests_ready.notify_all()
             if not self._expectations:
                 raise AssertionError("HTTP server received an unexpected request")
             expectation = self._expectations.popleft()

@@ -320,6 +320,134 @@ async def test_httpx_fetcher_reuses_http11_connection(
 
 
 @pytest.mark.anyio
+async def test_httpx_fetcher_rotates_connection_for_admitted_gateway_retry(
+    oauth_server: OAuthServer,
+) -> None:
+    oauth_server.expect("/token").respond(status=HTTPStatus.SERVICE_UNAVAILABLE)
+    oauth_server.expect("/token").respond(
+        {"access_token": "provider-token", "token_type": "Bearer"}
+    )
+    client = oauth.create_httpx_upstream_client(
+        FetchSettings(total_attempts=2, backoff_factor=0)
+    )
+
+    try:
+        result = await client.fetch(
+            oauth_server.url_for("/token"), types.UpstreamGrantType.AUTHORIZATION_CODE
+        )
+    finally:
+        await client.aclose()
+
+    assert result == {"access_token": "provider-token", "token_type": "Bearer"}
+    assert len({request.client_address for request in oauth_server.requests}) == 2
+
+
+@pytest.mark.anyio
+async def test_httpx_fetcher_retains_connection_for_too_many_requests_retry(
+    oauth_server: OAuthServer,
+) -> None:
+    oauth_server.expect("/token").respond(status=HTTPStatus.TOO_MANY_REQUESTS)
+    oauth_server.expect("/token").respond(
+        {"access_token": "provider-token", "token_type": "Bearer"}
+    )
+    client = oauth.create_httpx_upstream_client(
+        FetchSettings(total_attempts=2, backoff_factor=0)
+    )
+
+    try:
+        result = await client.fetch(
+            oauth_server.url_for("/token"), types.UpstreamGrantType.AUTHORIZATION_CODE
+        )
+    finally:
+        await client.aclose()
+
+    assert result == {"access_token": "provider-token", "token_type": "Bearer"}
+    assert len({request.client_address for request in oauth_server.requests}) == 1
+
+
+@pytest.mark.anyio
+async def test_httpx_fetcher_does_not_rotate_connection_when_budget_is_exhausted(
+    oauth_server: OAuthServer,
+) -> None:
+    oauth_server.expect("/token").respond(status=HTTPStatus.SERVICE_UNAVAILABLE)
+    oauth_server.expect("/token").respond(
+        {"access_token": "provider-token", "token_type": "Bearer"}
+    )
+    client = oauth.create_httpx_upstream_client(
+        FetchSettings(
+            total_attempts=2,
+            backoff_factor=0,
+            retry_budget_capacity=0,
+        )
+    )
+
+    try:
+        await client.fetch(
+            oauth_server.url_for("/token"), types.UpstreamGrantType.AUTHORIZATION_CODE
+        )
+        result = await client.fetch(
+            oauth_server.url_for("/token"), types.UpstreamGrantType.AUTHORIZATION_CODE
+        )
+    finally:
+        await client.aclose()
+
+    assert result == {"access_token": "provider-token", "token_type": "Bearer"}
+    assert len({request.client_address for request in oauth_server.requests}) == 1
+
+
+@pytest.mark.anyio
+async def test_httpx_fetcher_retries_concurrent_gateway_failures_on_fresh_connections(
+    oauth_server: OAuthServer,
+) -> None:
+    release_failures = Event()
+    oauth_server.expect("/token").respond(
+        status=HTTPStatus.SERVICE_UNAVAILABLE,
+        hold_until=release_failures,
+    )
+    oauth_server.expect("/token").respond(
+        status=HTTPStatus.SERVICE_UNAVAILABLE,
+        hold_until=release_failures,
+    )
+    for _ in range(2):
+        oauth_server.expect("/token").respond(
+            {"access_token": "provider-token", "token_type": "Bearer"}
+        )
+    client = oauth.create_httpx_upstream_client(
+        FetchSettings(total_attempts=2, backoff_factor=0)
+    )
+    results: list[dict[str, object]] = []
+
+    async def fetch() -> None:
+        results.append(
+            await client.fetch(
+                oauth_server.url_for("/token"),
+                types.UpstreamGrantType.AUTHORIZATION_CODE,
+            )
+        )
+
+    try:
+        async with anyio.create_task_group() as task_group:
+            task_group.start_soon(fetch)
+            task_group.start_soon(fetch)
+            assert await anyio.to_thread.run_sync(oauth_server.wait_for_requests, 2, 1)
+            release_failures.set()
+    finally:
+        await client.aclose()
+
+    assert results == [
+        {"access_token": "provider-token", "token_type": "Bearer"},
+        {"access_token": "provider-token", "token_type": "Bearer"},
+    ]
+    initial_connections = {
+        request.client_address for request in oauth_server.requests[:2]
+    }
+    retry_connections = {
+        request.client_address for request in oauth_server.requests[2:]
+    }
+    assert initial_connections.isdisjoint(retry_connections)
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     "upstream_grant_type",
     [
