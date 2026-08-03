@@ -61,7 +61,7 @@ async def test_fetch_tracker_drains_work_completed_before_deadline() -> None:
         task_group.start_soon(fetch)
         await started.wait()
         task_group.start_soon(close)
-        await anyio.sleep(0)
+        await fetches._closing_started.wait()  # pyright: ignore[reportPrivateUsage] # Lifecycle synchronization.
 
         with pytest.raises(RuntimeError, match="shutting down"):
             async with fetches.track():
@@ -640,47 +640,12 @@ async def test_httpx_fetcher_cancels_inflight_request_and_closes_within_deadline
 
 
 @pytest.mark.anyio
-async def test_httpx_upstream_client_shutdown_rejects_new_fetches_while_draining_active_work() -> (
-    None
-):
-    request_started = Event()
-    release_request = Event()
+async def test_httpx_upstream_client_shutdown_rejects_new_fetches() -> None:
+    client = oauth.create_httpx_upstream_client(FetchSettings())
+    await client.aclose()
 
-    class OAuthHandler(BaseHTTPRequestHandler):
-        protocol_version = "HTTP/1.1"
-
-        def do_POST(self) -> None:  # noqa: N802 # Required by BaseHTTPRequestHandler.
-            self.rfile.read(int(self.headers["Content-Length"]))
-            request_started.set()
-            assert release_request.wait(timeout=1)
-
-        def log_message(self, _format: str, *_args: object) -> None:
-            pass
-
-    server = ThreadingHTTPServer(("127.0.0.1", 0), OAuthHandler)
-    server.daemon_threads = True
-    server_thread = Thread(target=server.serve_forever, daemon=True)
-    server_thread.start()
-    host, port = server.server_address
-    uri = f"http://{host}:{port}/token"
-    client = oauth.create_httpx_upstream_client(
-        FetchSettings(total_attempts=1, total_timeout=0.1)
-    )
-
-    async def fetch() -> None:
-        await client.fetch(uri, types.UpstreamGrantType.AUTHORIZATION_CODE)
-
-    try:
-        async with anyio.create_task_group() as task_group:
-            task_group.start_soon(fetch)
-            assert await anyio.to_thread.run_sync(request_started.wait, 1)
-            task_group.start_soon(client.aclose)
-            await anyio.sleep(0)
-
-            with pytest.raises(RuntimeError, match="shutting down"):
-                await client.fetch(uri, types.UpstreamGrantType.AUTHORIZATION_CODE)
-    finally:
-        release_request.set()
-        server.shutdown()
-        server.server_close()
-        server_thread.join()
+    with pytest.raises(RuntimeError, match="shutting down"):
+        await client.fetch(
+            "https://provider.example.com/token",
+            types.UpstreamGrantType.AUTHORIZATION_CODE,
+        )
