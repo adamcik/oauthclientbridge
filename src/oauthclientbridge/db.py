@@ -1,5 +1,4 @@
 import contextlib
-import re
 import sqlite3
 import time
 import uuid
@@ -19,6 +18,17 @@ IntegrityError = sqlite3.IntegrityError
 
 tracer = trace.get_tracer(__name__)
 meter = metrics.get_meter(__name__)
+_DATABASE_ERROR_LABELS: tuple[tuple[type[sqlite3.Error], types.DatabaseError], ...] = (
+    (sqlite3.InterfaceError, types.DatabaseError.INTERFACE_ERROR),
+    (sqlite3.DataError, types.DatabaseError.DATA_ERROR),
+    (sqlite3.OperationalError, types.DatabaseError.OPERATIONAL_ERROR),
+    (sqlite3.IntegrityError, types.DatabaseError.INTEGRITY_ERROR),
+    (sqlite3.InternalError, types.DatabaseError.INTERNAL_ERROR),
+    (sqlite3.ProgrammingError, types.DatabaseError.PROGRAMMING_ERROR),
+    (sqlite3.NotSupportedError, types.DatabaseError.NOT_SUPPORTED_ERROR),
+    (sqlite3.DatabaseError, types.DatabaseError.DATABASE_ERROR),
+    (sqlite3.Error, types.DatabaseError.ERROR),
+)
 
 _db_cursor_total_counter = meter.create_counter(
     name="oauth.db.cursor.total",
@@ -70,7 +80,9 @@ def upgrade() -> None:
 def is_initialized(database: DatabaseSettings | None = None) -> bool:
     """Return whether the configured database has the bridge schema."""
     if database is None:
-        with cursor(name="check_tokens_table", connection=None) as c:
+        with cursor(
+            name=types.DatabaseOperation.CHECK_TOKENS_TABLE, connection=None
+        ) as c:
             c.execute(
                 "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'tokens'"
             )
@@ -78,7 +90,7 @@ def is_initialized(database: DatabaseSettings | None = None) -> bool:
 
     with _connect(database) as connection:
         with cursor(
-            name="check_tokens_table",
+            name=types.DatabaseOperation.CHECK_TOKENS_TABLE,
             connection=connection,
             database_name=database.database,
         ) as c:
@@ -146,7 +158,7 @@ def vacuum() -> None:
 
 @contextlib.contextmanager
 def cursor(
-    name: str,
+    name: types.DatabaseOperation,
     transaction: bool = False,
     connection: sqlite3.Connection | None = None,
     database_name: str | None = None,
@@ -181,9 +193,7 @@ def cursor(
                             if transaction:
                                 connection.commit()
         except sqlite3.Error as e:
-            # https://www.python.org/dev/peps/pep-0249/#exceptions for values.
-            error = re.sub(r"(?!^)([A-Z])", r"_\1", e.__class__.__name__).lower()
-            telemetry.record_database_error_metric(name, error)
+            telemetry.record_database_error_metric(name, _database_error_label(e))
 
             attributes["error.type"] = e.__class__.__name__
             raise
@@ -191,6 +201,13 @@ def cursor(
             duration = time.monotonic() - start_time
             _db_cursor_duration_histogram.record(duration, attributes=attributes)
             _db_cursor_total_counter.add(1, attributes=attributes)
+
+
+def _database_error_label(error: sqlite3.Error) -> types.DatabaseError:
+    for exception_type, label in _DATABASE_ERROR_LABELS:
+        if isinstance(error, exception_type):
+            return label
+    raise AssertionError("Unrecognized sqlite error")
 
 
 def _prepare_token(token: types.EncryptedToken | None) -> str | None:
@@ -228,7 +245,7 @@ def insert(
     now = time_utils.utcnow()
     with _connect(database) as connection:
         with cursor(
-            name="insert_token",
+            name=types.DatabaseOperation.INSERT_TOKEN,
             transaction=True,
             connection=connection,
             database_name=database.database if database else None,
@@ -264,7 +281,7 @@ def lookup(
     """
     with _connect(database) as connection:
         with cursor(
-            name="lookup_token",
+            name=types.DatabaseOperation.LOOKUP_TOKEN,
             connection=connection,
             database_name=database.database if database else None,
         ) as c:
@@ -298,7 +315,7 @@ def update(
     now = time_utils.utcnow()
     with _connect(database) as connection:
         with cursor(
-            name="update_token",
+            name=types.DatabaseOperation.UPDATE_TOKEN,
             transaction=True,
             connection=connection,
             database_name=database.database if database else None,
@@ -326,7 +343,9 @@ def token_state_counts(database: DatabaseSettings | None = None) -> dict[str, in
 
 def _token_state_counts(connection: sqlite3.Connection | None = None) -> dict[str, int]:
     try:
-        with cursor(name="count_token_states", connection=connection) as c:
+        with cursor(
+            name=types.DatabaseOperation.COUNT_TOKEN_STATES, connection=connection
+        ) as c:
             c.execute(
                 """
                 SELECT
