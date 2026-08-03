@@ -69,7 +69,7 @@ ServerResponseSizeHistogram = prometheus_client.Histogram(
 
 ClientErrorCounter = prometheus_client.Counter(
     "oauth_client_error_total",
-    "OAuth errors from upstream provider.",
+    "OAuth client errors.",
     ["endpoint", "status", "error"],
     registry=registry,
 )

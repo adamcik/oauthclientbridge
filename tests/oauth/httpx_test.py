@@ -5,11 +5,11 @@ from threading import Event, Thread
 import anyio
 import pytest
 
-from oauthclientbridge import oauth, types
+from oauthclientbridge import oauth, telemetry, types
 from oauthclientbridge.oauth import (
     _httpx as httpx_implementation,  # pyright: ignore[reportPrivateUsage] # Deterministic retry-delay cancellation.
 )
-from oauthclientbridge.settings import FetchSettings
+from oauthclientbridge.settings import FetchSettings, PrometheusSettings
 from tests.oauth_server import OAuthServer
 
 
@@ -230,6 +230,66 @@ async def test_httpx_fetcher_does_not_retry_read_timeout_by_default(
         "error_description": "Request timed out while reading from provider.",
     }
     assert len(oauth_server.requests) == 1
+
+
+@pytest.mark.anyio
+async def test_httpx_fetcher_counts_pool_saturation_without_retrying(
+    oauth_server: OAuthServer,
+) -> None:
+    request_started = Event()
+    release_request = Event()
+    oauth_server.expect("/token").respond(
+        request_started=request_started,
+        hold_until=release_request,
+    )
+    oauth_server.expect("/token").respond(
+        {"access_token": "provider-token", "token_type": "Bearer"}
+    )
+    client = oauth.create_httpx_upstream_client(
+        FetchSettings(
+            total_attempts=3,
+            total_timeout=1,
+            pool_max_connections=1,
+            pool_max_keepalive_connections=1,
+            pool_timeout=0.1,
+        )
+    )
+
+    async def occupy_connection() -> None:
+        await client.fetch(
+            oauth_server.url_for("/token"), types.UpstreamGrantType.AUTHORIZATION_CODE
+        )
+
+    try:
+        async with anyio.create_task_group() as task_group:
+            task_group.start_soon(occupy_connection)
+            assert await anyio.to_thread.run_sync(request_started.wait, 1)
+            result = await client.fetch(
+                oauth_server.url_for("/token"),
+                types.UpstreamGrantType.AUTHORIZATION_CODE,
+            )
+            assert len(oauth_server.requests) == 1
+            release_request.set()
+        subsequent_result = await client.fetch(
+            oauth_server.url_for("/token"), types.UpstreamGrantType.AUTHORIZATION_CODE
+        )
+    finally:
+        release_request.set()
+        await client.aclose()
+
+    assert result == {
+        "error": "temporarily_unavailable",
+        "error_description": "Provider connection pool is unavailable.",
+    }
+    assert subsequent_result == {
+        "access_token": "provider-token",
+        "token_type": "Bearer",
+    }
+    assert len({request.client_address for request in oauth_server.requests}) == 1
+    assert (
+        b'oauth_client_error_total{endpoint="token",error="pool_saturation",status="unknown"}'
+        b" 1.0" in telemetry.export_metrics(PrometheusSettings())
+    )
 
 
 @pytest.mark.anyio

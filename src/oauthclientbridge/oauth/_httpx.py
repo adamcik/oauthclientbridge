@@ -173,6 +173,9 @@ async def _fetch(
                             auth=httpx.BasicAuth(auth, ""),
                         )
                 except httpx.PoolTimeout:
+                    telemetry.record_client_error_metric(
+                        upstream_grant_type, None, "pool_saturation"
+                    )
                     return OAuthError.TEMPORARILY_UNAVAILABLE.json(
                         description="Provider connection pool is unavailable."
                     )
