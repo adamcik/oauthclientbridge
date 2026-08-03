@@ -1,7 +1,10 @@
 from collections.abc import Awaitable, Callable
 from contextlib import AbstractContextManager
 from http import HTTPStatus
-from typing import Protocol
+from typing import Literal, Protocol
+
+from oauthclientbridge import types
+from oauthclientbridge.errors import OAuthError
 
 from . import (
     _asyncio,
@@ -68,6 +71,17 @@ init_sentry = _sentry.init
 oauth_outcome_observer = _oauth_outcome.OAuthOutcomeObserver
 fallback_observer = _fallback.FallbackObserver
 
+type ClientErrorLabel = OAuthError | Literal["invalid_error", "pool_saturation"]
+type ClientResponseStatus = Literal[
+    "connection_error",
+    "connection_timeout",
+    "proxy_error",
+    "read_timeout",
+    "ssl_error",
+    "unknown_exception",
+]
+type Workaround = Literal["revoked_grant"]
+
 otel_log_attributes = _resources.otel_log_attributes
 
 export_metrics = _prometheus.export_metrics
@@ -91,16 +105,20 @@ def start_asyncio_monitor(task_spawner: _TaskSpawner, name: str) -> None:
     task_spawner.start_soon(monitor.run)
 
 
-def record_database_latency_metric(name: str) -> AbstractContextManager[object]:
+def record_database_latency_metric(
+    name: types.DatabaseOperation,
+) -> AbstractContextManager[object]:
     return _prometheus.DBLatencyHistorgram.labels(query=name).time()
 
 
-def record_database_error_metric(name: str, error: str) -> None:
+def record_database_error_metric(
+    name: types.DatabaseOperation, error: types.DatabaseError
+) -> None:
     _prometheus.DBErrorCounter.labels(query=name, error=error).inc()
 
 
 def record_server_error_metric(
-    status: HTTPStatus, error: str, endpoint: str | None = None
+    status: HTTPStatus, error: OAuthError, endpoint: types.Endpoint | None = None
 ) -> None:
     _prometheus.ServerErrorCounter.labels(
         endpoint=endpoint or "unknown",
@@ -109,18 +127,26 @@ def record_server_error_metric(
     ).inc()
 
 
-def record_client_attempt_metric(endpoint: str, kind: str) -> None:
+def record_client_attempt_metric(
+    endpoint: types.UpstreamGrantType, kind: types.RetryAttemptKind
+) -> None:
     _prometheus.ClientAttemptCounter.labels(endpoint=endpoint, kind=kind).inc()
 
 
-def record_retry_decision_metric(endpoint: str, decision: str, reason: str) -> None:
+def record_retry_decision_metric(
+    endpoint: types.UpstreamGrantType,
+    decision: types.RetryDecisionAction,
+    reason: types.RetryCondition,
+) -> None:
     _prometheus.ClientRetryDecisionCounter.labels(
         endpoint=endpoint, decision=decision, reason=reason
     ).inc()
 
 
 def record_client_error_metric(
-    endpoint: str, status: HTTPStatus | None, error: str
+    endpoint: types.UpstreamGrantType,
+    status: HTTPStatus | None,
+    error: ClientErrorLabel,
 ) -> None:
     _prometheus.ClientErrorCounter.labels(
         endpoint=endpoint,
@@ -130,7 +156,7 @@ def record_client_error_metric(
 
 
 def record_client_retries_metric(
-    endpoint: str, status: HTTPStatus | None, count: int
+    endpoint: types.UpstreamGrantType, status: HTTPStatus | None, count: int
 ) -> None:
     _prometheus.ClientRetryHistogram.labels(
         endpoint=endpoint,
@@ -139,7 +165,10 @@ def record_client_retries_metric(
 
 
 def record_client_response_metric(
-    endpoint: str, status: HTTPStatus | str, duration: float, size: int | None
+    endpoint: types.UpstreamGrantType,
+    status: HTTPStatus | ClientResponseStatus,
+    duration: float,
+    size: int | None,
 ) -> None:
     status_label = (
         _prometheus.status(status) if isinstance(status, HTTPStatus) else status
@@ -150,9 +179,9 @@ def record_client_response_metric(
     _prometheus.ClientLatencyHistogram.labels(**labels).observe(duration)
 
 
-def record_refresh_token_invalidation_metric(reason: str) -> None:
+def record_refresh_token_invalidation_metric(reason: OAuthError) -> None:
     _prometheus.RefreshTokenInvalidationCounter.labels(reason=reason).inc()
 
 
-def record_workaround_metric(workaround: str) -> None:
+def record_workaround_metric(workaround: Workaround) -> None:
     _prometheus.WorkaroundCounter.labels(workaround=workaround).inc()

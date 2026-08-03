@@ -114,7 +114,7 @@ def error_handler(e: Error) -> flask.Response:
     structlog.contextvars.bind_contextvars(oauth_error=e.error.value)
     telemetry.record_oauth_error_trace(e.error.value, e.description, e, status=status)
 
-    telemetry.record_server_error_metric(status, e.error.value)
+    telemetry.record_server_error_metric(status, e.error)
     return response
 
 
@@ -130,11 +130,15 @@ def sanitize_for_logging(payload: OAuthResponse) -> OAuthResponse:
     }
 
 
-def _record_attempt(endpoint: str, attempt_kind: RetryAttemptKind) -> None:
+def _record_attempt(
+    endpoint: types.UpstreamGrantType, attempt_kind: RetryAttemptKind
+) -> None:
     telemetry.record_client_attempt_metric(endpoint, attempt_kind)
 
 
-def _record_retry_decision(endpoint: str, decision: RetryDecision) -> None:
+def _record_retry_decision(
+    endpoint: types.UpstreamGrantType, decision: RetryDecision
+) -> None:
     telemetry.record_retry_decision_metric(endpoint, decision.action, decision.reason)
 
 
@@ -310,9 +314,9 @@ def _fetch_sync(
                 if not isinstance(error_code, str):
                     error_label = "invalid_error"
                 elif error_code in settings.error_types:
-                    error_label = settings.error_types[error_code].value
+                    error_label = settings.error_types[error_code]
                 elif error_code in OAuthError:
-                    error_label = OAuthError(error_code).value
+                    error_label = OAuthError(error_code)
                 else:
                     error_label = "invalid_error"
                 telemetry.record_client_error_metric(endpoint, status, error_label)

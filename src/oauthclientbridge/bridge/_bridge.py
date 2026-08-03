@@ -378,7 +378,7 @@ class Bridge:
                 None,
                 self._settings.database,
             )
-            telemetry.record_refresh_token_invalidation_metric(error.value)
+            telemetry.record_refresh_token_invalidation_metric(error)
             logger.warning("Revoking stored token after upstream invalid_grant")
         elif error == OAuthError.TEMPORARILY_UNAVAILABLE:
             logger.warning(
