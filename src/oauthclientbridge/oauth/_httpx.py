@@ -1,4 +1,5 @@
 import importlib.metadata
+import ssl
 from http import HTTPStatus
 
 import anyio
@@ -6,7 +7,8 @@ import httpx
 
 from oauthclientbridge import telemetry, types
 from oauthclientbridge.errors import OAuthError
-from oauthclientbridge.settings import FetchSettings
+from oauthclientbridge.settings import ClientResetError, FetchSettings
+from oauthclientbridge.utils import generations
 
 from ._core import jitter_delay, parse_retry
 from ._outcome import OAuthResponse, token_endpoint_outcome
@@ -26,19 +28,8 @@ class HttpxUpstreamClient:
         self._fetches_drained.set()
         self._close_complete = anyio.Event()
         self._closing = False
-        self._client = httpx.AsyncClient(
-            follow_redirects=False,
-            limits=httpx.Limits(
-                max_connections=settings.pool_max_connections,
-                max_keepalive_connections=settings.pool_max_keepalive_connections,
-                keepalive_expiry=settings.pool_keepalive_expiry,
-            ),
-            timeout=httpx.Timeout(
-                connect=settings.timeout,
-                read=settings.timeout,
-                write=settings.timeout,
-                pool=settings.pool_timeout,
-            ),
+        self._clients = generations.Generations(
+            lambda: _create_client(settings), _close_client
         )
 
     async def fetch(
@@ -58,10 +49,17 @@ class HttpxUpstreamClient:
             self._fetch_scopes.add(fetch_scope)
 
         try:
-            with fetch_scope:
-                result = await _fetch(
-                    self._client, self._settings, uri, upstream_grant_type, data, auth
-                )
+            async with self._clients.acquire() as lease:
+                with fetch_scope:
+                    result = await _fetch(
+                        lease,
+                        self._clients,
+                        self._settings,
+                        uri,
+                        upstream_grant_type,
+                        data,
+                        auth,
+                    )
             if fetch_scope.cancelled_caught:
                 raise anyio.get_cancelled_exc_class()
             assert result is not None
@@ -96,7 +94,7 @@ class HttpxUpstreamClient:
                     for fetch_scope in self._fetch_scopes:
                         fetch_scope.cancel()
 
-            await self._client.aclose()
+            await self._clients.aclose()
             self._close_complete.set()
 
 
@@ -104,8 +102,30 @@ def create_upstream_client(settings: FetchSettings) -> HttpxUpstreamClient:
     return HttpxUpstreamClient(settings)
 
 
+def _create_client(settings: FetchSettings) -> httpx.AsyncClient:
+    return httpx.AsyncClient(
+        follow_redirects=False,
+        limits=httpx.Limits(
+            max_connections=settings.pool_max_connections,
+            max_keepalive_connections=settings.pool_max_keepalive_connections,
+            keepalive_expiry=settings.pool_keepalive_expiry,
+        ),
+        timeout=httpx.Timeout(
+            connect=settings.timeout,
+            read=settings.timeout,
+            write=settings.timeout,
+            pool=settings.pool_timeout,
+        ),
+    )
+
+
+async def _close_client(client: httpx.AsyncClient) -> None:
+    await client.aclose()
+
+
 async def _fetch(
-    client: httpx.AsyncClient,
+    lease: generations.Lease[httpx.AsyncClient],
+    clients: generations.Generations[httpx.AsyncClient],
     settings: FetchSettings,
     uri: str,
     upstream_grant_type: types.UpstreamGrantType,
@@ -125,15 +145,18 @@ async def _fetch(
                     retry_limiter.add(settings.retry_budget_refill_per_initial)
                 retry_after_seconds = 0
                 status: HTTPStatus | None = None
+                reset_error: ClientResetError | None = None
                 try:
                     headers = {
                         "User-Agent": "oauthclientbridge %s"
                         % importlib.metadata.version("oauthclientbridge")
                     }
                     if auth is None:
-                        response = await client.post(uri, data=data, headers=headers)
+                        response = await lease.value.post(
+                            uri, data=data, headers=headers
+                        )
                     else:
-                        response = await client.post(
+                        response = await lease.value.post(
                             uri,
                             data=data,
                             auth=httpx.BasicAuth(auth, ""),
@@ -144,6 +167,7 @@ async def _fetch(
                         description="Provider connection pool is unavailable."
                     )
                 except httpx.ReadTimeout:
+                    reset_error = ClientResetError.READ_TIMEOUT
                     result = OAuthError.TEMPORARILY_UNAVAILABLE.json(
                         description="Request timed out while reading from provider."
                     )
@@ -152,16 +176,23 @@ async def _fetch(
                         not in settings.read_timeout_retry_grant_types
                     ):
                         return result
+                except httpx.ConnectTimeout:
+                    reset_error = ClientResetError.CONNECTION_TIMEOUT
+                    result = OAuthError.SERVER_ERROR.json(
+                        description="Request timed out while connecting to provider."
+                    )
                 except httpx.TimeoutException:
                     result = OAuthError.SERVER_ERROR.json(
                         description="Request timed out while connecting to provider."
                     )
-                except httpx.HTTPError:
+                except httpx.HTTPError as error:
+                    reset_error = _reset_error_for_exception(error)
                     result = OAuthError.SERVER_ERROR.json(
                         description="An error occurred while connecting to the provider."
                     )
                 else:
                     status = HTTPStatus(response.status_code)
+                    reset_error = _reset_error_for_status(status)
                     retry_after_seconds = parse_retry(
                         response.headers.get("retry-after")
                     )
@@ -240,6 +271,8 @@ async def _fetch(
                         RetryCondition.BUDGET_EXHAUSTED,
                     )
                     return result
+                if reset_error in settings.client_reset_errors:
+                    await clients.rotate(lease)
                 if delay:
                     await _sleep(sleep_for)
     except TimeoutError:
@@ -256,3 +289,29 @@ async def _fetch(
 
 async def _sleep(seconds: float) -> None:
     await anyio.sleep(seconds)
+
+
+def _reset_error_for_status(status: HTTPStatus) -> ClientResetError | None:
+    return {
+        HTTPStatus.INTERNAL_SERVER_ERROR: ClientResetError.HTTP_500,
+        HTTPStatus.BAD_GATEWAY: ClientResetError.HTTP_502,
+        HTTPStatus.SERVICE_UNAVAILABLE: ClientResetError.HTTP_503,
+        HTTPStatus.GATEWAY_TIMEOUT: ClientResetError.HTTP_504,
+    }.get(status)
+
+
+def _reset_error_for_exception(error: httpx.HTTPError) -> ClientResetError | None:
+    if _has_tls_cause(error):
+        return ClientResetError.TLS_ERROR
+    if isinstance(error, httpx.ConnectError):
+        return ClientResetError.CONNECTION_ERROR
+    return None
+
+
+def _has_tls_cause(error: BaseException) -> bool:
+    cause: BaseException | None = error
+    while cause is not None:
+        if isinstance(cause, ssl.SSLError):
+            return True
+        cause = cause.__cause__ or cause.__context__
+    return False

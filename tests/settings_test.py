@@ -1,9 +1,12 @@
+from http import HTTPStatus
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
 from oauthclientbridge.settings import (
+    ClientResetError,
+    FetchSettings,
     PrometheusSettings,
     TelemetryExporter,
     TelemetrySettings,
@@ -73,3 +76,30 @@ def test_prometheus_settings_defaults() -> None:
 def test_prometheus_settings_multiproc_dir() -> None:
     settings = PrometheusSettings(multiproc_dir=Path("/prom"))
     assert settings.multiproc_dir == Path("/prom")
+
+
+def test_fetch_settings_reset_errors_default_to_unhealthy_paths() -> None:
+    settings = FetchSettings()
+
+    assert settings.client_reset_errors == (
+        ClientResetError.HTTP_502,
+        ClientResetError.HTTP_503,
+        ClientResetError.HTTP_504,
+        ClientResetError.CONNECTION_ERROR,
+        ClientResetError.CONNECTION_TIMEOUT,
+        ClientResetError.TLS_ERROR,
+    )
+
+
+def test_fetch_settings_rejects_http_reset_error_that_is_not_retryable() -> None:
+    with pytest.raises(ValidationError, match="client reset HTTP errors"):
+        FetchSettings(client_reset_errors=(ClientResetError.HTTP_500,))
+
+
+def test_fetch_settings_permits_configured_http_reset_error() -> None:
+    settings = FetchSettings(
+        retry_status_codes=(HTTPStatus.INTERNAL_SERVER_ERROR,),
+        client_reset_errors=(ClientResetError.HTTP_500,),
+    )
+
+    assert settings.client_reset_errors == (ClientResetError.HTTP_500,)
