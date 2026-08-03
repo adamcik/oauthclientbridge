@@ -67,6 +67,7 @@ class _FetchTracker:
         self._drained = anyio.Event()
         self._drained.set()
         self._close_complete = anyio.Event()
+        self._closing_started = anyio.Event()
         self._closing = False
 
     @asynccontextmanager
@@ -98,6 +99,7 @@ class _FetchTracker:
                     drained = None
                 else:
                     self._closing = True
+                    self._closing_started.set()
                     close_complete = None
                     drained = self._drained
 
