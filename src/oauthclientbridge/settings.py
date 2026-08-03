@@ -4,7 +4,7 @@ from enum import IntEnum, StrEnum
 from http import HTTPStatus
 from importlib.metadata import PackageNotFoundError, metadata, version
 from pathlib import Path
-from typing import Callable, cast
+from typing import Callable, Self, cast
 
 from flask import current_app
 from pydantic import Field, SecretStr, model_validator
@@ -16,6 +16,17 @@ from werkzeug.local import LocalProxy
 
 from oauthclientbridge import types
 from oauthclientbridge.errors import OAuthError
+
+
+class ClientResetError(StrEnum):
+    HTTP_500 = "http_500"
+    HTTP_502 = "http_502"
+    HTTP_503 = "http_503"
+    HTTP_504 = "http_504"
+    CONNECTION_ERROR = "connection_error"
+    CONNECTION_TIMEOUT = "connection_timeout"
+    READ_TIMEOUT = "read_timeout"
+    TLS_ERROR = "tls_error"
 
 
 def _settings_factory[T: BaseSettings](
@@ -105,6 +116,18 @@ class FetchSettings(BaseSettings):
     )
     """Status codes that should be considered retryable for oauth."""
 
+    client_reset_errors: tuple[ClientResetError, ...] = Field(
+        (
+            ClientResetError.HTTP_502,
+            ClientResetError.HTTP_503,
+            ClientResetError.HTTP_504,
+            ClientResetError.CONNECTION_ERROR,
+            ClientResetError.CONNECTION_TIMEOUT,
+            ClientResetError.TLS_ERROR,
+        )
+    )
+    """Retryable upstream failures that replace the outbound client generation."""
+
     unavailable_status_codes: tuple[HTTPStatus, ...] = Field(
         (
             HTTPStatus.TOO_MANY_REQUESTS,
@@ -137,6 +160,23 @@ class FetchSettings(BaseSettings):
 
     backoff_jitter_max: float = 1.25
     """Upper multiplier bound for retry backoff jitter around the base delay."""
+
+    @model_validator(mode="after")
+    def validate_client_reset_errors(self) -> Self:
+        reset_statuses = {
+            ClientResetError.HTTP_500: HTTPStatus.INTERNAL_SERVER_ERROR,
+            ClientResetError.HTTP_502: HTTPStatus.BAD_GATEWAY,
+            ClientResetError.HTTP_503: HTTPStatus.SERVICE_UNAVAILABLE,
+            ClientResetError.HTTP_504: HTTPStatus.GATEWAY_TIMEOUT,
+        }
+        configured_statuses = {
+            reset_statuses[error]
+            for error in self.client_reset_errors
+            if error in reset_statuses
+        }
+        if not configured_statuses.issubset(self.retry_status_codes):
+            raise ValueError("client reset HTTP errors must be configured retryable")
+        return self
 
 
 class DatabaseSettings(BaseSettings):
