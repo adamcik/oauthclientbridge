@@ -1,5 +1,7 @@
 import importlib.metadata
 import ssl
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from http import HTTPStatus
 
 import anyio
@@ -19,15 +21,14 @@ from ._retry import (
 )
 
 
+def create_upstream_client(settings: FetchSettings) -> "HttpxUpstreamClient":
+    return HttpxUpstreamClient(settings)
+
+
 class HttpxUpstreamClient:
     def __init__(self, settings: FetchSettings) -> None:
         self._settings = settings
-        self._lock = anyio.Lock()
-        self._fetch_scopes: set[anyio.CancelScope] = set()
-        self._fetches_drained = anyio.Event()
-        self._fetches_drained.set()
-        self._close_complete = anyio.Event()
-        self._closing = False
+        self._fetches = _FetchTracker()
         self._clients = generations.Generations(
             lambda: _create_client(settings), _close_client
         )
@@ -39,72 +40,88 @@ class HttpxUpstreamClient:
         auth: str | None = None,
         **data: str | None,
     ) -> OAuthResponse:
-        fetch_scope = anyio.CancelScope()
-        result: OAuthResponse | None = None
-        async with self._lock:
-            if self._closing:
-                raise RuntimeError("Upstream HTTP client is shutting down")
-            if not self._fetch_scopes:
-                self._fetches_drained = anyio.Event()
-            self._fetch_scopes.add(fetch_scope)
-
-        try:
+        async with self._fetches.track():
             async with self._clients.acquire() as lease:
-                with fetch_scope:
-                    result = await _fetch(
-                        lease,
-                        self._clients,
-                        self._settings,
-                        uri,
-                        upstream_grant_type,
-                        data,
-                        auth,
-                    )
-            if fetch_scope.cancelled_caught:
-                raise anyio.get_cancelled_exc_class()
-            assert result is not None
-            return result
-        finally:
-            with anyio.CancelScope(shield=True):
-                async with self._lock:
-                    self._fetch_scopes.remove(fetch_scope)
-                    if not self._fetch_scopes:
-                        self._fetches_drained.set()
+                return await _fetch(
+                    lease,
+                    self._clients,
+                    self._settings,
+                    uri,
+                    upstream_grant_type,
+                    data,
+                    auth,
+                )
 
     async def aclose(self) -> None:
         with anyio.CancelScope(shield=True):
-            fetches_drained: anyio.Event | None = None
+            await self._fetches.aclose(self._settings.total_timeout)
+            await self._clients.aclose()
+
+
+class _FetchTracker:
+    """Track fetch cancellation scopes through bounded shutdown."""
+
+    def __init__(self) -> None:
+        self._lock = anyio.Lock()
+        self._scopes: set[anyio.CancelScope] = set()
+        self._drained = anyio.Event()
+        self._drained.set()
+        self._close_complete = anyio.Event()
+        self._closing = False
+
+    @asynccontextmanager
+    async def track(self) -> AsyncGenerator[None]:
+        scope = anyio.CancelScope()
+        async with self._lock:
+            if self._closing:
+                raise RuntimeError("Upstream HTTP client is shutting down")
+            if not self._scopes:
+                self._drained = anyio.Event()
+            self._scopes.add(scope)
+        try:
+            with scope:
+                yield
+            if scope.cancelled_caught:
+                raise anyio.get_cancelled_exc_class()
+        finally:
+            with anyio.CancelScope(shield=True):
+                async with self._lock:
+                    self._scopes.remove(scope)
+                    if not self._scopes:
+                        self._drained.set()
+
+    async def aclose(self, timeout: float) -> None:
+        with anyio.CancelScope(shield=True):
             async with self._lock:
                 if self._closing:
                     close_complete = self._close_complete
+                    drained = None
                 else:
                     self._closing = True
                     close_complete = None
-                    fetches_drained = self._fetches_drained
+                    drained = self._drained
 
             if close_complete is not None:
                 await close_complete.wait()
                 return
 
-            assert fetches_drained is not None
-            with anyio.move_on_after(self._settings.total_timeout) as shutdown_timeout:
-                await fetches_drained.wait()
+            assert drained is not None
+            with anyio.move_on_after(timeout) as shutdown_timeout:
+                await drained.wait()
             if shutdown_timeout.cancel_called:
                 async with self._lock:
-                    for fetch_scope in self._fetch_scopes:
-                        fetch_scope.cancel()
-
-            await self._clients.aclose()
+                    for scope in self._scopes:
+                        scope.cancel()
             self._close_complete.set()
-
-
-def create_upstream_client(settings: FetchSettings) -> HttpxUpstreamClient:
-    return HttpxUpstreamClient(settings)
 
 
 def _create_client(settings: FetchSettings) -> httpx.AsyncClient:
     return httpx.AsyncClient(
         follow_redirects=False,
+        headers={
+            "User-Agent": "oauthclientbridge %s"
+            % importlib.metadata.version("oauthclientbridge")
+        },
         limits=httpx.Limits(
             max_connections=settings.pool_max_connections,
             max_keepalive_connections=settings.pool_max_keepalive_connections,
@@ -147,20 +164,13 @@ async def _fetch(
                 status: HTTPStatus | None = None
                 reset_error: ClientResetError | None = None
                 try:
-                    headers = {
-                        "User-Agent": "oauthclientbridge %s"
-                        % importlib.metadata.version("oauthclientbridge")
-                    }
                     if auth is None:
-                        response = await lease.value.post(
-                            uri, data=data, headers=headers
-                        )
+                        response = await lease.value.post(uri, data=data)
                     else:
                         response = await lease.value.post(
                             uri,
                             data=data,
                             auth=httpx.BasicAuth(auth, ""),
-                            headers=headers,
                         )
                 except httpx.PoolTimeout:
                     return OAuthError.TEMPORARILY_UNAVAILABLE.json(

@@ -14,6 +14,66 @@ from tests.oauth_server import OAuthServer
 
 
 @pytest.mark.anyio
+async def test_fetch_tracker_cancels_remaining_work_after_deadline() -> None:
+    fetches = httpx_implementation._FetchTracker()  # pyright: ignore[reportPrivateUsage] # Focused lifecycle contract.
+    started = anyio.Event()
+    cancelled = anyio.Event()
+
+    async def fetch() -> None:
+        try:
+            async with fetches.track():
+                started.set()
+                await anyio.sleep_forever()
+        except anyio.get_cancelled_exc_class():
+            cancelled.set()
+
+    async with anyio.create_task_group() as task_group:
+        task_group.start_soon(fetch)
+        await started.wait()
+
+        await fetches.aclose(0)
+        await cancelled.wait()
+
+        with pytest.raises(RuntimeError, match="shutting down"):
+            async with fetches.track():
+                pass
+
+
+@pytest.mark.anyio
+async def test_fetch_tracker_drains_work_completed_before_deadline() -> None:
+    fetches = httpx_implementation._FetchTracker()  # pyright: ignore[reportPrivateUsage] # Focused lifecycle contract.
+    started = anyio.Event()
+    release = anyio.Event()
+    completed = anyio.Event()
+    closed = anyio.Event()
+
+    async def fetch() -> None:
+        async with fetches.track():
+            started.set()
+            await release.wait()
+        completed.set()
+
+    async def close() -> None:
+        await fetches.aclose(1)
+        closed.set()
+
+    async with anyio.create_task_group() as task_group:
+        task_group.start_soon(fetch)
+        await started.wait()
+        task_group.start_soon(close)
+        await anyio.sleep(0)
+
+        with pytest.raises(RuntimeError, match="shutting down"):
+            async with fetches.track():
+                pass
+        assert not closed.is_set()
+
+        release.set()
+        await completed.wait()
+        await closed.wait()
+
+
+@pytest.mark.anyio
 async def test_httpx_fetcher_retries_retryable_upstream_failure(
     oauth_server: OAuthServer,
 ) -> None:
