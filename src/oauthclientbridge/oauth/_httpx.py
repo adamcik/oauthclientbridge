@@ -6,6 +6,7 @@ from http import HTTPStatus
 
 import anyio
 import httpx
+from opentelemetry import trace
 
 from oauthclientbridge import telemetry, types
 from oauthclientbridge.errors import OAuthError
@@ -151,7 +152,6 @@ async def _fetch(
     data: dict[str, str | None],
     auth: str | None = None,
 ) -> OAuthResponse:
-    _ = upstream_grant_type
     retry_limiter = get_retry_limiter(
         settings.retry_budget_capacity, settings.retry_budget_refill_per_initial
     )
@@ -272,17 +272,15 @@ async def _fetch(
                     )
                     if retry_after_seconds:
                         sleep_for = max(retry_after_seconds, sleep_for)
-                    if sleep_for > deadline - anyio.current_time():
-                        telemetry.record_retry_decision_metric(
-                            upstream_grant_type,
-                            RetryDecisionAction.SKIP,
-                            RetryCondition.DEADLINE_EXCEEDED,
-                        )
-                        return result
-                if not retry_limiter.consume():
-                    telemetry.record_retry_decision_metric(
+                if sleep_for > deadline - anyio.current_time():
+                    _record_suppressed_retry(
                         upstream_grant_type,
-                        RetryDecisionAction.SKIP,
+                        RetryCondition.DEADLINE_EXCEEDED,
+                    )
+                    return result
+                if not retry_limiter.consume():
+                    _record_suppressed_retry(
+                        upstream_grant_type,
                         RetryCondition.BUDGET_EXHAUSTED,
                     )
                     return result
@@ -299,6 +297,21 @@ async def _fetch(
 
     return OAuthError.SERVER_ERROR.json(
         description="An unknown error occurred while talking to provider."
+    )
+
+
+def _record_suppressed_retry(
+    upstream_grant_type: types.UpstreamGrantType, reason: RetryCondition
+) -> None:
+    telemetry.record_retry_decision_metric(
+        upstream_grant_type, RetryDecisionAction.SKIP, reason
+    )
+    trace.get_current_span().add_event(
+        "Retry suppressed",
+        {
+            "oauth.upstream_grant_type": str(upstream_grant_type),
+            "retry.reason": str(reason),
+        },
     )
 
 

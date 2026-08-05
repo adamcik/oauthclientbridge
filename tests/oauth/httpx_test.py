@@ -4,12 +4,14 @@ from threading import Event, Thread
 
 import anyio
 import pytest
+from opentelemetry import trace
 
 from oauthclientbridge import oauth, telemetry, types
 from oauthclientbridge.oauth import (
     _httpx as httpx_implementation,  # pyright: ignore[reportPrivateUsage] # Deterministic retry-delay cancellation.
 )
 from oauthclientbridge.settings import FetchSettings, PrometheusSettings
+from pytest_otel_capture import OTelMocker
 from tests.oauth_server import OAuthServer
 
 
@@ -118,6 +120,103 @@ async def test_httpx_fetcher_skips_retry_when_budget_is_exhausted(
         "error": "temporarily_unavailable",
         "error_description": "Provider is unavailable.",
     }
+    assert len(oauth_server.requests) == 1
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("settings", "reason"),
+    [
+        pytest.param(
+            FetchSettings(
+                total_attempts=2,
+                backoff_factor=0,
+                retry_budget_capacity=0,
+            ),
+            "budget_exhausted",
+            id="budget exhausted",
+        ),
+        pytest.param(
+            FetchSettings(
+                total_attempts=2,
+                total_timeout=0.1,
+                backoff_factor=0,
+            ),
+            "deadline_exceeded",
+            id="deadline exhausted",
+        ),
+    ],
+)
+async def test_httpx_fetcher_records_suppressed_retry_decision(
+    settings: FetchSettings,
+    reason: str,
+    oauth_server: OAuthServer,
+    otel_mock: OTelMocker,
+) -> None:
+    oauth_server.expect("/token").respond(
+        {}, status=HTTPStatus.SERVICE_UNAVAILABLE, headers={"Retry-After": "1"}
+    )
+    client = oauth.create_httpx_upstream_client(settings)
+    tracer = trace.get_tracer("tests")
+
+    try:
+        with tracer.start_as_current_span("fetch upstream token"):
+            await client.fetch(
+                oauth_server.url_for("/token"), types.UpstreamGrantType.REFRESH_TOKEN
+            )
+    finally:
+        await client.aclose()
+
+    metrics = telemetry.export_metrics(PrometheusSettings())
+    assert (
+        b'oauth_client_retry_decisions_total{decision="skip",endpoint="refresh_token",reason="'
+        + reason.encode()
+        + b'"} 1.0'
+    ) in metrics
+    span = next(
+        span
+        for span in otel_mock.get_finished_spans()
+        if span.name == "fetch upstream token"
+    )
+    events = [event for event in span.events if event.name == "Retry suppressed"]
+    assert len(events) == 1
+    assert events[0].attributes == {
+        "oauth.upstream_grant_type": "refresh_token",
+        "retry.reason": reason,
+    }
+    assert oauth_server.url_for("/token") not in str(events[0].attributes)
+
+
+@pytest.mark.anyio
+async def test_httpx_fetcher_records_deadline_suppression_without_delay(
+    monkeypatch: pytest.MonkeyPatch,
+    oauth_server: OAuthServer,
+    otel_mock: OTelMocker,
+) -> None:
+    current_times = iter((0.0, 1.0))
+    monkeypatch.setattr(
+        httpx_implementation.anyio, "current_time", lambda: next(current_times)
+    )
+    oauth_server.expect("/token").respond({}, status=HTTPStatus.SERVICE_UNAVAILABLE)
+    client = oauth.create_httpx_upstream_client(
+        FetchSettings(total_attempts=2, total_timeout=0.5, backoff_factor=0)
+    )
+    tracer = trace.get_tracer("tests")
+
+    try:
+        with tracer.start_as_current_span("fetch upstream token"):
+            await client.fetch(
+                oauth_server.url_for("/token"), types.UpstreamGrantType.REFRESH_TOKEN
+            )
+    finally:
+        await client.aclose()
+
+    span = next(
+        span
+        for span in otel_mock.get_finished_spans()
+        if span.name == "fetch upstream token"
+    )
+    assert [event.name for event in span.events] == ["Retry suppressed"]
     assert len(oauth_server.requests) == 1
 
 
