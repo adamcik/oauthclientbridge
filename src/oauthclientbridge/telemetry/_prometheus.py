@@ -96,6 +96,28 @@ ClientRetryDecisionCounter = prometheus_client.Counter(
     registry=registry,
 )
 
+ClientGenerationResetCounter = prometheus_client.Counter(
+    "oauth_client_generation_resets",
+    "Outbound HTTP client generation resets.",
+    ["endpoint", "error"],
+    registry=registry,
+)
+
+ClientGenerationLeaseGauge = prometheus_client.Gauge(
+    "oauth_client_generation_leases",
+    "Active outbound HTTP client generation leases.",
+    ["generation"],
+    multiprocess_mode="livesum",
+    registry=registry,
+)
+
+ClientGenerationDrainHistogram = prometheus_client.Histogram(
+    "oauth_client_generation_drain_seconds",
+    "Time for retired outbound HTTP client generations to drain.",
+    buckets=TIME,
+    registry=registry,
+)
+
 ClientLatencyHistogram = prometheus_client.Histogram(
     "oauth_client_latency_seconds",
     "Overall request latency.",

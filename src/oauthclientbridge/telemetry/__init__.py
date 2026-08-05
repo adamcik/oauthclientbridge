@@ -3,8 +3,11 @@ from contextlib import AbstractContextManager
 from http import HTTPStatus
 from typing import Literal, Protocol
 
+from opentelemetry import trace
+
 from oauthclientbridge import types
 from oauthclientbridge.errors import OAuthError
+from oauthclientbridge.settings import ClientResetError
 
 from . import (
     _asyncio,
@@ -32,6 +35,9 @@ __all__ = [
     "oauth_outcome_observer",
     "record_client_attempt_metric",
     "record_client_error_metric",
+    "record_client_generation_reset",
+    "record_client_generation_leases_metric",
+    "observe_client_generation_drain_metric",
     "record_client_response_metric",
     "record_client_retries_metric",
     "record_database_error_metric",
@@ -153,6 +159,31 @@ def record_client_error_metric(
         status=_prometheus.status(status) if status else "unknown",
         error=error,
     ).inc()
+
+
+def record_client_generation_reset(
+    endpoint: types.UpstreamGrantType, error: ClientResetError
+) -> None:
+    """Record a real outbound client generation replacement."""
+    _prometheus.ClientGenerationResetCounter.labels(
+        endpoint=endpoint, error=error
+    ).inc()
+    trace.get_current_span().add_event(
+        "Client generation reset",
+        {
+            "oauth.upstream_grant_type": str(endpoint),
+            "client.reset_error": str(error),
+        },
+    )
+
+
+def record_client_generation_leases_metric(current: int, retired: int) -> None:
+    _prometheus.ClientGenerationLeaseGauge.labels(generation="current").set(current)
+    _prometheus.ClientGenerationLeaseGauge.labels(generation="retired").set(retired)
+
+
+def observe_client_generation_drain_metric(duration: float) -> None:
+    _prometheus.ClientGenerationDrainHistogram.observe(duration)
 
 
 def record_client_retries_metric(
