@@ -25,12 +25,10 @@ class Generations[T]:
         self,
         create: Callable[[], T],
         finalize: Callable[[T], Awaitable[None]],
-        on_leases_changed: Callable[[int, int], None] | None = None,
         on_retired_drain: Callable[[float], None] | None = None,
     ) -> None:
         self._create = create
         self._finalize = finalize
-        self._on_leases_changed = on_leases_changed
         self._on_retired_drain = on_retired_drain
         self._lock = anyio.Lock()
         self._current = _Generation(create())
@@ -40,7 +38,6 @@ class Generations[T]:
         self._close_complete = anyio.Event()
         self._close_error: BaseException | None = None
         self._closing = False
-        self._observe_leases()
 
     async def __aenter__(self) -> Self:
         return self
@@ -73,7 +70,6 @@ class Generations[T]:
             lease.value = self._current.value
             lease._active = True  # pyright: ignore[reportPrivateUsage] # Lease coordination.
             lease._used = True  # pyright: ignore[reportPrivateUsage] # Lease coordination.
-            self._observe_leases()
 
     async def rotate(self, lease: "Lease[T]") -> bool:
         """Advance an active lease after its current value has failed."""
@@ -100,11 +96,11 @@ class Generations[T]:
             replacement.leases += 1
             lease._generation = replacement  # pyright: ignore[reportPrivateUsage] # Lease coordination.
             lease.value = replacement.value
-            self._observe_leases()
         if drain_duration is not None and self._on_retired_drain is not None:
             self._on_retired_drain(drain_duration)
         if finalize is not None:
-            await self._finalize(finalize.value)
+            with anyio.CancelScope(shield=True):
+                await self._finalize(finalize.value)
         return rotated
 
     async def aclose(self) -> None:
@@ -151,18 +147,10 @@ class Generations[T]:
             self._active_leases -= 1
             if self._active_leases == 0:
                 self._leases_drained.set()
-            self._observe_leases()
         if drain_duration is not None and self._on_retired_drain is not None:
             self._on_retired_drain(drain_duration)
         if finalize is not None:
             await self._finalize(finalize.value)
-
-    def _observe_leases(self) -> None:
-        if self._on_leases_changed is not None:
-            self._on_leases_changed(
-                self._current.leases,
-                self._active_leases - self._current.leases,
-            )
 
 
 class Lease[T]:

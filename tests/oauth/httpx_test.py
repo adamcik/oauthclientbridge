@@ -111,8 +111,6 @@ async def test_httpx_fetcher_retries_retryable_upstream_failure(
         b'oauth_client_generation_resets_total{endpoint="authorization_code",error="http_503"} 1.0'
         in metrics
     )
-    assert b'oauth_client_generation_leases{generation="current"} 0.0' in metrics
-    assert b'oauth_client_generation_leases{generation="retired"} 0.0' in metrics
     assert b"oauth_client_generation_drain_seconds_count 1.0" in metrics
     span = next(
         span
