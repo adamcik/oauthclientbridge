@@ -290,8 +290,7 @@ async def _fetch(
                     reset_error is not None
                     and reset_error in settings.client_reset_errors
                 ):
-                    rotated = await clients.rotate(lease)
-                    if rotated:
+                    if await clients.rotate(lease):
                         telemetry.record_client_generation_reset(
                             upstream_grant_type, reset_error
                         )
