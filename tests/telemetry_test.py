@@ -780,7 +780,7 @@ def test_oauth_client_duration_metric_success(
         otel_mock.get_metrics_data(),
         "oauth.client.duration",
         HistogramDataPoint,
-        attributes={"operation": "token"},
+        attributes={"operation": "authorization_code"},
         scope="oauthclientbridge.oauth",
     )
     assert duration_data.attributes is not None
@@ -807,7 +807,7 @@ def test_oauth_client_retries_metric_success(
         otel_mock.get_metrics_data(),
         "oauth.client.retries",
         HistogramDataPoint,
-        attributes={"operation": "token"},
+        attributes={"operation": "authorization_code"},
         scope="oauthclientbridge.oauth",
     )
     assert retries_data.attributes is not None
@@ -840,7 +840,7 @@ def test_oauth_client_retries_metric_records_completed_retry_count(
         otel_mock.get_metrics_data(),
         "oauth.client.retries",
         HistogramDataPoint,
-        attributes={"operation": "token"},
+        attributes={"operation": "authorization_code"},
         scope="oauthclientbridge.oauth",
     )
     assert retries_data.attributes is not None
@@ -902,7 +902,7 @@ def test_oauth_client_retry_metrics_record_attempts_and_reasons(
     metrics_resp = client.get("/metrics")
 
     assert b"oauth_client_attempts_total" in metrics_resp.data
-    assert b'endpoint="token"' in metrics_resp.data
+    assert b'endpoint="authorization_code"' in metrics_resp.data
     assert b'kind="initial"' in metrics_resp.data
     assert b'kind="retry"' in metrics_resp.data
     assert b"oauth_client_retry_decisions_total" in metrics_resp.data
@@ -1056,7 +1056,7 @@ def test_oauth_client_metrics_failure(
         otel_mock.get_metrics_data(),
         "oauth.client.duration",
         HistogramDataPoint,
-        attributes={"operation": "token"},
+        attributes={"operation": "authorization_code"},
         scope="oauthclientbridge.oauth",
     )
     assert duration_data.attributes is not None
@@ -1083,7 +1083,7 @@ def test_oauth_client_total_metric_success(
         otel_mock.get_metrics_data(),
         "oauth.client.total",
         NumberDataPoint,
-        attributes={"operation": "token"},
+        attributes={"operation": "authorization_code"},
         scope="oauthclientbridge.oauth",
     )
     assert total_data.attributes is not None
@@ -1110,7 +1110,7 @@ def test_oauth_client_total_metric_failure(
         otel_mock.get_metrics_data(),
         "oauth.client.total",
         NumberDataPoint,
-        attributes={"operation": "token"},
+        attributes={"operation": "authorization_code"},
         scope="oauthclientbridge.oauth",
     )
     assert total_data.attributes is not None

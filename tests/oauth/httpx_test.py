@@ -287,7 +287,7 @@ async def test_httpx_fetcher_counts_pool_saturation_without_retrying(
     }
     assert len({request.client_address for request in oauth_server.requests}) == 1
     assert (
-        b'oauth_client_error_total{endpoint="token",error="pool_saturation",status="unknown"}'
+        b'oauth_client_error_total{endpoint="authorization_code",error="pool_saturation",status="unknown"}'
         b" 1.0" in telemetry.export_metrics(PrometheusSettings())
     )
 

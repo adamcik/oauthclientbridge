@@ -11,6 +11,7 @@ from oauthclientbridge.settings import (
     TelemetryExporter,
     TelemetrySettings,
 )
+from oauthclientbridge.types import UpstreamGrantType
 
 
 def test_telemetry_settings_defaults() -> None:
@@ -103,3 +104,14 @@ def test_fetch_settings_permits_configured_http_reset_error() -> None:
     )
 
     assert settings.client_reset_errors == (ClientResetError.HTTP_500,)
+
+
+def test_fetch_settings_accepts_rfc_grant_types_for_read_timeout_retries() -> None:
+    settings = FetchSettings(
+        read_timeout_retry_grant_types=("authorization_code", "refresh_token")
+    )
+
+    assert settings.read_timeout_retry_grant_types == (
+        UpstreamGrantType.AUTHORIZATION_CODE,
+        UpstreamGrantType.REFRESH_TOKEN,
+    )
