@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import anyio
 import pytest
 
-from oauthclientbridge.utils.generations import Generations
+from oauthclientbridge.utils.generations import Generations, Lease
 
 
 @dataclass(frozen=True)
@@ -40,11 +40,8 @@ async def test_generations_finalize_retired_value_after_its_last_lease_releases(
 
 
 @pytest.mark.anyio
-async def test_generations_observes_current_and_retired_leases_and_retired_drains() -> (
-    None
-):
+async def test_generations_observes_retired_drains() -> None:
     resources = iter((Resource("first"), Resource("second")))
-    lease_counts: list[tuple[int, int]] = []
     drain_durations: list[float] = []
 
     async def finalize(_resource: Resource) -> None:
@@ -53,18 +50,44 @@ async def test_generations_observes_current_and_retired_leases_and_retired_drain
     async with Generations(
         lambda: next(resources),
         finalize,
-        on_leases_changed=lambda current, retired: lease_counts.append(
-            (current, retired)
-        ),
         on_retired_drain=drain_durations.append,
     ) as generations:
         async with generations.acquire() as first_lease:
             async with generations.acquire():
                 await generations.rotate(first_lease)
 
-    assert lease_counts == [(0, 0), (1, 0), (2, 0), (1, 1), (1, 0), (0, 0)]
     assert len(drain_durations) == 1
     assert drain_durations[0] >= 0
+
+
+@pytest.mark.anyio
+async def test_generations_finalizes_retired_value_when_rotation_is_cancelled() -> None:
+    resources = iter((Resource("first"), Resource("second")))
+    finalization_started = anyio.Event()
+    release_finalization = anyio.Event()
+    finalized: list[Resource] = []
+    cancel_rotation = anyio.CancelScope()
+
+    async def finalize(resource: Resource) -> None:
+        finalization_started.set()
+        await release_finalization.wait()
+        finalized.append(resource)
+
+    async def rotate(
+        generations: Generations[Resource], lease: Lease[Resource]
+    ) -> None:
+        with cancel_rotation:
+            await generations.rotate(lease)
+
+    async with Generations(lambda: next(resources), finalize) as generations:
+        async with generations.acquire() as lease:
+            async with anyio.create_task_group() as task_group:
+                task_group.start_soon(rotate, generations, lease)
+                await finalization_started.wait()
+                cancel_rotation.cancel()
+                release_finalization.set()
+
+    assert finalized == [Resource("first"), Resource("second")]
 
 
 @pytest.mark.anyio

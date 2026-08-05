@@ -36,7 +36,6 @@ __all__ = [
     "record_client_attempt_metric",
     "record_client_error_metric",
     "record_client_generation_reset",
-    "record_client_generation_leases_metric",
     "observe_client_generation_drain_metric",
     "record_client_response_metric",
     "record_client_retries_metric",
@@ -175,11 +174,6 @@ def record_client_generation_reset(
             "client.reset_error": str(error),
         },
     )
-
-
-def record_client_generation_leases_metric(current: int, retired: int) -> None:
-    _prometheus.ClientGenerationLeaseGauge.labels(generation="current").set(current)
-    _prometheus.ClientGenerationLeaseGauge.labels(generation="retired").set(retired)
 
 
 def observe_client_generation_drain_metric(duration: float) -> None:
