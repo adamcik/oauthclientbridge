@@ -45,9 +45,8 @@ class DatabaseError(StrEnum):
 
 
 class UpstreamGrantType(StrEnum):
-    # TODO: migrate OAuth client metric labels to upstream grant types.
-    AUTHORIZATION_CODE = "token"
-    REFRESH_TOKEN = "refresh"
+    AUTHORIZATION_CODE = "authorization_code"
+    REFRESH_TOKEN = "refresh_token"
 
 
 class RetryAttemptKind(StrEnum):
