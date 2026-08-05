@@ -40,6 +40,34 @@ async def test_generations_finalize_retired_value_after_its_last_lease_releases(
 
 
 @pytest.mark.anyio
+async def test_generations_observes_current_and_retired_leases_and_retired_drains() -> (
+    None
+):
+    resources = iter((Resource("first"), Resource("second")))
+    lease_counts: list[tuple[int, int]] = []
+    drain_durations: list[float] = []
+
+    async def finalize(_resource: Resource) -> None:
+        pass
+
+    async with Generations(
+        lambda: next(resources),
+        finalize,
+        on_leases_changed=lambda current, retired: lease_counts.append(
+            (current, retired)
+        ),
+        on_retired_drain=drain_durations.append,
+    ) as generations:
+        async with generations.acquire() as first_lease:
+            async with generations.acquire():
+                await generations.rotate(first_lease)
+
+    assert lease_counts == [(0, 0), (1, 0), (2, 0), (1, 1), (1, 0), (0, 0)]
+    assert len(drain_durations) == 1
+    assert drain_durations[0] >= 0
+
+
+@pytest.mark.anyio
 async def test_generations_finalize_current_value_once() -> None:
     finalized: list[Resource] = []
 

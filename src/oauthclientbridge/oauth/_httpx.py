@@ -31,7 +31,10 @@ class HttpxUpstreamClient:
         self._settings = settings
         self._fetches = _FetchTracker()
         self._clients = generations.Generations(
-            lambda: _create_client(settings), _close_client
+            lambda: _create_client(settings),
+            _close_client,
+            on_leases_changed=telemetry.record_client_generation_leases_metric,
+            on_retired_drain=telemetry.observe_client_generation_drain_metric,
         )
 
     async def fetch(
@@ -284,8 +287,14 @@ async def _fetch(
                         RetryCondition.BUDGET_EXHAUSTED,
                     )
                     return result
-                if reset_error in settings.client_reset_errors:
-                    await clients.rotate(lease)
+                if (
+                    reset_error is not None
+                    and reset_error in settings.client_reset_errors
+                    and await clients.rotate(lease)
+                ):
+                    telemetry.record_client_generation_reset(
+                        upstream_grant_type, reset_error
+                    )
                 if delay:
                     await _sleep(sleep_for)
     except TimeoutError:

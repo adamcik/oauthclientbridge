@@ -10,7 +10,14 @@ from oauthclientbridge import oauth, telemetry, types
 from oauthclientbridge.oauth import (
     _httpx as httpx_implementation,  # pyright: ignore[reportPrivateUsage] # Deterministic retry-delay cancellation.
 )
-from oauthclientbridge.settings import FetchSettings, PrometheusSettings
+from oauthclientbridge.settings import (
+    ClientResetError,
+    FetchSettings,
+    PrometheusSettings,
+)
+from oauthclientbridge.telemetry import (
+    _prometheus as stats,  # pyright: ignore[reportPrivateUsage] # Metric emission contract.
+)
 from pytest_otel_capture import OTelMocker
 from tests.oauth_server import OAuthServer
 
@@ -78,6 +85,7 @@ async def test_fetch_tracker_drains_work_completed_before_deadline() -> None:
 @pytest.mark.anyio
 async def test_httpx_fetcher_retries_retryable_upstream_failure(
     oauth_server: OAuthServer,
+    otel_mock: OTelMocker,
 ) -> None:
     oauth_server.expect("/token").respond(status=HTTPStatus.SERVICE_UNAVAILABLE)
     oauth_server.expect("/token").respond(
@@ -88,31 +96,58 @@ async def test_httpx_fetcher_retries_retryable_upstream_failure(
     )
 
     try:
-        result = await client.fetch(
-            oauth_server.url_for("/token"),
-            types.UpstreamGrantType.AUTHORIZATION_CODE,
-        )
+        with trace.get_tracer("tests").start_as_current_span("fetch upstream token"):
+            result = await client.fetch(
+                oauth_server.url_for("/token"),
+                types.UpstreamGrantType.AUTHORIZATION_CODE,
+            )
     finally:
         await client.aclose()
 
     assert result == {"access_token": "provider-token", "token_type": "Bearer"}
     assert len(oauth_server.requests) == 2
+    metrics = telemetry.export_metrics(PrometheusSettings())
+    assert (
+        b'oauth_client_generation_resets_total{endpoint="authorization_code",error="http_503"} 1.0'
+        in metrics
+    )
+    assert b'oauth_client_generation_leases{generation="current"} 0.0' in metrics
+    assert b'oauth_client_generation_leases{generation="retired"} 0.0' in metrics
+    assert b"oauth_client_generation_drain_seconds_count 1.0" in metrics
+    span = next(
+        span
+        for span in otel_mock.get_finished_spans()
+        if span.name == "fetch upstream token"
+    )
+    events = [event for event in span.events if event.name == "Client generation reset"]
+    assert len(events) == 1
+    assert events[0].attributes == {
+        "oauth.upstream_grant_type": "authorization_code",
+        "client.reset_error": "http_503",
+    }
 
 
 @pytest.mark.anyio
 async def test_httpx_fetcher_skips_retry_when_budget_is_exhausted(
     oauth_server: OAuthServer,
+    otel_mock: OTelMocker,
 ) -> None:
     oauth_server.expect("/token").respond(status=HTTPStatus.SERVICE_UNAVAILABLE)
     client = oauth.create_httpx_upstream_client(
         FetchSettings(total_attempts=2, backoff_factor=0, retry_budget_capacity=0)
     )
+    reset_counter = stats.ClientGenerationResetCounter.labels(
+        endpoint=types.UpstreamGrantType.AUTHORIZATION_CODE,
+        error=ClientResetError.HTTP_503,
+    )
+    reset_count = reset_counter._value.get()  # pyright: ignore[reportPrivateUsage] # Metric value assertion.
 
     try:
-        result = await client.fetch(
-            oauth_server.url_for("/token"),
-            types.UpstreamGrantType.AUTHORIZATION_CODE,
-        )
+        with trace.get_tracer("tests").start_as_current_span("fetch upstream token"):
+            result = await client.fetch(
+                oauth_server.url_for("/token"),
+                types.UpstreamGrantType.AUTHORIZATION_CODE,
+            )
     finally:
         await client.aclose()
 
@@ -121,6 +156,13 @@ async def test_httpx_fetcher_skips_retry_when_budget_is_exhausted(
         "error_description": "Provider is unavailable.",
     }
     assert len(oauth_server.requests) == 1
+    assert reset_counter._value.get() == reset_count  # pyright: ignore[reportPrivateUsage] # Metric value assertion.
+    span = next(
+        span
+        for span in otel_mock.get_finished_spans()
+        if span.name == "fetch upstream token"
+    )
+    assert all(event.name != "Client generation reset" for event in span.events)
 
 
 @pytest.mark.anyio
