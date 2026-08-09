@@ -27,6 +27,7 @@ class AsyncioMonitor:
     """Collect health signals for one explicitly named asyncio event loop."""
 
     _monitors: ClassVar[dict[str, "AsyncioMonitor"]] = {}
+    _observable_meter: ClassVar[metrics.Meter | None] = None
 
     def __init__(self, name: str) -> None:
         self._name = name
@@ -50,30 +51,32 @@ class AsyncioMonitor:
             description="Completed event-loop watchdog ticks.",
             unit="{tick}",
         )
-        meter.create_observable_gauge(
-            "asyncio.event_loop.ready_callbacks",
-            callbacks=[self._observe_ready_callbacks],
-            description="Callbacks ready to run in the event loop.",
-            unit="{callback}",
-        )
-        meter.create_observable_gauge(
-            "asyncio.event_loop.scheduled_callbacks",
-            callbacks=[self._observe_scheduled_callbacks],
-            description="Non-cancelled delayed callbacks in the event loop.",
-            unit="{callback}",
-        )
-        meter.create_observable_gauge(
-            "asyncio.tasks.active",
-            callbacks=[self._observe_active_tasks],
-            description="Non-completed tasks attached to the event loop.",
-            unit="{task}",
-        )
-        meter.create_observable_gauge(
-            "asyncio.tasks.cancelling",
-            callbacks=[self._observe_cancelling_tasks],
-            description="Active tasks with cancellation requested.",
-            unit="{task}",
-        )
+        if self._observable_meter is not meter:
+            type(self)._observable_meter = meter
+            meter.create_observable_gauge(
+                "asyncio.event_loop.ready_callbacks",
+                callbacks=[self._observe_all_ready_callbacks],
+                description="Callbacks ready to run in the event loop.",
+                unit="{callback}",
+            )
+            meter.create_observable_gauge(
+                "asyncio.event_loop.scheduled_callbacks",
+                callbacks=[self._observe_all_scheduled_callbacks],
+                description="Non-cancelled delayed callbacks in the event loop.",
+                unit="{callback}",
+            )
+            meter.create_observable_gauge(
+                "asyncio.tasks.active",
+                callbacks=[self._observe_all_active_tasks],
+                description="Non-completed tasks attached to the event loop.",
+                unit="{task}",
+            )
+            meter.create_observable_gauge(
+                "asyncio.tasks.cancelling",
+                callbacks=[self._observe_all_cancelling_tasks],
+                description="Active tasks with cancellation requested.",
+                unit="{task}",
+            )
 
     async def run(self) -> None:
         """Run the watchdog until the enclosing task group cancels it."""
@@ -135,8 +138,34 @@ class AsyncioMonitor:
         monitor = self._active_monitor()
         return monitor._observe(monitor._cancelling_tasks) if monitor else ()
 
+    @classmethod
+    def _observe_all_ready_callbacks(cls, _: CallbackOptions) -> Iterable[Observation]:
+        return cls._observe_all("_ready_callbacks")
+
+    @classmethod
+    def _observe_all_scheduled_callbacks(
+        cls, _: CallbackOptions
+    ) -> Iterable[Observation]:
+        return cls._observe_all("_scheduled_callbacks")
+
+    @classmethod
+    def _observe_all_active_tasks(cls, _: CallbackOptions) -> Iterable[Observation]:
+        return cls._observe_all("_active_tasks")
+
+    @classmethod
+    def _observe_all_cancelling_tasks(cls, _: CallbackOptions) -> Iterable[Observation]:
+        return cls._observe_all("_cancelling_tasks")
+
+    @classmethod
+    def _observe_all(cls, attribute: str) -> Iterable[Observation]:
+        return tuple(
+            observation
+            for monitor in cls._monitors.values()
+            for observation in monitor._observe(getattr(monitor, attribute))
+        )
+
     def _active_monitor(self) -> "AsyncioMonitor | None":
-        return self._monitors.get(self._name)
+        return self if self._monitors.get(self._name) is self else None
 
     def _observe(self, value: int) -> Iterable[Observation]:
         if self._loop is None or not self._introspection_enabled:
