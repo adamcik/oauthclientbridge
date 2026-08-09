@@ -181,6 +181,7 @@
             src = ./.;
             nativeBuildInputs = [
               devVenv
+              pkgs.cacert
               pkgs.uv
             ];
           } ''
