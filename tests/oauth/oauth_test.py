@@ -17,6 +17,27 @@ def run_fetch(*args: str, **data: str | None):
     return asyncio.run(oauth.fetch_with_requests(*args, **data))
 
 
+def test_scrub_refresh_token_preserves_access_token_only_response() -> None:
+    token: oauth.OAuthResponse = {
+        "access_token": "access-token",
+        "expires_in": 3600,
+        "token_type": "Bearer",
+    }
+
+    assert oauth.scrub_refresh_token(token) == token
+
+
+def test_scrub_refresh_token_removes_ephemeral_access_token() -> None:
+    token: oauth.OAuthResponse = {
+        "access_token": "access-token",
+        "expires_in": 3600,
+        "refresh_token": "refresh-token",
+        "token_type": "Bearer",
+    }
+
+    assert oauth.scrub_refresh_token(token) == {"refresh_token": "refresh-token"}
+
+
 def test_oauth_fetch_is_async(
     app_context: flask.ctx.AppContext, requests_mock: RequestsMocker
 ) -> None:

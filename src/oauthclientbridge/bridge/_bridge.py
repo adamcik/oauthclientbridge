@@ -183,8 +183,7 @@ class Bridge:
                 cleared_session,
             )
 
-        if "refresh_token" in result:
-            result = oauth.scrub_refresh_token(result)
+        result = oauth.scrub_refresh_token(result)
         client_secret = crypto.generate_key()
         client_id = db.generate_id()
         try:

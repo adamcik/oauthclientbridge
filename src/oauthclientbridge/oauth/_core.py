@@ -119,6 +119,8 @@ def error_handler(e: Error) -> flask.Response:
 
 
 def scrub_refresh_token(token: OAuthResponse) -> OAuthResponse:
+    if "refresh_token" not in token:
+        return token
     remove = ("access_token", "expires_in", "token_type")
     return {k: v for k, v in token.items() if k not in remove}
 
