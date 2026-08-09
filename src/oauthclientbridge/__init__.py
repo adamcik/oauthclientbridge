@@ -30,7 +30,7 @@ def create_app(
         settings = Settings()
 
     app = Flask(__name__)
-    app.wsgi_app = ProxyFix(
+    app.wsgi_app = ProxyFix(  # ty: ignore[invalid-assignment] # Valid WSGI middleware callable.
         app.wsgi_app,
         x_for=1,
         x_host=1,
