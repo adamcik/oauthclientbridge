@@ -150,6 +150,8 @@ async def test_starlette_adapter_scopes_session_cookie_per_instance(
     cookie = response.headers["set-cookie"]
     assert "domain=auth.mopidy.com" in cookie
     assert "path=/spotify" in cookie
+    assert "max-age=" not in cookie.lower()
+    assert "expires=" not in cookie.lower()
 
 
 @pytest.mark.anyio
