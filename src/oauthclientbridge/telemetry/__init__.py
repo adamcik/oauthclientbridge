@@ -22,6 +22,7 @@ from . import (
 )
 
 __all__ = [
+    "ClientResponseStatus",
     "add_refresher",
     "export_metrics",
     "fallback_observer",
