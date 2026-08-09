@@ -267,6 +267,24 @@ ASGI canaries. The uWSGI services remain running throughout the canary.
 sudo systemctl disable --now oauthclientbridge-spotify-asgi.service oauthclientbridge-soundcloud-asgi.service
 ```
 
+## 7) ASGI promotion criteria
+
+Promote ASGI from source-IP canary routing only after all of these conditions
+hold for both providers:
+
+- authorization, callback, client-credentials token, and refresh flows complete
+  through the public Caddy route;
+- seven consecutive days of canary traffic show no ASGI-specific increase in
+  fallback failures, OAuth errors, or request latency;
+- an ASGI restart during an in-flight request completes within the configured
+  graceful-shutdown and service-manager stop budgets;
+- operators have exercised the documented Caddy rollback and confirmed that the
+  existing uWSGI routes resume traffic.
+
+Promotion changes Caddy routing to ASGI for all traffic while keeping uWSGI
+running as rollback capacity for one release cycle. Remove the uWSGI services,
+image path, and Caddy transport only after that cycle completes without rollback.
+
 ## Notes
 
 - The ASGI middleware applies the one trusted Caddy hop from forwarded headers.
