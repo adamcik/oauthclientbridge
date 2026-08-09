@@ -16,6 +16,9 @@ from opentelemetry.instrumentation.asgi import (  # pyright: ignore[reportMissin
     OpenTelemetryMiddleware,
 )
 from opentelemetry.instrumentation.flask import FlaskInstrumentor
+from opentelemetry.instrumentation.httpx import (  # pyright: ignore[reportMissingModuleSource]
+    HTTPXClientInstrumentor,
+)
 from opentelemetry.instrumentation.logging import LoggingInstrumentor
 from opentelemetry.instrumentation.propagators import (
     TraceResponsePropagator,
@@ -223,6 +226,7 @@ _system_metrics_instrumentor = SystemMetricsInstrumentor()
 _logging_instrumentor = LoggingInstrumentor()
 _sqlite_instrumentor = SQLite3Instrumentor()
 _requests_instrumentor = RequestsInstrumentor()
+_httpx_instrumentor = HTTPXClientInstrumentor()
 
 
 def instrument() -> None:
@@ -230,6 +234,7 @@ def instrument() -> None:
     _logging_instrumentor.instrument(log_hook=_logging_log_hook)
     _sqlite_instrumentor.instrument()
     _requests_instrumentor.instrument(response_hook=_requests_response_hook)
+    _httpx_instrumentor.instrument()
 
 
 def uninstrument() -> None:
@@ -237,6 +242,7 @@ def uninstrument() -> None:
     _logging_instrumentor.uninstrument()
     _sqlite_instrumentor.uninstrument()
     _requests_instrumentor.uninstrument()
+    _httpx_instrumentor.uninstrument()
 
 
 def instrument_app(app: Flask) -> None:
