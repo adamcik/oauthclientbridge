@@ -78,6 +78,7 @@ def create_app(
     app.add_middleware(
         SessionMiddleware,
         secret_key=settings.session_secret.get_secret_value(),
+        max_age=None,
         https_only=settings.session_cookie_secure,
         domain=settings.session_cookie_domain,
         path=settings.session_cookie_path,
