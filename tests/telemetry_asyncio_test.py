@@ -92,11 +92,22 @@ async def test_asyncio_monitor_stops_observing_after_cancellation() -> None:
     assert tuple(monitor._observe_ready_callbacks(None)) == ()  # pyright: ignore[reportPrivateUsage] # Lifecycle test.
 
 
-def test_asyncio_monitor_replaces_previous_monitor_for_named_loop() -> None:
+def test_asyncio_monitor_replaces_previous_monitor_for_named_loop(
+    otel_mock: otel.OTelMocker,
+) -> None:
     previous = _asyncio.AsyncioMonitor("main")
     current = _asyncio.AsyncioMonitor("main")
     current._loop = object()  # type: ignore[assignment] # Controlled loop internals.
 
-    observations = tuple(previous._observe_ready_callbacks(None))  # pyright: ignore[reportPrivateUsage] # Duplicate-instrument regression.
+    previous_observations = tuple(previous._observe_ready_callbacks(None))  # pyright: ignore[reportPrivateUsage] # Duplicate-instrument regression.
+    current_observations = tuple(current._observe_ready_callbacks(None))  # pyright: ignore[reportPrivateUsage] # Replacement lifecycle test.
+    metrics = otel_mock.get_metrics_data()
+    ready_callbacks = next(
+        metric
+        for metric in metrics
+        if metric.name == "asyncio.event_loop.ready_callbacks"
+    )
 
-    assert observations[0].value == 0
+    assert previous_observations == ()
+    assert current_observations[0].value == 0
+    assert len(ready_callbacks.data.data_points) == 1
