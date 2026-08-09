@@ -291,12 +291,16 @@ image path, and Caddy transport only after that cycle completes without rollback
   Configure Caddy's trusted proxy chain correctly and sanitize forwarded headers
   there. Uvicorn's proxy-header middleware is disabled to avoid a second
   interpretation.
-- Keep `/metrics` internal. The application disables it by default; when it is
-  enabled, configure `BRIDGE_METRICS_TOKEN` and additionally restrict the Caddy
-  route to the monitoring network.
+- Keep `/metrics` internal. The application enables it by default; configure
+  `BRIDGE_METRICS_TOKEN` and additionally restrict the Caddy route to the
+  monitoring network, or set `BRIDGE_METRICS_ENABLED=false` to disable it.
 - The `asgi` image starts the `oauthclientbridge.asgi:create_app` factory with one
   app instance per `WORKERS` process. The existing `latest` image remains the
   uWSGI runtime; only it includes the uWSGI base layer.
+- The `asgi` image does not yet provide standalone database administration
+  commands. Retain the `latest` image for initialization, upgrades, and cleanup
+  until a framework-neutral CLI is added; this must be resolved before removing
+  the legacy image.
 - Containers run with `--read-only`; writable paths are provided via bind mounts and tmpfs.
 - `tmpfs /run/prom` is intentionally ephemeral to avoid stale Prometheus multiprocess files.
 - Secrets are currently mixed into env files; move to sops-managed env files later if desired.
