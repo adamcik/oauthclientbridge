@@ -144,6 +144,40 @@ def _record_retry_decision(
     telemetry.record_retry_decision_metric(endpoint, decision.action, decision.reason)
 
 
+def record_fetch_metrics(
+    span: trace.Span,
+    endpoint: types.UpstreamGrantType,
+    status: HTTPStatus | None,
+    result: OAuthResponse,
+    completed_retries: int,
+    duration: float,
+) -> None:
+    final_result = (
+        UpstreamResult.TIMEOUT if status is None else upstream_result_for_status(status)
+    )
+    attributes: dict[str, Any] = {
+        "operation": endpoint,
+        "final.result": final_result,
+    }
+    if status:
+        attributes["http.response.status_code"] = int(status)
+
+    telemetry.record_client_retries_metric(endpoint, status, completed_retries)
+
+    error_type = result.get("error")
+    if error_type:
+        attributes["error.type"] = error_type
+        span.set_status(trace.Status(trace.StatusCode.ERROR, str(result)))
+
+    span.set_attribute("total_retries", completed_retries)
+    for key, value in attributes.items():
+        span.set_attribute(key, value)
+
+    _oauth_client_duration_histogram.record(duration, attributes)
+    _oauth_client_retries_histogram.record(completed_retries, attributes)
+    _oauth_client_total_counter.add(1, attributes)
+
+
 async def fetch_with_requests(
     uri: str,
     upstream_grant_type: types.UpstreamGrantType,
@@ -336,37 +370,13 @@ def _fetch_sync(
                     ),
                 )
 
-        final_result = (
-            UpstreamResult.TIMEOUT
-            if status is None
-            else upstream_result_for_status(status)
-        )
-
-        attributes: dict[str, Any] = {
-            "operation": endpoint,
-            "final.result": final_result,
-        }
-        if status:
-            attributes["http.response.status_code"] = int(status)
-
-        telemetry.record_client_retries_metric(endpoint, status, completed_retries)
-
-        error_type = result.get("error")
-        if error_type:
-            attributes["error.type"] = error_type
-            span.set_status(trace.Status(trace.StatusCode.ERROR, str(result)))
-
         if "error" in result and retry:
             result["retry_after"] = retry
 
-        span.set_attribute("total_retries", completed_retries)
-        for key, value in attributes.items():
-            span.set_attribute(key, value)
-
         duration = time.monotonic() - start_time
-        _oauth_client_duration_histogram.record(duration, attributes)
-        _oauth_client_retries_histogram.record(completed_retries, attributes)
-        _oauth_client_total_counter.add(1, attributes)
+        record_fetch_metrics(
+            span, endpoint, status, result, completed_retries, duration
+        )
         return result
 
 

@@ -5,6 +5,7 @@ from threading import Event, Thread
 import anyio
 import pytest
 from opentelemetry import trace
+from opentelemetry.sdk.metrics.export import HistogramDataPoint, NumberDataPoint
 
 from oauthclientbridge import oauth, telemetry, types
 from oauthclientbridge.oauth import (
@@ -18,8 +19,90 @@ from oauthclientbridge.settings import (
 from oauthclientbridge.telemetry import (
     _prometheus as stats,  # pyright: ignore[reportPrivateUsage] # Metric emission contract.
 )
-from pytest_otel_capture import OTelMocker
+from pytest_otel_capture import (
+    OTelMocker,
+    assert_trace_header,
+    assert_trace_id,
+    latest_metric_data,
+)
 from tests.oauth_server import OAuthServer
+
+
+@pytest.mark.anyio
+async def test_httpx_fetcher_preserves_upstream_telemetry(
+    oauth_server: OAuthServer,
+    otel_mock: OTelMocker,
+    instrumented: None,
+) -> None:
+    oauth_server.expect("/token").respond(
+        {"access_token": "provider-token", "token_type": "Bearer"}
+    )
+    client = oauth.create_httpx_upstream_client(FetchSettings())
+
+    try:
+        with trace.get_tracer("tests").start_as_current_span("fetch upstream token"):
+            result = await client.fetch(
+                oauth_server.url_for("/token"),
+                types.UpstreamGrantType.AUTHORIZATION_CODE,
+            )
+    finally:
+        await client.aclose()
+
+    assert result == {"access_token": "provider-token", "token_type": "Bearer"}
+    spans = otel_mock.get_finished_spans()
+    parent_span = next(span for span in spans if span.name == "fetch upstream token")
+    assert_trace_header(
+        oauth_server.requests[0].headers["traceparent"], parent_span.trace_id
+    )
+    assert_trace_id(
+        next(span for span in spans if span.name == "POST"), parent_span.trace_id
+    )
+    attributes = {
+        "operation": "authorization_code",
+        "final.result": "success",
+    }
+    total = latest_metric_data(
+        otel_mock.get_metrics_data(),
+        "oauth.client.total",
+        NumberDataPoint,
+        attributes=attributes,
+        scope="oauthclientbridge.oauth",
+    )
+    duration = latest_metric_data(
+        otel_mock.get_metrics_data(),
+        "oauth.client.duration",
+        HistogramDataPoint,
+        attributes=attributes,
+        scope="oauthclientbridge.oauth",
+    )
+    retries = latest_metric_data(
+        otel_mock.get_metrics_data(),
+        "oauth.client.retries",
+        HistogramDataPoint,
+        attributes=attributes,
+        scope="oauthclientbridge.oauth",
+    )
+    assert total.value == 1
+    assert duration.count == 1
+    assert retries.sum == 0
+
+    metrics = telemetry.export_metrics(PrometheusSettings())
+    assert (
+        b'oauth_client_attempts_total{endpoint="authorization_code",kind="initial"}'
+        in metrics
+    )
+    assert (
+        b'oauth_client_latency_seconds_count{endpoint="authorization_code",status="http_ok"}'
+        in metrics
+    )
+    assert (
+        b'oauth_client_response_bytes_count{endpoint="authorization_code",status="http_ok"}'
+        in metrics
+    )
+    assert (
+        b'oauth_client_retries_count{endpoint="authorization_code",status="http_ok"}'
+        in metrics
+    )
 
 
 @pytest.mark.anyio
@@ -443,7 +526,7 @@ async def test_httpx_fetcher_does_not_spend_budget_on_deadline_skipped_retry(
     client = oauth.create_httpx_upstream_client(
         FetchSettings(
             total_attempts=2,
-            total_timeout=0.1,
+            total_timeout=0.5,
             backoff_factor=0,
             retry_budget_capacity=1,
             retry_budget_refill_per_initial=0,

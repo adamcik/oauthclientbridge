@@ -1,7 +1,9 @@
 import importlib.metadata
 import ssl
+import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from http import HTTPStatus
 
 import anyio
@@ -13,7 +15,7 @@ from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import ClientResetError, FetchSettings
 from oauthclientbridge.utils import generations
 
-from ._core import jitter_delay, parse_retry
+from ._core import jitter_delay, parse_retry, record_fetch_metrics
 from ._outcome import OAuthResponse, token_endpoint_outcome
 from ._retry import (
     RetryCondition,
@@ -154,19 +156,75 @@ async def _fetch(
     data: dict[str, str | None],
     auth: str | None = None,
 ) -> OAuthResponse:
+    start_time = time.monotonic()
+    tracer = trace.get_tracer(__package__ or __name__)
+    span = tracer.start_span(f"OAUTH {upstream_grant_type}")
+    try:
+        outcome = await _fetch_outcome(
+            lease,
+            clients,
+            settings,
+            uri,
+            upstream_grant_type,
+            data,
+            auth,
+        )
+        record_fetch_metrics(
+            span,
+            upstream_grant_type,
+            outcome.status,
+            outcome.response,
+            outcome.completed_retries,
+            time.monotonic() - start_time,
+        )
+        return outcome.response
+    finally:
+        span.end()
+
+
+@dataclass(frozen=True)
+class _FetchOutcome:
+    response: OAuthResponse
+    status: HTTPStatus | None
+    completed_retries: int
+
+
+async def _fetch_outcome(
+    lease: generations.Lease[httpx.AsyncClient],
+    clients: generations.Generations[httpx.AsyncClient],
+    settings: FetchSettings,
+    uri: str,
+    upstream_grant_type: types.UpstreamGrantType,
+    data: dict[str, str | None],
+    auth: str | None = None,
+) -> _FetchOutcome:
     retry_limiter = get_retry_limiter(
         settings.retry_budget_capacity, settings.retry_budget_refill_per_initial
     )
     timed_out_result: OAuthResponse | None = None
+    status: HTTPStatus | None = None
+    completed_retries = 0
     try:
         with anyio.fail_after(settings.total_timeout):
             deadline = anyio.current_time() + settings.total_timeout
             for attempt in range(settings.total_attempts):
+                completed_retries = attempt
+                telemetry.record_client_attempt_metric(
+                    upstream_grant_type,
+                    types.RetryAttemptKind.INITIAL
+                    if attempt == 0
+                    else types.RetryAttemptKind.RETRY,
+                )
                 if attempt == 0:
                     retry_limiter.add(settings.retry_budget_refill_per_initial)
                 retry_after_seconds = 0
-                status: HTTPStatus | None = None
+                status = None
                 reset_error: ClientResetError | None = None
+                response_status: HTTPStatus | telemetry.ClientResponseStatus = (
+                    "unknown_exception"
+                )
+                response_size: int | None = None
+                attempt_started = time.monotonic()
                 try:
                     if auth is None:
                         response = await lease.value.post(uri, data=data)
@@ -180,10 +238,15 @@ async def _fetch(
                     telemetry.record_client_error_metric(
                         upstream_grant_type, None, "pool_saturation"
                     )
-                    return OAuthError.TEMPORARILY_UNAVAILABLE.json(
-                        description="Provider connection pool is unavailable."
+                    return _FetchOutcome(
+                        OAuthError.TEMPORARILY_UNAVAILABLE.json(
+                            description="Provider connection pool is unavailable."
+                        ),
+                        status,
+                        completed_retries,
                     )
                 except httpx.ReadTimeout:
+                    response_status = "read_timeout"
                     reset_error = ClientResetError.READ_TIMEOUT
                     result = OAuthError.TEMPORARILY_UNAVAILABLE.json(
                         description="Request timed out while reading from provider."
@@ -192,23 +255,30 @@ async def _fetch(
                         upstream_grant_type
                         not in settings.read_timeout_retry_grant_types
                     ):
-                        return result
+                        return _FetchOutcome(result, status, completed_retries)
                 except httpx.ConnectTimeout:
+                    response_status = "connection_timeout"
                     reset_error = ClientResetError.CONNECTION_TIMEOUT
                     result = OAuthError.SERVER_ERROR.json(
                         description="Request timed out while connecting to provider."
                     )
                 except httpx.TimeoutException:
+                    response_status = "connection_timeout"
                     result = OAuthError.SERVER_ERROR.json(
                         description="Request timed out while connecting to provider."
                     )
                 except httpx.HTTPError as error:
+                    response_status = (
+                        "ssl_error" if _has_tls_cause(error) else "connection_error"
+                    )
                     reset_error = _reset_error_for_exception(error)
                     result = OAuthError.SERVER_ERROR.json(
                         description="An error occurred while connecting to the provider."
                     )
                 else:
                     status = HTTPStatus(response.status_code)
+                    response_status = status
+                    response_size = len(response.content)
                     reset_error = _reset_error_for_status(status)
                     retry_after_seconds = parse_retry(
                         response.headers.get("retry-after")
@@ -231,6 +301,13 @@ async def _fetch(
                                     description="Unhandled provider error (HTTP %s)."
                                     % response.status_code
                                 )
+                finally:
+                    telemetry.record_client_response_metric(
+                        upstream_grant_type,
+                        response_status,
+                        time.monotonic() - attempt_started,
+                        response_size,
+                    )
 
                 outcome = token_endpoint_outcome(
                     status,
@@ -244,13 +321,17 @@ async def _fetch(
                         and status.is_success
                         and outcome.normalized_error is None
                     ):
-                        return result
+                        return _FetchOutcome(result, status, completed_retries)
 
                     description = result.get("error_description")
-                    return (outcome.normalized_error or OAuthError.SERVER_ERROR).json(
-                        description=description
-                        if isinstance(description, str)
-                        else None
+                    return _FetchOutcome(
+                        (outcome.normalized_error or OAuthError.SERVER_ERROR).json(
+                            description=description
+                            if isinstance(description, str)
+                            else None
+                        ),
+                        status,
+                        completed_retries,
                     )
 
                 description = result.get("error_description")
@@ -260,7 +341,7 @@ async def _fetch(
                 if retry_after_seconds:
                     result["retry_after"] = retry_after_seconds
                 if attempt == settings.total_attempts - 1:
-                    return result
+                    return _FetchOutcome(result, status, completed_retries)
 
                 timed_out_result = result
                 delay = (
@@ -279,13 +360,18 @@ async def _fetch(
                         upstream_grant_type,
                         RetryCondition.DEADLINE_EXCEEDED,
                     )
-                    return result
+                    return _FetchOutcome(result, status, completed_retries)
                 if not retry_limiter.consume():
                     _record_suppressed_retry(
                         upstream_grant_type,
                         RetryCondition.BUDGET_EXHAUSTED,
                     )
-                    return result
+                    return _FetchOutcome(result, status, completed_retries)
+                telemetry.record_retry_decision_metric(
+                    upstream_grant_type,
+                    RetryDecisionAction.RETRY,
+                    outcome.retry_condition or RetryCondition.UNKNOWN,
+                )
                 if (
                     reset_error is not None
                     and reset_error in settings.client_reset_errors
@@ -298,13 +384,21 @@ async def _fetch(
                     await _sleep(sleep_for)
     except TimeoutError:
         if timed_out_result is not None:
-            return timed_out_result
-        return OAuthError.SERVER_ERROR.json(
-            description="Request timed out while connecting to provider."
+            return _FetchOutcome(timed_out_result, status, completed_retries)
+        return _FetchOutcome(
+            OAuthError.SERVER_ERROR.json(
+                description="Request timed out while connecting to provider."
+            ),
+            status,
+            completed_retries,
         )
 
-    return OAuthError.SERVER_ERROR.json(
-        description="An unknown error occurred while talking to provider."
+    return _FetchOutcome(
+        OAuthError.SERVER_ERROR.json(
+            description="An unknown error occurred while talking to provider."
+        ),
+        status,
+        completed_retries,
     )
 
 
