@@ -52,7 +52,7 @@ test = [
   { include-group = "sentry" },
 ]
 typing = [
-  "basedpyright==1.39.10",
+  "basedpyright==1.40.0",
   "types-requests",
   { include-group = "sentry" },
 ]
