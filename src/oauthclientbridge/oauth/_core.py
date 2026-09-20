@@ -1,20 +1,19 @@
 import email.utils
-import functools
 import importlib.metadata
 import random
 import re
 import time
 from http import HTTPStatus
-from typing import Any, override
+from typing import Any, Protocol, override
 
 import flask
 import requests
 import structlog
 from opentelemetry import metrics, trace
 
-from oauthclientbridge import telemetry
+from oauthclientbridge import execution, telemetry, types
 from oauthclientbridge.errors import OAuthError
-from oauthclientbridge.settings import current_settings
+from oauthclientbridge.settings import FetchSettings, current_settings
 from oauthclientbridge.utils import uri as uri_utils
 
 from ._outcome import (
@@ -25,10 +24,9 @@ from ._outcome import (
 )
 from ._retry import (
     RetryAttemptKind,
+    RetryCondition,
     RetryDecision,
     RetryDecisionAction,
-    RetryReason,
-    get_retry_limiter,
 )
 
 logger: structlog.BoundLogger = structlog.get_logger()
@@ -60,13 +58,14 @@ _oauth_client_retries_histogram = meter.create_histogram(
 URIParam = dict[str, str]
 
 
-@functools.lru_cache()
-def get_session():
-    session = requests.Session()
-    session.headers["User-Agent"] = "oauthclientbridge %s" % importlib.metadata.version(
-        "oauthclientbridge"
-    )
-    return session
+class UpstreamFetcher(Protocol):
+    async def __call__(
+        self,
+        uri: str,
+        upstream_grant_type: types.UpstreamGrantType,
+        auth: str | None = None,
+        **data: str | None,
+    ) -> OAuthResponse: ...
 
 
 class Error(Exception):
@@ -111,42 +110,17 @@ def error_handler(e: Error) -> flask.Response:
     else:
         response.status_code = HTTPStatus.BAD_REQUEST
 
-    current_span = trace.get_current_span()
-    current_span.set_attribute("error.unhandled", False)
-    current_span.set_attribute("oauth.error", e.error.value)
-    structlog.contextvars.bind_contextvars(oauth_error=e.error.value)
-    current_span.record_exception(e)
-    current_span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
-
     status = HTTPStatus(response.status_code)
-    telemetry.record_server_error(status, e.error.value)
-    return response
+    structlog.contextvars.bind_contextvars(oauth_error=e.error.value)
+    telemetry.record_oauth_error_trace(e.error.value, e.description, e, status=status)
 
-
-def fallback_error_handler(e: Exception) -> flask.Response:
-    telemetry.record_server_error(
-        HTTPStatus.INTERNAL_SERVER_ERROR, OAuthError.SERVER_ERROR.value
-    )
-
-    current_span = trace.get_current_span()
-    current_span.set_attribute("error.unhandled", True)
-    current_span.record_exception(e)
-    current_span.set_status(trace.Status(trace.StatusCode.ERROR, str(e)))
-
-    response = flask.jsonify(OAuthError.SERVER_ERROR.json())
-    response.status_code = HTTPStatus.INTERNAL_SERVER_ERROR
-    return response
-
-
-def nocache(response: flask.Response) -> flask.Response:
-    """Turns off caching in case there is sensitive content in responses."""
-    if "Cache-Control" not in response.headers:
-        response.headers["Cache-Control"] = "no-store"
-        response.headers["Pragma"] = "no-cache"
+    telemetry.record_server_error_metric(status, e.error)
     return response
 
 
 def scrub_refresh_token(token: OAuthResponse) -> OAuthResponse:
+    if "refresh_token" not in token:
+        return token
     remove = ("access_token", "expires_in", "token_type")
     return {k: v for k, v in token.items() if k not in remove}
 
@@ -158,29 +132,93 @@ def sanitize_for_logging(payload: OAuthResponse) -> OAuthResponse:
     }
 
 
-def _record_attempt(endpoint: str, attempt_kind: RetryAttemptKind) -> None:
-    telemetry.record_client_attempt(endpoint, attempt_kind)
+def _record_attempt(
+    endpoint: types.UpstreamGrantType, attempt_kind: RetryAttemptKind
+) -> None:
+    telemetry.record_client_attempt_metric(endpoint, attempt_kind)
 
 
-def _record_retry_decision(endpoint: str, decision: RetryDecision) -> None:
-    telemetry.record_retry_decision(endpoint, decision.action, decision.reason)
+def _record_retry_decision(
+    endpoint: types.UpstreamGrantType, decision: RetryDecision
+) -> None:
+    telemetry.record_retry_decision_metric(endpoint, decision.action, decision.reason)
 
 
-def fetch(
-    uri: str, endpoint: str, auth: str | None = None, **data: str | None
+def record_fetch_metrics(
+    span: trace.Span,
+    endpoint: types.UpstreamGrantType,
+    status: HTTPStatus | None,
+    result: OAuthResponse,
+    completed_retries: int,
+    duration: float,
+) -> None:
+    final_result = (
+        UpstreamResult.TIMEOUT if status is None else upstream_result_for_status(status)
+    )
+    attributes: dict[str, Any] = {
+        "operation": endpoint,
+        "final.result": final_result,
+    }
+    if status:
+        attributes["http.response.status_code"] = int(status)
+
+    telemetry.record_client_retries_metric(endpoint, status, completed_retries)
+
+    error_type = result.get("error")
+    if error_type:
+        attributes["error.type"] = error_type
+        span.set_status(trace.Status(trace.StatusCode.ERROR, str(result)))
+
+    span.set_attribute("total_retries", completed_retries)
+    for key, value in attributes.items():
+        span.set_attribute(key, value)
+
+    _oauth_client_duration_histogram.record(duration, attributes)
+    _oauth_client_retries_histogram.record(completed_retries, attributes)
+    _oauth_client_total_counter.add(1, attributes)
+
+
+async def fetch_with_requests(
+    uri: str,
+    upstream_grant_type: types.UpstreamGrantType,
+    auth: str | None = None,
+    **data: str | None,
 ) -> OAuthResponse:
-    """Perform post given URI with auth and provided data."""
+    """Perform an upstream OAuth request without blocking the event loop."""
+    return await _fetch_with_settings(
+        current_settings.fetch.model_copy(deep=True),
+        uri,
+        upstream_grant_type,
+        auth,
+        data,
+    )
+
+
+async def _fetch_with_settings(
+    settings: FetchSettings,
+    uri: str,
+    endpoint: types.UpstreamGrantType,
+    auth: str | None,
+    data: dict[str, str | None],
+) -> OAuthResponse:
+    return await execution.run_sync(
+        "oauth.fetch", _fetch_sync, uri, endpoint, auth, data, settings
+    )
+
+
+def _fetch_sync(
+    uri: str,
+    endpoint: types.UpstreamGrantType,
+    auth: str | None,
+    data: dict[str, str | None],
+    settings: FetchSettings,
+) -> OAuthResponse:
     start_time = time.monotonic()
     with tracer.start_as_current_span(f"OAUTH {endpoint}") as span:
         req = requests.Request("POST", uri, data=data, auth=auth)
         prepared = req.prepare()
-        retry_budget = _get_retry_limiter(
-            current_settings.fetch.retry_budget_capacity,
-            current_settings.fetch.retry_budget_refill_per_initial,
-        )
-        retry_budget.add(current_settings.fetch.retry_budget_refill_per_initial)
 
-        deadline = time.monotonic() + current_settings.fetch.total_timeout
+        deadline = time.monotonic() + settings.total_timeout
         retry = 0
         completed_retries = 0
         status: HTTPStatus | None = None
@@ -190,9 +228,9 @@ def fetch(
             description="An unknown error occurred talking to provider."
         )
 
-        for i in range(current_settings.fetch.total_retries + 1):
+        for i in range(settings.total_attempts):
             prefix = "attempt #%d %s" % (i + 1, uri)
-            backoff = (2**i - 1) * current_settings.fetch.backoff_factor
+            backoff = (2**i - 1) * settings.backoff_factor
             remaining_timeout = deadline - time.monotonic()
 
             if pending_retry_decision is not None:
@@ -201,27 +239,17 @@ def fetch(
                         endpoint,
                         RetryDecision(
                             RetryDecisionAction.SKIP,
-                            RetryReason.DEADLINE_EXCEEDED,
+                            RetryCondition.DEADLINE_EXCEEDED,
                         ),
                     )
                     span.add_event("No timeout remaining")
                     logger.debug("Abort %s no timeout remaining.", prefix)
                     break
                 elif (retry or backoff) > 0:
-                    if not retry_budget.consume():
-                        _record_retry_decision(
-                            endpoint,
-                            RetryDecision(
-                                RetryDecisionAction.SKIP,
-                                RetryReason.RESOURCE_EXHAUSTED,
-                            ),
-                        )
-                        span.add_event("Retry budget exhausted")
-                        logger.debug("Abort %s retry budget exhausted.", prefix)
-                        break
-
                     base_delay = retry if retry else backoff
-                    sleep_for = jitter_delay(base_delay, preserve_floor=retry > 0)
+                    sleep_for = jitter_delay(
+                        base_delay, settings, preserve_floor=retry > 0
+                    )
                     if retry:
                         sleep_for = max(retry, sleep_for)
                     if sleep_for > remaining_timeout:
@@ -229,7 +257,7 @@ def fetch(
                             endpoint,
                             RetryDecision(
                                 RetryDecisionAction.SKIP,
-                                RetryReason.DEADLINE_EXCEEDED,
+                                RetryCondition.DEADLINE_EXCEEDED,
                             ),
                         )
                         span.add_event("No timeout remaining")
@@ -246,7 +274,7 @@ def fetch(
                             endpoint,
                             RetryDecision(
                                 RetryDecisionAction.SKIP,
-                                RetryReason.DEADLINE_EXCEEDED,
+                                RetryCondition.DEADLINE_EXCEEDED,
                             ),
                         )
                         span.add_event("No timeout remaining")
@@ -269,7 +297,7 @@ def fetch(
                     endpoint,
                     RetryDecision(
                         RetryDecisionAction.SKIP,
-                        RetryReason.DEADLINE_EXCEEDED,
+                        RetryCondition.DEADLINE_EXCEEDED,
                     ),
                 )
                 span.add_event("No timeout remaining")
@@ -281,13 +309,14 @@ def fetch(
                 prepared,
                 remaining_timeout,
                 endpoint,
+                settings,
             )
 
             outcome = token_endpoint_outcome(
                 status,
                 result,
-                retry_status_codes=current_settings.fetch.retry_status_codes,
-                error_types=current_settings.fetch.error_types,
+                retry_status_codes=settings.retry_status_codes,
+                error_types=settings.error_types,
                 logger=logger,
                 endpoint=endpoint,
             )
@@ -303,7 +332,7 @@ def fetch(
                 result = normalized_error.json(description=description)
                 pending_retry_decision = RetryDecision(
                     RetryDecisionAction.RETRY,
-                    outcome.retry_reason or RetryReason.UNKNOWN,
+                    outcome.retry_condition or RetryCondition.UNKNOWN,
                 )
             elif status is not None and status.is_success:
                 span.add_event("Success")
@@ -318,13 +347,15 @@ def fetch(
 
             if status is not None and "error" in result:
                 error_code = result["error"]
-                if error_code in current_settings.fetch.error_types:
-                    error_label = current_settings.fetch.error_types[error_code].value
+                if not isinstance(error_code, str):
+                    error_label = "invalid_error"
+                elif error_code in settings.error_types:
+                    error_label = settings.error_types[error_code]
                 elif error_code in OAuthError:
-                    error_label = OAuthError(error_code).value
+                    error_label = OAuthError(error_code)
                 else:
                     error_label = "invalid_error"
-                telemetry.record_client_error(endpoint, status, error_label)
+                telemetry.record_client_error_metric(endpoint, status, error_label)
 
             logger.debug(
                 "Result %s [status %s] [retry after %s]", prefix, status, retry
@@ -339,37 +370,13 @@ def fetch(
                     ),
                 )
 
-        final_result = (
-            UpstreamResult.TIMEOUT
-            if status is None
-            else upstream_result_for_status(status)
-        )
-
-        attributes: dict[str, Any] = {
-            "operation": endpoint,
-            "final.result": final_result,
-        }
-        if status:
-            attributes["http.response.status_code"] = int(status)
-
-        telemetry.record_client_retries(endpoint, status, completed_retries)
-
-        error_type = result.get("error")
-        if error_type:
-            attributes["error.type"] = error_type
-            span.set_status(trace.Status(trace.StatusCode.ERROR, str(result)))
-
         if "error" in result and retry:
             result["retry_after"] = retry
 
-        span.set_attribute("total_retries", completed_retries)
-        for key, value in attributes.items():
-            span.set_attribute(key, value)
-
         duration = time.monotonic() - start_time
-        _oauth_client_duration_histogram.record(duration, attributes)
-        _oauth_client_retries_histogram.record(completed_retries, attributes)
-        _oauth_client_total_counter.add(1, attributes)
+        record_fetch_metrics(
+            span, endpoint, status, result, completed_retries, duration
+        )
         return result
 
 
@@ -377,22 +384,31 @@ def _fetch(
     span: trace.Span,
     prepared: requests.PreparedRequest,
     timeout: float,
-    endpoint: str,
+    endpoint: types.UpstreamGrantType,
+    settings: FetchSettings,
 ) -> tuple[OAuthResponse, HTTPStatus | None, int]:
-    timeout = min(current_settings.fetch.timeout, timeout)
+    timeout = min(settings.timeout, timeout)
     start_time = time.time()
+    assert prepared.method is not None
+    assert prepared.url is not None
 
-    session = get_session()
     status = None
 
     try:
-        resp = session.send(prepared, timeout=timeout)
+        resp = requests.request(
+            prepared.method,
+            prepared.url,
+            data=prepared.body,
+            headers={
+                **prepared.headers,
+                "User-Agent": "oauthclientbridge %s"
+                % importlib.metadata.version("oauthclientbridge"),
+            },
+            timeout=timeout,
+        )
     except requests.exceptions.RequestException as e:
         request_latency = time.time() - start_time
         span.record_exception(e)
-        span.add_event("Closing session to get new server")
-        session.close()
-
         status_label = "unknown_exception"
         description = "An unknown error occurred while talking to provider."
         if isinstance(e, requests.exceptions.Timeout):
@@ -425,22 +441,22 @@ def _fetch(
     else:
         request_latency = time.time() - start_time
 
-        result = _decode(span, resp)
+        result = _decode(span, resp, settings)
         status = HTTPStatus(resp.status_code)
         status_label = status
         length = len(resp.content)
         retry_after = parse_retry(resp.headers.get("retry-after"))
 
-        if status in current_settings.fetch.retry_status_codes:
-            span.add_event("Closing session to get new server")
-            session.close()
-
-    telemetry.record_client_response(endpoint, status_label, request_latency, length)
+    telemetry.record_client_response_metric(
+        endpoint, status_label, request_latency, length
+    )
 
     return result, status, retry_after
 
 
-def _decode(span: trace.Span, resp: requests.Response) -> OAuthResponse:
+def _decode(
+    span: trace.Span, resp: requests.Response, settings: FetchSettings
+) -> OAuthResponse:
     try:
         return resp.json()
     except ValueError as e:
@@ -454,12 +470,18 @@ def _decode(span: trace.Span, resp: requests.Response) -> OAuthResponse:
             e,
         )
 
-    if resp.status_code in current_settings.fetch.unavailable_status_codes:
+    return _unexpected_response_error(resp.status_code, settings)
+
+
+def _unexpected_response_error(
+    status_code: int, settings: FetchSettings
+) -> OAuthResponse:
+    if status_code in settings.unavailable_status_codes:
         error = OAuthError.TEMPORARILY_UNAVAILABLE
         description = "Provider is unavailable."
     else:
         error = OAuthError.SERVER_ERROR
-        description = "Unhandled provider error (HTTP %s)." % resp.status_code
+        description = "Unhandled provider error (HTTP %s)." % status_code
 
     return error.json(description=description)
 
@@ -478,19 +500,21 @@ def parse_retry(value: str | None) -> int:
     return max(0, seconds)
 
 
-def jitter_delay(delay: float, preserve_floor: bool = False) -> float:
+def jitter_delay(
+    delay: float, settings: FetchSettings, preserve_floor: bool = False
+) -> float:
     """Apply jitter around a base delay.
 
     When preserving a provider-supplied floor like `Retry-After`, clamp the
     lower jitter bound to 1.0 so the full sampled range remains usable.
     """
-    lower_bound = current_settings.fetch.backoff_jitter_min
+    lower_bound = settings.backoff_jitter_min
     if preserve_floor:
         lower_bound = max(1.0, lower_bound)
 
     return delay * random.uniform(
         lower_bound,
-        current_settings.fetch.backoff_jitter_max,
+        settings.backoff_jitter_max,
     )
 
 
@@ -499,7 +523,3 @@ def redirect(uri: str, **params: str) -> flask.Response:
         status=HTTPStatus.FOUND,
         headers={"Location": uri_utils.rewrite_uri(uri, params)},
     )
-
-
-# Preserve existing import/test seam while moving implementation to retry.py.
-_get_retry_limiter = get_retry_limiter

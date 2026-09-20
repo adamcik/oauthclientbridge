@@ -1,14 +1,16 @@
 import re
-import time
 from datetime import datetime
 from http import HTTPStatus
 from pathlib import Path
 
-import flask
 import prometheus_client
 import prometheus_client.multiprocess
 
-from oauthclientbridge.settings import TelemetrySettings, current_settings
+from oauthclientbridge.settings import (
+    PrometheusSettings,
+    TelemetrySettings,
+    current_settings,
+)
 from oauthclientbridge.utils import time as time_utils
 
 from ._buckets import BYTES, TIME, TOKEN_GRANT_AGE
@@ -67,7 +69,7 @@ ServerResponseSizeHistogram = prometheus_client.Histogram(
 
 ClientErrorCounter = prometheus_client.Counter(
     "oauth_client_error_total",
-    "OAuth errors from upstream provider.",
+    "OAuth client errors.",
     ["endpoint", "status", "error"],
     registry=registry,
 )
@@ -91,6 +93,20 @@ ClientRetryDecisionCounter = prometheus_client.Counter(
     "oauth_client_retry_decisions",
     "OAuth retry decisions and reasons.",
     ["endpoint", "decision", "reason"],
+    registry=registry,
+)
+
+ClientGenerationResetCounter = prometheus_client.Counter(
+    "oauth_client_generation_resets",
+    "Outbound HTTP client generation resets.",
+    ["endpoint", "error"],
+    registry=registry,
+)
+
+ClientGenerationDrainHistogram = prometheus_client.Histogram(
+    "oauth_client_generation_drain_seconds",
+    "Time for retired outbound HTTP client generations to drain.",
+    buckets=TIME,
     registry=registry,
 )
 
@@ -158,37 +174,9 @@ def status(code: HTTPStatus) -> str:
     return HTTP_STATUS_LABELS[code]
 
 
-def endpoint() -> str:
-    return getattr(flask.request.url_rule, "endpoint", "notfound")
-
-
-def record_metrics() -> None:
-    flask.g.stats_latency_start_time = time.time()
-
-
-def finalize_metrics(response: flask.Response) -> flask.Response:
-    request_latency = time.time() - flask.g.stats_latency_start_time
-    labels = {
-        "endpoint": endpoint(),
-        "status": status(HTTPStatus(response.status_code)),
-    }
-
-    ServerLatencyHistogram.labels(**labels).observe(request_latency)
-    response_content_length = response.headers.get("Content-Length")
-    if response_content_length is not None:
-        ServerResponseSizeHistogram.labels(**labels).observe(
-            int(response_content_length)
-        )
-    if flask.request.content_length is not None:
-        ServerRequestSizeHistogram.labels(**labels).observe(
-            flask.request.content_length
-        )
-    return response
-
-
-def export_metrics() -> flask.Response:
+def export_metrics(settings: PrometheusSettings | None = None) -> bytes:
     metrics_registry = registry
-    multiproc_dir = current_settings.prometheus.multiproc_dir
+    multiproc_dir = (settings or current_settings.prometheus).multiproc_dir
     if multiproc_dir:
         metrics_registry = _multiprocess_registries.get(multiproc_dir)
         if metrics_registry is None:
@@ -200,20 +188,20 @@ def export_metrics() -> flask.Response:
             _multiprocess_registries[multiproc_dir] = metrics_registry
 
     text = prometheus_client.generate_latest(metrics_registry)
-    return flask.Response(text, mimetype=prometheus_client.CONTENT_TYPE_LATEST)
+    return text
 
 
-def observe_token_grant_age(created_at: datetime | None) -> None:
+def observe_token_grant_age_metric(created_at: datetime | None) -> None:
     if created_at is None:
         return
 
     TokenGrantAgeHistogram.observe((time_utils.utcnow() - created_at).total_seconds())
 
 
-def set_build_info(settings: TelemetrySettings) -> None:
+def set_build_info_metric(settings: TelemetrySettings) -> None:
     BuildInfoGauge.labels(**build_info_labels(settings)).set(1)
 
 
-def set_token_state_counts(counts: dict[str, int]) -> None:
+def set_token_state_counts_metric(counts: dict[str, int]) -> None:
     for state, count in counts.items():
         TokenStateGauge.labels(state=state).set(count)

@@ -181,6 +181,7 @@
             src = ./.;
             nativeBuildInputs = [
               devVenv
+              pkgs.cacert
               pkgs.uv
             ];
           } ''
@@ -272,6 +273,18 @@
             chmod 1777 $out/tmp
           '';
 
+          asgiRuntimeDirs = pkgs.runCommand "oauthclientbridge-asgi-runtime-dirs" {} ''
+            mkdir -p $out/data
+            mkdir -p $out/config
+            mkdir -p $out/run/prom
+            mkdir -p $out/run/asgi
+            mkdir -p $out/tmp
+
+            chmod 0777 $out/run/prom
+            chmod 0777 $out/run/asgi
+            chmod 1777 $out/tmp
+          '';
+
           entrypoint = pkgs.writeShellScriptBin "entrypoint" ''
             uwsgi_args=(
               --plugin python3
@@ -297,6 +310,17 @@
 
           flaskEntrypoint = pkgs.writeShellScriptBin "flask" ''
             exec ${runtimeVenv}/bin/python -m flask --app oauthclientbridge "$@"
+          '';
+
+          asgiEntrypoint = pkgs.writeShellScriptBin "entrypoint" ''
+            # Caddy connects through the host directory's www-data group.
+            umask 0007
+            exec ${runtimeVenv}/bin/uvicorn \
+              --factory oauthclientbridge.asgi:create_app \
+              --no-proxy-headers \
+              --timeout-graceful-shutdown "''${ASGI_GRACEFUL_SHUTDOWN_TIMEOUT:-25}" \
+              --workers "''${WORKERS:-4}" \
+              "$@"
           '';
         in
           lib.optionalAttrs (pkgs.stdenv.isLinux && hasNix2container) {
@@ -377,6 +401,76 @@
                 };
               in [
                 baseLayer
+                depsLayer
+                appLayer
+                metadataLayer
+              ];
+            };
+
+            asgi-image = nix2containerPkgs.buildImage {
+              name = "ghcr.io/adamcik/oauthclientbridge";
+              tag = "asgi";
+              created =
+                if ((overrideMetadata.created or null) != null)
+                then overrideMetadata.created
+                else fallbackCreated;
+
+              config = {
+                entrypoint = ["/bin/entrypoint"];
+                user = "${uid}:${gid}";
+                env = [
+                  "DB_DATABASE=/data/sqlite.db"
+                  "BRIDGE_CALLBACK_TEMPLATE_FILE=/config/callback.html"
+                  "PROMETHEUS_MULTIPROC_DIR=/run/prom"
+                  "PYTHONDONTWRITEBYTECODE=1"
+                  "TELEMETRY_VCS_REVISION=${
+                    if buildRevision != null
+                    then buildRevision
+                    else "unknown"
+                  }"
+                ];
+
+                labels = let
+                  created =
+                    if ((overrideMetadata.created or null) != null)
+                    then overrideMetadata.created
+                    else fallbackCreated;
+                in
+                  {
+                    "org.opencontainers.image.created" = created;
+                    "org.opencontainers.image.description" = "Bridge OAuth2 Authorization Code grants to OAuth2 Client Credentials clients.";
+                    "org.opencontainers.image.source" = "https://github.com/adamcik/oauthclientbridge";
+                    "org.opencontainers.image.title" = "oauthclientbridge";
+                  }
+                  // lib.optionalAttrs (buildRevision != null) {
+                    "org.opencontainers.image.revision" = buildRevision;
+                  }
+                  // lib.optionalAttrs ((overrideMetadata.version or null) != null) {
+                    "org.opencontainers.image.version" = overrideMetadata.version;
+                  };
+              };
+
+              layers = let
+                depsLayer = nix2containerPkgs.buildLayer {
+                  deps = [depsVenv];
+                };
+
+                appLayer = nix2containerPkgs.buildLayer {
+                  deps = [runtimeVenv];
+                  layers = [depsLayer];
+                };
+
+                metadataLayer = nix2containerPkgs.buildLayer {
+                  copyToRoot = [
+                    asgiEntrypoint
+                    asgiRuntimeDirs
+                  ];
+                  layers = [
+                    depsLayer
+                    appLayer
+                  ];
+                };
+              in [
                 depsLayer
                 appLayer
                 metadataLayer
