@@ -338,13 +338,22 @@ def token_state_counts(database: DatabaseSettings | None = None) -> dict[str, in
     """Count stored token records by coarse database state."""
 
     with _connect(database) as connection:
-        return _token_state_counts(connection)
+        return _token_state_counts(
+            connection,
+            database_name=database.database if database is not None else None,
+        )
 
 
-def _token_state_counts(connection: sqlite3.Connection | None = None) -> dict[str, int]:
+def _token_state_counts(
+    connection: sqlite3.Connection | None = None,
+    *,
+    database_name: str | None = None,
+) -> dict[str, int]:
     try:
         with cursor(
-            name=types.DatabaseOperation.COUNT_TOKEN_STATES, connection=connection
+            name=types.DatabaseOperation.COUNT_TOKEN_STATES,
+            connection=connection,
+            database_name=database_name,
         ) as c:
             c.execute(
                 """
