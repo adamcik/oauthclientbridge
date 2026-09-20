@@ -2,13 +2,14 @@ import sqlite3
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 from flask.ctx import AppContext
 
 from oauthclientbridge import db, types
-from oauthclientbridge.settings import current_settings
+from oauthclientbridge.settings import DatabaseSettings, current_settings
 
 CLIENT_ID = types.ClientId(uuid.UUID("00000000-0000-0000-0000-000000000001"))
 ENCRYPTED_TOKEN = types.EncryptedToken(b"token")
@@ -118,6 +119,25 @@ def test_is_initialized_uses_check_tokens_table_operation_name(cursor: sqlite3.C
         db.is_initialized()
 
     mocked_cursor.assert_called_once_with(name="check_tokens_table", connection=None)
+
+
+def test_token_state_counts_uses_explicit_database_outside_flask(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "sqlite.db"
+    with sqlite3.connect(database_path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE tokens(client_id TEXT PRIMARY KEY, token BLOB);
+            INSERT INTO tokens VALUES ('present', 'token');
+            INSERT INTO tokens VALUES ('revoked', NULL);
+            """
+        )
+
+    assert db.token_state_counts(DatabaseSettings(database=str(database_path))) == {
+        "present": 1,
+        "revoked": 1,
+    }
 
 
 def test_lookup_revoked(cursor: sqlite3.Cursor):
