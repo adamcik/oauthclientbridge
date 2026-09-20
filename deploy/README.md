@@ -163,6 +163,54 @@ Install and start the ASGI canaries alongside the existing uWSGI services. They
 use the `asgi` image tag and separate environment files because Starlette needs
 the framework-neutral session settings.
 
+CI runs `deploy/smoke-image.sh` against both built OCI images before either can
+be published. The smoke test uses a disposable database and local fake OAuth
+provider to exercise each image's entrypoint, non-root read-only runtime, Unix
+socket, authorization and callback exchange, issued client credentials,
+metrics, native routing responses, and shutdown. Run both variants locally
+after loading them into rootless Podman:
+
+```bash
+nix run .#image.copyToPodman
+SMOKE_RUNTIME=wsgi nix develop --command deploy/smoke-image.sh
+
+nix run .#asgi-image.copyToPodman
+SMOKE_RUNTIME=asgi nix develop --command deploy/smoke-image.sh
+```
+
+Before changing the host, confirm the image is published, the existing services
+are healthy, and the host identities still match the IDs pinned in the supplied
+Quadlets:
+
+```bash
+skopeo inspect docker://ghcr.io/adamcik/oauthclientbridge:asgi >/dev/null
+
+sudo systemctl is-active --quiet oauthclientbridge-spotify.service
+sudo systemctl is-active --quiet oauthclientbridge-soundcloud.service
+
+test "$(id -u oauthclientbridge-spotify)" = "$(awk -F '[:=]' '/^User=/{print $2}' deploy/spotify/asgi.container)"
+test "$(id -u oauthclientbridge-soundcloud)" = "$(awk -F '[:=]' '/^User=/{print $2}' deploy/soundcloud/asgi.container)"
+test "$(getent group www-data | cut -d: -f3)" = "$(awk -F '[:=]' '/^User=/{print $3}' deploy/spotify/asgi.container)"
+
+sudo test -s /etc/oauthclientbridge/spotify/asgi.env
+sudo test -s /etc/oauthclientbridge/soundcloud/asgi.env
+! sudo grep -E '^[A-Z][A-Z0-9_]*=(REDACTED|replace-me)?$' \
+  /etc/oauthclientbridge/spotify/asgi.env \
+  /etc/oauthclientbridge/soundcloud/asgi.env
+
+sudo test -s /var/lib/oauthclientbridge/spotify/sqlite.db
+sudo test -s /var/lib/oauthclientbridge/soundcloud/sqlite.db
+sudo caddy validate --config /etc/caddy/Caddyfile
+```
+
+Save the active Caddy configuration before editing it. Keep this copy until the
+canary and rollback exercises are complete:
+
+```bash
+sudo install -m 0600 /etc/caddy/Caddyfile \
+  "/etc/caddy/Caddyfile.before-asgi-$(date -u +%Y%m%dT%H%M%SZ)"
+```
+
 ```bash
 sudo install -D -m 0644 deploy/spotify/asgi.container /etc/containers/systemd/oauthclientbridge-spotify-asgi.container
 sudo install -D -m 0644 deploy/soundcloud/asgi.container /etc/containers/systemd/oauthclientbridge-soundcloud-asgi.container
