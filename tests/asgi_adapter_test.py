@@ -21,6 +21,7 @@ from oauthclientbridge.routes import (
 from oauthclientbridge.settings import FetchSettings, Settings
 from pytest_otel_capture import OTelMocker
 from tests.oauth_server import OAuthServer
+from tests.prometheus import sample_value
 
 type AsgiClient = Callable[..., AbstractAsyncContextManager[httpx.AsyncClient]]
 
@@ -300,11 +301,13 @@ async def test_asgi_callback_retry_connection_and_generation_observability(
         {"access_token": "provider-token", "token_type": "Bearer"}
     )
     app = create_app(settings, initialize_runtime=False)
+    metric_labels = {"endpoint": "authorization_code", "error": "http_503"}
 
     async with app.router.lifespan_context(app):
         async with asgi_client(app) as client:
+            metrics_before = await client.get("/metrics")
             response = await _callback(client)
-            metrics = await client.get("/metrics")
+            metrics_after = await client.get("/metrics")
 
     assert response.status_code == HTTPStatus.OK
     connections = {request.client_address for request in oauth_server.requests}
@@ -321,8 +324,24 @@ async def test_asgi_callback_retry_connection_and_generation_observability(
             "oauth.upstream_grant_type": "authorization_code",
             "client.reset_error": "http_503",
         }
-        assert (
-            b'oauth_client_generation_resets_total{endpoint="authorization_code",error="http_503"} 1.0'
-            in metrics.content
+    expected_delta = int(case.uses_fresh_connection)
+    assert sample_value(
+        metrics_after.content,
+        "oauth_client_generation_resets_total",
+        metric_labels,
+    ) == (
+        sample_value(
+            metrics_before.content,
+            "oauth_client_generation_resets_total",
+            metric_labels,
         )
-        assert b"oauth_client_generation_drain_seconds_count 1.0" in metrics.content
+        + expected_delta
+    )
+    assert sample_value(
+        metrics_after.content, "oauth_client_generation_drain_seconds_count"
+    ) == (
+        sample_value(
+            metrics_before.content, "oauth_client_generation_drain_seconds_count"
+        )
+        + expected_delta
+    )
