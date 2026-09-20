@@ -65,7 +65,14 @@ jobs:
             sudo apt-get update
             sudo apt-get install --yes podman uidmap
           fi
+          if test "$(sysctl --values kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)" = 1; then
+            sudo sysctl --write kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+          if test "$(sysctl --values kernel.unprivileged_userns_clone 2>/dev/null || true)" = 0; then
+            sudo sysctl --write kernel.unprivileged_userns_clone=1
+          fi
           test "$(podman info --format '{{.Host.Security.Rootless}}')" = true
+          podman unshare true
 
       - name: Load WSGI image into Podman
         run: nix run .#image.copyToPodman --override-input build-overrides "path:${BUILD_OVERRIDES}"
