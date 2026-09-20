@@ -26,6 +26,7 @@ from pytest_otel_capture import (
     latest_metric_data,
 )
 from tests.oauth_server import OAuthServer
+from tests.prometheus import sample_value
 
 
 @pytest.mark.anyio
@@ -177,6 +178,14 @@ async def test_httpx_fetcher_retries_retryable_upstream_failure(
     client = oauth.create_httpx_upstream_client(
         FetchSettings(total_attempts=2, backoff_factor=0)
     )
+    metric_labels = {"endpoint": "authorization_code", "error": "http_503"}
+    metrics_before = telemetry.export_metrics(PrometheusSettings())
+    resets_before = sample_value(
+        metrics_before, "oauth_client_generation_resets_total", metric_labels
+    )
+    drains_before = sample_value(
+        metrics_before, "oauth_client_generation_drain_seconds_count"
+    )
 
     try:
         with trace.get_tracer("tests").start_as_current_span("fetch upstream token"):
@@ -189,12 +198,13 @@ async def test_httpx_fetcher_retries_retryable_upstream_failure(
 
     assert result == {"access_token": "provider-token", "token_type": "Bearer"}
     assert len(oauth_server.requests) == 2
-    metrics = telemetry.export_metrics(PrometheusSettings())
-    assert (
-        b'oauth_client_generation_resets_total{endpoint="authorization_code",error="http_503"} 1.0'
-        in metrics
-    )
-    assert b"oauth_client_generation_drain_seconds_count 1.0" in metrics
+    metrics_after = telemetry.export_metrics(PrometheusSettings())
+    assert sample_value(
+        metrics_after, "oauth_client_generation_resets_total", metric_labels
+    ) == (resets_before + 1)
+    assert sample_value(
+        metrics_after, "oauth_client_generation_drain_seconds_count"
+    ) == (drains_before + 1)
     span = next(
         span
         for span in otel_mock.get_finished_spans()
