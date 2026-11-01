@@ -163,6 +163,12 @@ Install and start the ASGI canaries alongside the existing uWSGI services. They
 use the `asgi` image tag and separate environment files because Starlette needs
 the framework-neutral session settings.
 
+CI publishes `:asgi` after all checks and image smoke tests pass on the
+same-repository `asgi` pull request and on pushes to `main`. Fork pull requests
+and other PR branches do not publish it. During pre-production validation this
+tag contains unmerged code; pin the selected image digest to keep the deployment
+stable across subsequent CI runs. The `:latest` tag remains main-only.
+
 CI runs `deploy/smoke-image.sh` against both built OCI images before either can
 be published. The smoke test uses a disposable database and local fake OAuth
 provider to exercise each image's entrypoint, non-root read-only runtime, Unix
