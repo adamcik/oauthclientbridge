@@ -26,12 +26,12 @@ Install by running:
 Settings are managed by Pydantic and loaded from environment variables. Each
 setting is prefixed based on its category (e.g., `OAUTH_`, `DB_`, `BRIDGE_`,
 `FETCH_`). Refer to the `Settings` class in `src/oauthclientbridge/settings.py`
-for all available options and their prefixes. Flask-specific settings (e.g.,
-`SECRET_KEY`, `SESSION_COOKIE_SECURE`) are loaded directly by Flask from
-environment variables prefixed with `FLASK_`. A minimal setup should define the
+for all available options and their prefixes. A minimal setup should define the
 following environment variables (see `.env.example`):
 
--   `FLASK_SECRET_KEY`: Secret key used for encrypting session cookies.
+-   `BRIDGE_SESSION_SECRET`: Secret key used for signing session cookies in the
+    ASGI runtime. Flask temporarily also accepts `FLASK_SECRET_KEY` for a
+    non-ASGI deployment.
 -   `DB_DATABASE`: SQLite3 database path.
 -   `OAUTH_CLIENT_ID`: Client ID from your OAuth provider.
 -   `OAUTH_CLIENT_SECRET`: Client secret from your OAuth provider.
@@ -61,9 +61,8 @@ stale data every now and then.:
 ## Setting up a production instance
 
 -   Always use HTTPS since we are passing access tokens around.
--   Set `FLASK_SESSION_COOKIE_SECURE` to `True` to ensure cookies are only sent
-    over HTTPS.
--   Ideally also set `FLASK_SESSION_COOKIE_DOMAIN` and `FLASK_SESSION_COOKIE_PATH`.
+-   Session cookies are secure by default. Set `BRIDGE_SESSION_COOKIE_SECURE` to
+    `false` only for local HTTP development.
 -   Ensure the deployment passes the correct request scheme, host, and client
     address to the application. The bridge does not reinterpret forwarded
     headers. Deployments that do not provide these values directly may need to

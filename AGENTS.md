@@ -10,6 +10,8 @@ Prefer tests that verify observable behavior through the public API. Tests may i
 
 Prefer `pytest -q` for lower-noise test runs unless fuller output is needed.
 
+Run typing checks through `nix develop --command basedpyright` or `nix flake check`; do not invoke the virtualenv's type checker directly.
+
 Prefer `@pytest.mark.parametrize()` scenario/case DTOs with ids or names and keyword-style fields over positional tuple cases when that improves readability.
 
 When working through review feedback, pick one agreed change, make the smallest correct edit, verify it, and keep commits atomic.

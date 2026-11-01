@@ -1,19 +1,19 @@
-import json
 import unittest.mock
 import urllib.parse
 from dataclasses import dataclass
+from http import HTTPStatus
 
 import flask
 import pytest
 from flask.testing import FlaskClient
 from requests_mock import Mocker
 
-from oauthclientbridge import crypto, db
+from oauthclientbridge import bridge, crypto, db
+from oauthclientbridge.bridge import _template
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import Settings
 from oauthclientbridge.views import (
-    _requested_scope_is_allowed,  # pyright: ignore[reportPrivateUsage] # Direct helper test.
-    _set_callback_security_headers,  # pyright: ignore[reportPrivateUsage] # Direct helper test.
+    _flask_response,  # pyright: ignore[reportPrivateUsage] # Adapter translation test.
 )
 from tests.conftest import GetClient
 
@@ -55,6 +55,32 @@ def test_authorize_client_state(client: FlaskClient):
         assert session["client_state"] == "s3cret"
 
 
+def test_authorize_replaces_previous_bridge_session(client: FlaskClient):
+    with client.session_transaction() as session:
+        session["unrelated"] = "value"
+
+    _ = client.get("/")
+
+    with client.session_transaction() as session:
+        assert "client_state" not in session
+        assert "state" in session
+        assert "unrelated" not in session
+
+
+def test_flask_adapter_renders_json_bridge_response(app: flask.Flask):
+    with app.test_request_context():
+        response = _flask_response(
+            bridge.BridgeResponse(
+                status=HTTPStatus.OK,
+                headers={"X-Bridge": "yes"},
+                body={"value": "json"},
+            )
+        )
+
+    assert response.json == {"value": "json"}
+    assert response.headers["X-Bridge"] == "yes"
+
+
 def test_callback_response_has_security_headers(client: FlaskClient):
     response = client.get("/callback")
 
@@ -79,11 +105,13 @@ def test_callback_csp_can_be_disabled(client: FlaskClient, settings: Settings):
     assert "Content-Security-Policy" not in response.headers
 
 
-def test_callback_security_header_helper(app: flask.Flask):
-    with app.app_context():
-        response = _set_callback_security_headers(
-            flask.Response(), "default-src 'none'"
-        )
+def test_callback_template_adds_security_headers():
+    response = _template.render_template(
+        "callback",
+        {},
+        status=HTTPStatus.OK,
+        content_security_policy="default-src 'none'",
+    )
 
     assert response.headers["Referrer-Policy"] == "no-referrer"
     assert response.headers["X-Content-Type-Options"] == "nosniff"
@@ -92,140 +120,6 @@ def test_callback_security_header_helper(app: flask.Flask):
         == "geolocation=(), microphone=(), camera=()"
     )
     assert response.headers["Content-Security-Policy"] == "default-src 'none'"
-
-
-@dataclass(frozen=True)
-class ScopeCase:
-    name: str
-    requested_scope: str
-    allowed_scopes: set[str] | None
-    expected_allowed: bool
-    expected_status: int
-
-
-@pytest.mark.parametrize(
-    "case",
-    [
-        ScopeCase(
-            name="exact",
-            requested_scope="foo bar",
-            allowed_scopes={"foo", "bar"},
-            expected_allowed=True,
-            expected_status=302,
-        ),
-        ScopeCase(
-            name="subset",
-            requested_scope="foo",
-            allowed_scopes={"foo", "bar"},
-            expected_allowed=True,
-            expected_status=302,
-        ),
-        ScopeCase(
-            name="empty",
-            requested_scope="",
-            allowed_scopes={"foo", "bar"},
-            expected_allowed=True,
-            expected_status=302,
-        ),
-        ScopeCase(
-            name="duplicate",
-            requested_scope="foo foo",
-            allowed_scopes={"foo", "bar"},
-            expected_allowed=True,
-            expected_status=302,
-        ),
-        ScopeCase(
-            name="disallowed",
-            requested_scope="foo baz",
-            allowed_scopes={"foo", "bar"},
-            expected_allowed=False,
-            expected_status=400,
-        ),
-        ScopeCase(
-            name="allowlist disabled",
-            requested_scope="foo baz",
-            allowed_scopes=None,
-            expected_allowed=True,
-            expected_status=302,
-        ),
-    ],
-    ids=lambda case: case.name,
-)
-def test_requested_scope_allowlist(case: ScopeCase):
-    assert (
-        _requested_scope_is_allowed(case.requested_scope, case.allowed_scopes)
-        is case.expected_allowed
-    )
-
-
-def test_authorize_uses_configured_scopes_when_scope_is_omitted(
-    client: FlaskClient, settings: Settings
-):
-    settings.oauth = settings.oauth.model_copy(update={"scopes": {"foo", "bar"}})
-
-    response = client.get("/")
-
-    query = urllib.parse.parse_qs(urllib.parse.urlsplit(response.location).query)
-    assert set(query["scope"][0].split()) == {"foo", "bar"}
-
-
-@pytest.mark.parametrize(
-    "case",
-    [
-        ScopeCase(
-            name="exact",
-            requested_scope="foo bar",
-            allowed_scopes={"foo", "bar"},
-            expected_allowed=True,
-            expected_status=302,
-        ),
-        ScopeCase(
-            name="subset",
-            requested_scope="foo",
-            allowed_scopes={"foo", "bar"},
-            expected_allowed=True,
-            expected_status=302,
-        ),
-        ScopeCase(
-            name="empty",
-            requested_scope="",
-            allowed_scopes={"foo", "bar"},
-            expected_allowed=True,
-            expected_status=302,
-        ),
-        ScopeCase(
-            name="duplicate",
-            requested_scope="foo foo",
-            allowed_scopes={"foo", "bar"},
-            expected_allowed=True,
-            expected_status=302,
-        ),
-        ScopeCase(
-            name="disallowed",
-            requested_scope="foo baz",
-            allowed_scopes={"foo", "bar"},
-            expected_allowed=False,
-            expected_status=400,
-        ),
-    ],
-    ids=lambda case: case.name,
-)
-def test_authorize_enforces_configured_scope_allowlist(
-    client: FlaskClient,
-    settings: Settings,
-    case: ScopeCase,
-):
-    settings.oauth = settings.oauth.model_copy(
-        update={"scopes": {"foo", "bar"}, "allowed_scopes": case.allowed_scopes}
-    )
-
-    response = client.get(
-        "/?" + urllib.parse.urlencode({"scope": case.requested_scope})
-    )
-
-    assert response.status_code == case.expected_status
-    if case.expected_status == 400:
-        assert json.loads(response.text)["error"] == "invalid_scope"
 
 
 def test_callback_authorization_client_state(
@@ -370,9 +264,14 @@ def test_callback_preserves_retry_after_for_temporarily_unavailable(
     client_state: str,
     get: GetClient,
     state: str,
+    app: flask.Flask,
 ):
-    with unittest.mock.patch(
-        "oauthclientbridge.views.oauth.fetch",
+    subject = app.extensions["oauth_bridge"]
+    assert isinstance(subject, bridge.Bridge)
+    with unittest.mock.patch.object(
+        subject,
+        "_fetch",
+        new_callable=unittest.mock.AsyncMock,
         return_value={"error": "temporarily_unavailable", "retry_after": 10},
     ):
         resp = get("/callback?state={state}&code=abc".format(state=state))

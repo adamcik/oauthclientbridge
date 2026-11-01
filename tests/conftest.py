@@ -2,9 +2,15 @@ import base64
 import json
 import logging
 import sqlite3
-from collections.abc import Generator
-from typing import Any, Mapping, NamedTuple, Protocol
+from collections.abc import AsyncIterator, Awaitable, Callable, Generator, Mapping
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, NamedTuple, Protocol
+from uuid import uuid4
 
+import anyio
+import httpx
 import pytest
 import structlog
 from flask import Flask
@@ -13,7 +19,8 @@ from flask.testing import FlaskClient
 from pydantic import SecretStr
 from werkzeug.datastructures import Headers
 
-from oauthclientbridge import create_app, crypto, db, types
+from oauthclientbridge import bridge, create_app, crypto, db, oauth, types
+from oauthclientbridge.asgi import create_app as create_asgi_app
 from oauthclientbridge.oauth import (
     _retry as oauth_retry,  # pyright: ignore[reportPrivateUsage] # Global retry limiter reset.
 )
@@ -22,6 +29,7 @@ from oauthclientbridge.settings import (
     OAuthSettings,
     Settings,
 )
+from tests.oauth_server import OAuthServer
 
 pytest_plugins = ["tests.plugins.sentry", "tests.plugins.otel"]
 
@@ -48,6 +56,15 @@ def reset_retry_limiter():
     oauth_retry.get_retry_limiter.cache_clear()
 
 
+@pytest.fixture
+def oauth_server() -> Generator[OAuthServer, None, None]:
+    server = OAuthServer()
+    try:
+        yield server
+    finally:
+        server.close()
+
+
 class ResponseTuple(NamedTuple):
     data: dict[str, Any]
     status: int
@@ -60,11 +77,191 @@ class TokenTuple(NamedTuple):
     value: dict[str, Any]
 
 
+@dataclass
+class ScriptedOAuth:
+    """Strict async upstream seam for direct Bridge tests."""
+
+    results: list[dict[str, Any]] = field(default_factory=list)
+    calls: list[tuple[str, str, dict[str, str | None]]] = field(default_factory=list)
+
+    async def fetch(
+        self, uri: str, endpoint: str, **data: str | None
+    ) -> dict[str, Any]:
+        self.calls.append((uri, endpoint, data))
+        if not self.results:
+            raise AssertionError("scripted OAuth received an unexpected request")
+        return self.results.pop(0)
+
+
+@dataclass(frozen=True)
+class BridgeHarness:
+    bridge: bridge.Bridge
+    oauth: ScriptedOAuth
+    database: sqlite3.Connection
+
+
+@dataclass(frozen=True)
+class AdapterResponse:
+    status_code: int
+    headers: Mapping[str, str]
+    content: bytes
+
+    def json(self) -> dict[str, Any]:
+        return json.loads(self.content)
+
+
+class AdapterRequests(Protocol):
+    async def get(
+        self, path: str, *, params: Mapping[str, str] | None = None
+    ) -> AdapterResponse: ...
+
+    async def post(
+        self,
+        path: str,
+        *,
+        data: Mapping[str, str],
+        auth: tuple[str, str],
+        headers: Mapping[str, str],
+    ) -> AdapterResponse: ...
+
+
+type AdapterClient = Callable[
+    [Settings, Callable[..., Awaitable[dict[str, Any]]] | None],
+    AbstractAsyncContextManager[AdapterRequests],
+]
+
+
+def _adapter_response(response: httpx.Response) -> AdapterResponse:
+    return AdapterResponse(response.status_code, response.headers, response.content)
+
+
+@pytest.fixture
+def adapter_client(
+    request: pytest.FixtureRequest, bridge_harness: BridgeHarness
+) -> AdapterClient:
+    _ = bridge_harness  # Keep the shared in-memory database alive for adapter requests.
+
+    if request.param == "starlette":
+
+        @asynccontextmanager
+        async def starlette_client(
+            settings: Settings,
+            fetch: Callable[..., Awaitable[dict[str, Any]]] | None,
+        ) -> AsyncIterator[AdapterRequests]:
+            app = create_asgi_app(settings, fetch=fetch, initialize_runtime=False)
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(
+                transport=transport,
+                base_url="https://bridge.example.com",
+                follow_redirects=False,
+            ) as client:
+
+                class Requests:
+                    async def get(
+                        self, path: str, *, params: Mapping[str, str] | None = None
+                    ) -> AdapterResponse:
+                        return _adapter_response(await client.get(path, params=params))
+
+                    async def post(
+                        self,
+                        path: str,
+                        *,
+                        data: Mapping[str, str],
+                        auth: tuple[str, str],
+                        headers: Mapping[str, str],
+                    ) -> AdapterResponse:
+                        return _adapter_response(
+                            await client.post(
+                                path, data=data, auth=auth, headers=headers
+                            )
+                        )
+
+                yield Requests()
+
+        return starlette_client
+
+    if request.param == "flask":
+
+        @asynccontextmanager
+        async def flask_client(
+            settings: Settings,
+            fetch: Callable[..., Awaitable[dict[str, Any]]] | None,
+        ) -> AsyncIterator[AdapterRequests]:
+            app = create_app(settings, fetch=fetch or oauth.fetch_with_requests)
+            app.secret_key = "test-secret-key"
+            if fetch is not None:
+                app.extensions["oauth_bridge"] = bridge.Bridge(settings, fetch)
+            client = app.test_client()
+
+            class Requests:
+                async def get(
+                    self, path: str, *, params: Mapping[str, str] | None = None
+                ) -> AdapterResponse:
+                    response = await anyio.to_thread.run_sync(
+                        lambda: client.get(path, query_string=params)
+                    )
+                    return AdapterResponse(
+                        response.status_code, response.headers, response.data
+                    )
+
+                async def post(
+                    self,
+                    path: str,
+                    *,
+                    data: Mapping[str, str],
+                    auth: tuple[str, str],
+                    headers: Mapping[str, str],
+                ) -> AdapterResponse:
+                    request_headers = dict(headers)
+                    encoded = base64.b64encode(":".join(auth).encode("ascii"))
+                    request_headers["Authorization"] = "Basic %s" % encoded.decode(
+                        "ascii"
+                    )
+                    response = await anyio.to_thread.run_sync(
+                        lambda: client.post(path, data=data, headers=request_headers)
+                    )
+                    return AdapterResponse(
+                        response.status_code, response.headers, response.data
+                    )
+
+            yield Requests()
+
+        return flask_client
+
+    raise ValueError("unknown adapter: %s" % request.param)
+
+
+@pytest.fixture
+def scripted_oauth() -> ScriptedOAuth:
+    return ScriptedOAuth()
+
+
+@pytest.fixture
+def bridge_harness(
+    settings: Settings, scripted_oauth: ScriptedOAuth
+) -> Generator[BridgeHarness, None, None]:
+    database_uri = f"file:oauthclientbridge-{uuid4()}?mode=memory&cache=shared"
+    settings.database.database = database_uri
+    database = sqlite3.connect(database_uri, uri=True)
+    database.executescript(
+        Path("src/oauthclientbridge/schema.sql").read_text(encoding="ascii")
+    )
+    try:
+        yield BridgeHarness(
+            bridge.Bridge(settings, scripted_oauth.fetch),
+            scripted_oauth,
+            database,
+        )
+    finally:
+        database.close()
+
+
 @pytest.fixture
 def settings() -> Settings:
     # https://github.com/pydantic/pydantic-settings/issues/201
     return Settings(
         callback_template="{{ variables|tojson }}",
+        session_secret=SecretStr("test-session-secret"),
         database=DatabaseSettings(
             database=":memory:",
         ),
@@ -80,7 +277,7 @@ def settings() -> Settings:
 
 @pytest.fixture
 def app(settings: Settings) -> Flask:
-    app = create_app(settings)
+    app = create_app(settings, fetch=oauth.fetch_with_requests)
     app.secret_key = "test-secret-key"
     return app
 

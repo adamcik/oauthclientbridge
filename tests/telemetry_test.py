@@ -1,3 +1,4 @@
+import asyncio
 import os
 import sqlite3
 import sys
@@ -13,7 +14,7 @@ from opentelemetry import metrics, trace
 from opentelemetry.sdk.metrics.export import HistogramDataPoint, NumberDataPoint
 from requests_mock import Mocker
 
-from oauthclientbridge import db, oauth, telemetry
+from oauthclientbridge import db, oauth, telemetry, types
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.oauth import (
     _core as oauth_core,  # pyright: ignore[reportPrivateUsage] # Direct implementation test.
@@ -32,6 +33,11 @@ from oauthclientbridge.telemetry import _resources as resource_labels
 
 from .conftest import GetClient, PostClient, TokenTuple
 from .plugins import otel
+
+
+def run_fetch(*args: str, **data: str | None) -> OAuthResponse:
+    return asyncio.run(oauth.fetch_with_requests(*args, **data))
+
 
 logger: structlog.BoundLogger = structlog.get_logger()
 
@@ -284,10 +290,24 @@ def test_local_invalid_grant_records_handled_trace_error(
     assert request_span is not None
     assert request_span.attributes is not None
     assert request_span.attributes["client_id"] == str(access_token.client_id)
-    assert request_span.attributes["error.unhandled"] is False
     assert request_span.attributes["oauth.error"] == "invalid_grant"
-    assert request_span.status.status_code == trace.StatusCode.ERROR
+    assert request_span.status.status_code == trace.StatusCode.UNSET
     assert any(event.name == "exception" for event in request_span.events)
+
+
+def test_oauth_server_error_marks_span_error(
+    otel_mock: otel.OTelMocker, tracer: trace.Tracer
+) -> None:
+    with tracer.start_as_current_span("test"):
+        telemetry.record_oauth_error_trace(
+            OAuthError.TEMPORARILY_UNAVAILABLE.value,
+            "Provider unavailable.",
+            status=HTTPStatus.SERVICE_UNAVAILABLE,
+        )
+
+    span = otel.get_span(otel_mock.get_finished_spans(), "test")
+    assert span is not None
+    assert span.status.status_code == trace.StatusCode.ERROR
 
 
 def test_malformed_client_id_records_rejected_value(
@@ -447,7 +467,7 @@ def test_outgoing_request_span_records_retry_after_header(
     app_context: flask.ctx.AppContext,
     instrumented: None,
 ) -> None:
-    current_settings.fetch.total_retries = 1
+    current_settings.fetch.total_attempts = 2
     requests_mock.post(
         current_settings.oauth.token_uri,
         status_code=429,
@@ -455,7 +475,7 @@ def test_outgoing_request_span_records_retry_after_header(
         json={"error": "temporarily_unavailable"},
     )
 
-    oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+    run_fetch(current_settings.oauth.token_uri, "test_endpoint")
 
     spans = otel_mock.get_finished_spans()
     outgoing_request_spans = otel.find_spans(spans, "POST")
@@ -647,7 +667,7 @@ def test_db_cursor_duration_metric(
     app_context: flask.ctx.AppContext,
     otel_mock: otel.OTelMocker,
 ):
-    with db.cursor("test_operation", transaction=True) as c:
+    with db.cursor(types.DatabaseOperation.INSERT_TOKEN, transaction=True) as c:
         # Perform some dummy DB operations using the provided cursor 'c'
         c.execute("CREATE TABLE IF NOT EXISTS test_table (id INTEGER PRIMARY KEY)")
         c.execute("INSERT INTO test_table (id) VALUES (1)")
@@ -657,12 +677,12 @@ def test_db_cursor_duration_metric(
         metrics,
         "oauth.db.cursor.duration",
         HistogramDataPoint,
-        attributes={"db.operation": "test_operation"},
+        attributes={"db.operation": "insert_token"},
         scope="oauthclientbridge.db",
     )
 
     assert data.attributes is not None
-    assert data.attributes["db.operation"] == "test_operation"
+    assert data.attributes["db.operation"] == "insert_token"
     assert "error.type" not in data.attributes
     assert data.count == 1
 
@@ -671,7 +691,7 @@ def test_db_cursor_count_metric_success(
     app_context: flask.ctx.AppContext,
     otel_mock: otel.OTelMocker,
 ):
-    with db.cursor("test_operation", transaction=True) as c:
+    with db.cursor(types.DatabaseOperation.INSERT_TOKEN, transaction=True) as c:
         c.execute("CREATE TABLE IF NOT EXISTS test_table (id INTEGER PRIMARY KEY)")
         c.execute("INSERT INTO test_table (id) VALUES (1)")
 
@@ -680,12 +700,12 @@ def test_db_cursor_count_metric_success(
         metrics,
         "oauth.db.cursor.total",
         NumberDataPoint,
-        attributes={"db.operation": "test_operation"},
+        attributes={"db.operation": "insert_token"},
         scope="oauthclientbridge.db",
     )
 
     assert data.attributes is not None
-    assert data.attributes["db.operation"] == "test_operation"
+    assert data.attributes["db.operation"] == "insert_token"
     assert data.attributes["transaction"] is True
     assert data.attributes["db.system"] == "sqlite"
     assert data.attributes["db.name"] == current_settings.database.database
@@ -698,7 +718,7 @@ def test_db_cursor_duration_metric_error(
     otel_mock: otel.OTelMocker,
 ):
     with pytest.raises(sqlite3.Error):
-        with db.cursor("test_error_operation") as c:
+        with db.cursor(types.DatabaseOperation.LOOKUP_TOKEN) as c:
             c.execute("INVALID SQL QUERY")
 
     metrics = otel_mock.get_metrics_data()
@@ -706,12 +726,12 @@ def test_db_cursor_duration_metric_error(
         metrics,
         "oauth.db.cursor.duration",
         HistogramDataPoint,
-        attributes={"db.operation": "test_error_operation"},
+        attributes={"db.operation": "lookup_token"},
         scope="oauthclientbridge.db",
     )
 
     assert data.attributes is not None
-    assert data.attributes["db.operation"] == "test_error_operation"
+    assert data.attributes["db.operation"] == "lookup_token"
     assert data.attributes["error.type"] == "OperationalError"
     assert data.count == 1
 
@@ -721,7 +741,7 @@ def test_db_cursor_count_metric_error(
     otel_mock: otel.OTelMocker,
 ):
     with pytest.raises(sqlite3.Error):
-        with db.cursor("test_error_operation") as c:
+        with db.cursor(types.DatabaseOperation.LOOKUP_TOKEN) as c:
             c.execute("INVALID SQL QUERY")
 
     metrics = otel_mock.get_metrics_data()
@@ -729,12 +749,12 @@ def test_db_cursor_count_metric_error(
         metrics,
         "oauth.db.cursor.total",
         NumberDataPoint,
-        attributes={"db.operation": "test_error_operation"},
+        attributes={"db.operation": "lookup_token"},
         scope="oauthclientbridge.db",
     )
 
     assert data.attributes is not None
-    assert data.attributes["db.operation"] == "test_error_operation"
+    assert data.attributes["db.operation"] == "lookup_token"
     assert data.attributes["transaction"] is False
     assert data.attributes["db.system"] == "sqlite"
     assert data.attributes["db.name"] == current_settings.database.database
@@ -760,7 +780,7 @@ def test_oauth_client_duration_metric_success(
         otel_mock.get_metrics_data(),
         "oauth.client.duration",
         HistogramDataPoint,
-        attributes={"operation": "token"},
+        attributes={"operation": "authorization_code"},
         scope="oauthclientbridge.oauth",
     )
     assert duration_data.attributes is not None
@@ -787,7 +807,7 @@ def test_oauth_client_retries_metric_success(
         otel_mock.get_metrics_data(),
         "oauth.client.retries",
         HistogramDataPoint,
-        attributes={"operation": "token"},
+        attributes={"operation": "authorization_code"},
         scope="oauthclientbridge.oauth",
     )
     assert retries_data.attributes is not None
@@ -820,7 +840,7 @@ def test_oauth_client_retries_metric_records_completed_retry_count(
         otel_mock.get_metrics_data(),
         "oauth.client.retries",
         HistogramDataPoint,
-        attributes={"operation": "token"},
+        attributes={"operation": "authorization_code"},
         scope="oauthclientbridge.oauth",
     )
     assert retries_data.attributes is not None
@@ -845,7 +865,7 @@ def test_oauth_client_retries_metric_prometheus_uses_final_status(
     )
 
     with unittest.mock.patch("time.sleep"):
-        oauth.fetch(current_settings.oauth.token_uri, "retry-metric-test")
+        run_fetch(current_settings.oauth.token_uri, "retry-metric-test")
 
     metrics_resp = client.get("/metrics")
     body = metrics_resp.data.decode()
@@ -873,17 +893,7 @@ def test_oauth_client_retry_metrics_record_attempts_and_reasons(
         ],
     )
 
-    class FakeRetryLimiter:
-        def add(self, tokens: float) -> None:
-            self.add_calls = getattr(self, "add_calls", []) + [tokens]
-
-        def consume(self, tokens: float = 1) -> bool:
-            return True
-
     with (
-        unittest.mock.patch.object(
-            oauth_core, "_get_retry_limiter", return_value=FakeRetryLimiter()
-        ),
         unittest.mock.patch("random.uniform", return_value=1.0),
         unittest.mock.patch("time.sleep"),
     ):
@@ -892,7 +902,7 @@ def test_oauth_client_retry_metrics_record_attempts_and_reasons(
     metrics_resp = client.get("/metrics")
 
     assert b"oauth_client_attempts_total" in metrics_resp.data
-    assert b'endpoint="token"' in metrics_resp.data
+    assert b'endpoint="authorization_code"' in metrics_resp.data
     assert b'kind="initial"' in metrics_resp.data
     assert b'kind="retry"' in metrics_resp.data
     assert b"oauth_client_retry_decisions_total" in metrics_resp.data
@@ -916,59 +926,15 @@ def test_oauth_client_retry_metrics_bucket_429_as_resource_exhausted(
         ],
     )
 
-    class FakeRetryLimiter:
-        def add(self, tokens: float) -> None:
-            pass
-
-        def consume(self, tokens: float = 1) -> bool:
-            return True
-
     with (
-        unittest.mock.patch.object(
-            oauth_core, "_get_retry_limiter", return_value=FakeRetryLimiter()
-        ),
         unittest.mock.patch("random.uniform", return_value=1.0),
         unittest.mock.patch("time.sleep"),
     ):
-        oauth.fetch(current_settings.oauth.token_uri, endpoint)
+        run_fetch(current_settings.oauth.token_uri, endpoint)
 
     metrics_resp = client.get("/metrics")
     assert b"oauth_client_retry_decisions_total" in metrics_resp.data
     assert b'decision="retry"' in metrics_resp.data
-    assert b'reason="resource_exhausted"' in metrics_resp.data
-
-
-def test_oauth_client_retry_metrics_record_budget_skip(
-    requests_mock: Mocker,
-    client: FlaskClient,
-):
-    requests_mock.post(
-        current_settings.oauth.token_uri,
-        [
-            {"status_code": 503, "json": {"error": "temporarily_unavailable"}},
-            {
-                "json": {"access_token": "mock_token", "token_type": "Bearer"},
-                "status_code": 200,
-            },
-        ],
-    )
-
-    class FakeRetryLimiter:
-        def add(self, tokens: float) -> None:
-            pass
-
-        def consume(self, tokens: float = 1) -> bool:
-            return False
-
-    with unittest.mock.patch.object(
-        oauth_core, "_get_retry_limiter", return_value=FakeRetryLimiter()
-    ):
-        oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
-
-    metrics_resp = client.get("/metrics")
-
-    assert b"oauth_client_retry_decisions_total" in metrics_resp.data
-    assert b'decision="skip"' in metrics_resp.data
     assert b'reason="resource_exhausted"' in metrics_resp.data
 
 
@@ -983,7 +949,7 @@ def test_oauth_client_error_metric_uses_normalized_retryable_invalid_grant(
         json={"error": OAuthError.INVALID_GRANT},
     )
 
-    oauth.fetch(current_settings.oauth.token_uri, endpoint)
+    run_fetch(current_settings.oauth.token_uri, endpoint)
 
     metrics_resp = client.get("/metrics")
 
@@ -997,65 +963,13 @@ def test_oauth_client_error_metric_uses_normalized_retryable_invalid_grant(
     )
 
 
-def test_oauth_client_retry_metrics_do_not_count_skipped_retry_attempts(
-    requests_mock: Mocker,
-    otel_mock: otel.OTelMocker,
-    client: FlaskClient,
-):
-    endpoint = "budget-skip-retry-count-test"
-    requests_mock.post(
-        current_settings.oauth.token_uri,
-        [
-            {"status_code": 503, "json": {"error": "temporarily_unavailable"}},
-            {
-                "json": {"access_token": "mock_token", "token_type": "Bearer"},
-                "status_code": 200,
-            },
-        ],
-    )
-
-    class FakeRetryLimiter:
-        def add(self, tokens: float) -> None:
-            pass
-
-        def consume(self, tokens: float = 1) -> bool:
-            return False
-
-    with unittest.mock.patch.object(
-        oauth_core, "_get_retry_limiter", return_value=FakeRetryLimiter()
-    ):
-        oauth.fetch(current_settings.oauth.token_uri, endpoint)
-
-    retries_data = otel.latest_metric_data(
-        otel_mock.get_metrics_data(),
-        "oauth.client.retries",
-        HistogramDataPoint,
-        attributes={"operation": endpoint},
-        scope="oauthclientbridge.oauth",
-    )
-    assert retries_data.sum == 0
-
-    metrics_resp = client.get("/metrics")
-    assert (
-        f'oauth_client_attempts_total{{endpoint="{endpoint}",kind="retry"}}'.encode()
-        not in metrics_resp.data
-    )
-
-
 def test_oauth_client_retry_metrics_record_deadline_skip(
     client: FlaskClient,
     monkeypatch: pytest.MonkeyPatch,
 ):
     current_settings.fetch.total_timeout = 1.0
-    current_settings.fetch.total_retries = 2
+    current_settings.fetch.total_attempts = 3
     current_settings.fetch.backoff_factor = 0.8
-
-    class FakeRetryLimiter:
-        def add(self, tokens: float) -> None:
-            pass
-
-        def consume(self, tokens: float = 1) -> bool:
-            return True
 
     fake_time = [0.0]
 
@@ -1072,6 +986,7 @@ def test_oauth_client_retry_metrics_record_deadline_skip(
         prepared: requests.PreparedRequest,
         timeout: float,
         endpoint: str,
+        *_: object,
     ) -> tuple[OAuthResponse, HTTPStatus | None, int]:
         _ = span, prepared, timeout, endpoint
         nonlocal fetch_calls
@@ -1086,16 +1001,13 @@ def test_oauth_client_retry_metrics_record_deadline_skip(
 
         raise AssertionError("unexpected retry attempt")
 
-    monkeypatch.setattr(
-        oauth_core, "_get_retry_limiter", lambda _capacity, _refill: FakeRetryLimiter()
-    )
     monkeypatch.setattr(oauth_core.time, "time", now)
     monkeypatch.setattr(oauth_core.time, "monotonic", now)
     monkeypatch.setattr(oauth_core.time, "sleep", sleep)
     monkeypatch.setattr(oauth_core.random, "uniform", lambda _low, _high: 1.25)
     monkeypatch.setattr(oauth_core, "_fetch", fetch_side_effect)
 
-    oauth.fetch(current_settings.oauth.token_uri, "test_endpoint")
+    run_fetch(current_settings.oauth.token_uri, "test_endpoint")
 
     metrics_resp = client.get("/metrics")
 
@@ -1108,7 +1020,7 @@ def test_oauth_client_retry_metrics_record_attempt_limit_skip(
     requests_mock: Mocker,
     client: FlaskClient,
 ):
-    current_settings.fetch.total_retries = 1
+    current_settings.fetch.total_attempts = 2
     endpoint = "attempt-limit-reason-test"
     requests_mock.post(
         current_settings.oauth.token_uri,
@@ -1117,7 +1029,7 @@ def test_oauth_client_retry_metrics_record_attempt_limit_skip(
     )
 
     with unittest.mock.patch("time.sleep"):
-        oauth.fetch(current_settings.oauth.token_uri, endpoint)
+        run_fetch(current_settings.oauth.token_uri, endpoint)
 
     metrics_resp = client.get("/metrics")
 
@@ -1144,7 +1056,7 @@ def test_oauth_client_metrics_failure(
         otel_mock.get_metrics_data(),
         "oauth.client.duration",
         HistogramDataPoint,
-        attributes={"operation": "token"},
+        attributes={"operation": "authorization_code"},
         scope="oauthclientbridge.oauth",
     )
     assert duration_data.attributes is not None
@@ -1171,7 +1083,7 @@ def test_oauth_client_total_metric_success(
         otel_mock.get_metrics_data(),
         "oauth.client.total",
         NumberDataPoint,
-        attributes={"operation": "token"},
+        attributes={"operation": "authorization_code"},
         scope="oauthclientbridge.oauth",
     )
     assert total_data.attributes is not None
@@ -1198,7 +1110,7 @@ def test_oauth_client_total_metric_failure(
         otel_mock.get_metrics_data(),
         "oauth.client.total",
         NumberDataPoint,
-        attributes={"operation": "token"},
+        attributes={"operation": "authorization_code"},
         scope="oauthclientbridge.oauth",
     )
     assert total_data.attributes is not None

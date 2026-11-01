@@ -8,7 +8,7 @@ import structlog
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import current_settings
 
-from ._retry import RetryReason, retry_reason_for_status
+from ._retry import RetryCondition, retry_condition_for_status
 
 # TODO: This should be a stricter type or a pydantic model
 OAuthResponse = dict[str, Any]
@@ -43,7 +43,7 @@ class TokenEndpointOutcome:
     retryable: bool
     normalized_error: OAuthError | None
     invalidate_refresh_token: bool
-    retry_reason: RetryReason | None = None
+    retry_condition: RetryCondition | None = None
 
 
 class UpstreamResult(StrEnum):
@@ -123,7 +123,7 @@ def token_endpoint_outcome(
             retryable=True,
             normalized_error=OAuthError.TEMPORARILY_UNAVAILABLE,
             invalidate_refresh_token=False,
-            retry_reason=RetryReason.UNAVAILABLE,
+            retry_condition=RetryCondition.UNAVAILABLE,
         )
 
     if status in retry_status_codes:
@@ -131,7 +131,7 @@ def token_endpoint_outcome(
             retryable=True,
             normalized_error=OAuthError.TEMPORARILY_UNAVAILABLE,
             invalidate_refresh_token=False,
-            retry_reason=retry_reason_for_status(status),
+            retry_condition=retry_condition_for_status(status),
         )
 
     if status.is_success and validate_token(result):

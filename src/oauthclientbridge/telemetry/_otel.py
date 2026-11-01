@@ -1,5 +1,6 @@
 import importlib.util
 from collections.abc import Mapping
+from http import HTTPStatus
 from typing import Any, assert_never
 from urllib.parse import urlsplit
 from wsgiref.util import request_uri
@@ -11,7 +12,13 @@ from opentelemetry import trace
 from opentelemetry.baggage.propagation import W3CBaggagePropagator
 from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.asgi import (  # pyright: ignore[reportMissingTypeStubs]
+    OpenTelemetryMiddleware,
+)
 from opentelemetry.instrumentation.flask import FlaskInstrumentor
+from opentelemetry.instrumentation.httpx import (  # pyright: ignore[reportMissingModuleSource]
+    HTTPXClientInstrumentor,
+)
 from opentelemetry.instrumentation.logging import LoggingInstrumentor
 from opentelemetry.instrumentation.propagators import (
     TraceResponsePropagator,
@@ -45,10 +52,12 @@ from opentelemetry.sdk.trace.export import (
 )
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 from requests.structures import CaseInsensitiveDict
+from starlette.applications import Starlette
 
 # Import the leaf module directly; importing through telemetry's facade creates a cycle.
 import oauthclientbridge.telemetry._sentry as sentry
-from oauthclientbridge import types
+from oauthclientbridge import observer, types
+from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import (
     TelemetryComponent,
     TelemetryExporter,
@@ -56,11 +65,12 @@ from oauthclientbridge.settings import (
 )
 from oauthclientbridge.utils import uri
 
+from . import _lifecycle
 from ._buckets import BYTES, TIME
 from ._resources import otel_log_attributes, resource_attributes
 
 
-def set_client_id(client_id: types.ClientId) -> None:
+def set_client_id_context(client_id: types.ClientId) -> None:
     """Associate a canonical client ID with the current request telemetry."""
     client_id_string = str(client_id)
     structlog.contextvars.bind_contextvars(client_id=client_id_string)
@@ -68,10 +78,51 @@ def set_client_id(client_id: types.ClientId) -> None:
     sentry.set_user({"client_id": client_id_string})
 
 
-def record_invalid_client_id(client_id: str) -> None:
-    """Preserve the rejected input without treating it as a client identity."""
+def bind_invalid_client_id_log_context(client_id: str) -> None:
+    """Preserve rejected input in structured log context."""
     structlog.contextvars.bind_contextvars(invalid_client_id=client_id)
+
+
+def record_invalid_client_id_trace(client_id: str) -> None:
+    """Record rejected input on the current trace without setting client identity."""
     trace.get_current_span().add_event("invalid_client_id", {"client_id": client_id})
+
+
+def record_oauth_error_trace(
+    error: str,
+    description: str,
+    exception: BaseException | None = None,
+    *,
+    status: HTTPStatus,
+) -> None:
+    """Record an expected OAuth error; mark only server failures as errors."""
+
+    current_span = trace.get_current_span()
+    current_span.set_attribute("oauth.error", error)
+    if status >= 500:
+        current_span.set_status(
+            trace.Status(trace.StatusCode.ERROR, f"{error}: {description}")
+        )
+    if exception is None:
+        current_span.add_event(
+            "error", {"exception.message": f"{error}: {description}"}
+        )
+    else:
+        current_span.record_exception(exception)
+
+
+def record_oauth_outcome_trace(
+    endpoint: str, status: HTTPStatus, error: OAuthError | None
+) -> None:
+    current_span = trace.get_current_span()
+    current_span.set_attribute("oauth.endpoint", endpoint)
+    if error is not None:
+        exception = None
+        if endpoint == "token":
+            from oauthclientbridge import oauth
+
+            exception = oauth.Error(error, "")
+        record_oauth_error_trace(error.value, "", exception, status=status)
 
 
 def _requests_response_hook(
@@ -112,7 +163,10 @@ def _flask_response_hook(
     if not span or not span.is_recording():
         return
 
-    headers = CaseInsensitiveDict[str](headers)
+    _record_response_headers(span, CaseInsensitiveDict[str](headers))
+
+
+def _record_response_headers(span: trace.Span, headers: Mapping[str, str]) -> None:
     location = headers.get("Location")
     if location is not None:
         sanitized_location = uri.sanitize_url(location)
@@ -141,6 +195,12 @@ def _flask_response_hook(
         )
 
 
+def _asgi_response_headers(headers: Mapping[str, str]) -> None:
+    _record_response_headers(
+        trace.get_current_span(), CaseInsensitiveDict[str](headers)
+    )
+
+
 def _flask_request_hook(span: trace.Span, environ: dict[str, Any]) -> None:
     if not span or not span.is_recording():
         return
@@ -166,6 +226,7 @@ _system_metrics_instrumentor = SystemMetricsInstrumentor()
 _logging_instrumentor = LoggingInstrumentor()
 _sqlite_instrumentor = SQLite3Instrumentor()
 _requests_instrumentor = RequestsInstrumentor()
+_httpx_instrumentor = HTTPXClientInstrumentor()
 
 
 def instrument() -> None:
@@ -173,6 +234,7 @@ def instrument() -> None:
     _logging_instrumentor.instrument(log_hook=_logging_log_hook)
     _sqlite_instrumentor.instrument()
     _requests_instrumentor.instrument(response_hook=_requests_response_hook)
+    _httpx_instrumentor.instrument()
 
 
 def uninstrument() -> None:
@@ -180,6 +242,7 @@ def uninstrument() -> None:
     _logging_instrumentor.uninstrument()
     _sqlite_instrumentor.uninstrument()
     _requests_instrumentor.uninstrument()
+    _httpx_instrumentor.uninstrument()
 
 
 def instrument_app(app: Flask) -> None:
@@ -190,6 +253,40 @@ def instrument_app(app: Flask) -> None:
         request_hook=_flask_request_hook,
         response_hook=_flask_response_hook,
     )
+
+
+def instrument_asgi_app(
+    app: Starlette, lifecycle_observer: observer.RequestLifecycleObserver
+) -> None:
+    app.add_middleware(
+        _lifecycle.RequestLifecycleMiddleware,
+        lifecycle_observer=lifecycle_observer,
+        response_header_observer=_asgi_response_headers,
+    )
+    app.add_middleware(
+        OpenTelemetryMiddleware,
+        server_request_hook=_asgi_request_hook,
+    )
+
+
+def _asgi_request_hook(span: trace.Span, scope: dict[str, Any]) -> None:
+    if not span or not span.is_recording():
+        return
+
+    scheme = scope.get("scheme", "http")
+    server = scope.get("server") or ("localhost", 80)
+    headers = dict(scope.get("headers", []))
+    host = headers.get(b"host", str(server[0]).encode("latin-1")).decode("latin-1")
+    path = scope.get("path", "")
+    query = scope.get("query_string", b"").decode("ascii", "replace")
+    sanitized_url = uri.sanitize_url(f"{scheme}://{host}{path}?{query}")
+    if sanitized_url is None:
+        return
+    sanitized_url = sanitized_url[:1024]
+    span.set_attribute("http.url", sanitized_url)
+    span.set_attribute("url.full", sanitized_url)
+    sanitized_url_parts = urlsplit(sanitized_url)
+    span.set_attribute("url.query", sanitized_url_parts.query)
 
 
 def init_tracing(
@@ -302,6 +399,11 @@ def init_metrics(
                 View(
                     instrument_name="oauth.client.retries",
                     attribute_keys={"operation", "final.result", "error.type"},
+                ),
+                View(
+                    instrument_name="asyncio.event_loop.schedule_delay",
+                    aggregation=ExplicitBucketHistogramAggregation(boundaries=TIME),
+                    attribute_keys={"asyncio.loop.name"},
                 ),
             ],
         )

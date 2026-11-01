@@ -32,17 +32,11 @@ from opentelemetry.semconv.attributes.user_agent_attributes import USER_AGENT_OR
 from werkzeug.datastructures import Headers
 from werkzeug.routing import Rule
 
-from oauthclientbridge import logs, oauth
+from oauthclientbridge import logs, oauth, types
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import LogLevel, LogSettings
 
 tracer = trace.get_tracer(__name__)
-
-type JsonValue = (
-    None | bool | int | float | str | list[JsonValue] | dict[str, JsonValue]
-)
-type JsonDict = dict[str, JsonValue]
-
 
 # TODO: Add a test using stdlib logging, with extra=... to make sure that also works.
 
@@ -317,17 +311,17 @@ def test_stdlib_logging_trace_id_injection(
     assert_has_otel_records(records[0], span)
 
 
-def parse_logs(capsys: pytest.CaptureFixture[str]) -> list[JsonDict]:
+def parse_logs(capsys: pytest.CaptureFixture[str]) -> list[types.JsonDict]:
     return [parse_log_record(line) for line in capsys.readouterr().err.splitlines()]
 
 
-def parse_log_record(line: str) -> JsonDict:
+def parse_log_record(line: str) -> types.JsonDict:
     value: object = json.loads(line)
     assert isinstance(value, dict)
-    return cast(JsonDict, value)
+    return cast(types.JsonDict, value)
 
 
-def assert_has_otel_records(record: JsonDict, span: trace.Span) -> None:
+def assert_has_otel_records(record: types.JsonDict, span: trace.Span) -> None:
     assert "trace_id" in record
     assert "span_id" in record
     assert "trace_sampled" in record

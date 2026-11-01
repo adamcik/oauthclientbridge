@@ -1,5 +1,7 @@
 from enum import StrEnum
 
+from oauthclientbridge.types import JsonDict
+
 
 class OAuthError(StrEnum):
     ACCESS_DENIED = "access_denied"
@@ -19,7 +21,7 @@ class OAuthError(StrEnum):
     def description(self) -> str:
         return _DESCRIPTIONS[self]
 
-    def json(self, description: str | None = None):
+    def json(self, description: str | None = None) -> JsonDict:
         return {
             "error": self.value,
             "error_description": description or self.description,
