@@ -1,4 +1,5 @@
 import anyio
+import anyio.lowlevel
 import pytest
 from opentelemetry.sdk.metrics.export import HistogramDataPoint, NumberDataPoint
 
@@ -86,7 +87,7 @@ async def test_asyncio_monitor_stops_observing_after_cancellation() -> None:
 
     async with anyio.create_task_group() as group:
         group.start_soon(monitor.run)
-        await anyio.sleep(0)
+        await anyio.lowlevel.checkpoint()
         group.cancel_scope.cancel()
 
     assert tuple(monitor._observe_ready_callbacks(None)) == ()  # pyright: ignore[reportPrivateUsage] # Lifecycle test.

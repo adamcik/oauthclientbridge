@@ -15,9 +15,7 @@ from opentelemetry.sdk.util.instrumentation import InstrumentationScope
 
 DataPointType = TypeVar(
     "DataPointType",
-    bound=typing.Union[
-        NumberDataPoint, HistogramDataPoint, ExponentialHistogramDataPoint
-    ],
+    bound=NumberDataPoint | HistogramDataPoint | ExponentialHistogramDataPoint,
 )
 
 
@@ -300,7 +298,7 @@ def assert_trace_header(header: str, expected_trace: int | trace.Span):
 def latest_metric_data(
     metrics_data: list[CollectedMetric],
     metric_name: str,
-    data_point_type: typing.Type[DataPointType],
+    data_point_type: type[DataPointType],
     attributes: typing.Mapping[str, typing.Any] | None = None,
     scope: str | None = None,
 ) -> DataPointType:
