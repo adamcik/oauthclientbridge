@@ -1,4 +1,7 @@
-"""Shared histogram buckets inspired by https://linuxczar.net/blog/2016/12/31/prometheus-histograms/."""
+"""Finite histogram boundaries; Prometheus and OpenTelemetry add overflow buckets.
+
+Inspired by https://linuxczar.net/blog/2016/12/31/prometheus-histograms/.
+"""
 
 TIME = (
     0.0001,
@@ -20,7 +23,6 @@ TIME = (
     4.0,
     7.0,
     10.0,
-    float("inf"),
 )
 
 BYTES = (
@@ -44,7 +46,6 @@ BYTES = (
     90112,
     147456,
     204800,
-    float("inf"),
 )
 
 TOKEN_GRANT_AGE = (
@@ -62,5 +63,4 @@ TOKEN_GRANT_AGE = (
     15552000,  # 180 days
     18144000,  # 210 days
     31536000,  # 365 days
-    float("inf"),
 )
