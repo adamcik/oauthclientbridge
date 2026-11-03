@@ -63,6 +63,7 @@ podman run --rm \
   --userns=keep-id \
   --user "$(id -u):$(id -g)" \
   --cap-drop ALL \
+  --tmpfs /run/prom:rw,nosuid,nodev,noexec,size=16m,mode=0777 \
   --mount "type=bind,src=$workspace/data,dst=/data" \
   --entrypoint /bin/oauthclientbridge \
   "$image" initdb
