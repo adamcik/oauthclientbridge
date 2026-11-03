@@ -43,15 +43,17 @@ database:
 
     oauthclientbridge initdb
 
-Run the development server:
+Run the ASGI server (also the default when no command is given):
 
-    FLASK_APP=oauthclientbridge flask run
+    oauthclientbridge serve
 
-`flask run` uses the app factory directly. This intentionally does not start
-runtime background services. In practice that means request handling works the
-same, but background-refreshed metrics such as `oauth_token_records` are only
-kept fresh in the production WSGI entrypoint, which calls
-`start_runtime_services(app)` after the database has been initialized.
+For local development with one worker:
+
+    oauthclientbridge serve --workers 1 --host 127.0.0.1 --port 8000
+
+The server runs application startup and shutdown services. It uses four workers
+by default; `WORKERS` and `ASGI_GRACEFUL_SHUTDOWN_TIMEOUT` configure the worker
+count and graceful shutdown timeout, or use the corresponding `serve` options.
 
 Run `upgradedb` when upgrading an existing database:
 

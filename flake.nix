@@ -315,12 +315,7 @@
           asgiEntrypoint = pkgs.writeShellScriptBin "entrypoint" ''
             # Caddy connects through the host directory's www-data group.
             umask 0007
-            exec ${runtimeVenv}/bin/uvicorn \
-              --factory oauthclientbridge.asgi:create_app \
-              --no-proxy-headers \
-              --timeout-graceful-shutdown "''${ASGI_GRACEFUL_SHUTDOWN_TIMEOUT:-25}" \
-              --workers "''${WORKERS:-4}" \
-              "$@"
+            exec ${runtimeVenv}/bin/oauthclientbridge serve "$@"
           '';
         in
           lib.optionalAttrs (pkgs.stdenv.isLinux && hasNix2container) {
