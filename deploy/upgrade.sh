@@ -170,7 +170,7 @@ run_db_upgrade() {
   local podman_args=(
     run --rm
     --name "${CONTAINER_NAME}-db-upgrade"
-    --entrypoint /bin/flask
+    --entrypoint /bin/oauthclientbridge
     --env-file "$QUADLET_ENV_FILE"
   )
 

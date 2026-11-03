@@ -4,9 +4,10 @@ import time
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import IO, Generator, cast
+from importlib import resources
+from typing import Generator
 
-from flask import current_app, g, has_app_context
+from flask import g, has_app_context
 from opentelemetry import metrics, trace
 
 from oauthclientbridge import telemetry, types
@@ -58,15 +59,14 @@ class TokenRecord:
     last_updated_at: datetime | None
 
 
-def initialize() -> None:
-    with cast(IO[str], current_app.open_resource("schema.sql", mode="r")) as f:
-        schema = f.read()
-    with get() as c:
+def initialize(database: DatabaseSettings | None = None) -> None:
+    schema = resources.files("oauthclientbridge").joinpath("schema.sql").read_text()
+    with get() if database is None else _connect(database) as c:
         c.executescript(schema)
 
 
-def upgrade() -> None:
-    with get() as c:
+def upgrade(database: DatabaseSettings | None = None) -> None:
+    with get() if database is None else _connect(database) as c:
         columns = {
             row[1].decode("ascii") if isinstance(row[1], bytes) else row[1]
             for row in c.execute("PRAGMA table_info(tokens)").fetchall()
@@ -151,8 +151,8 @@ def get() -> sqlite3.Connection:
     return g._oauth_database
 
 
-def vacuum() -> None:
-    with get() as c:
+def vacuum(database: DatabaseSettings | None = None) -> None:
+    with get() if database is None else _connect(database) as c:
         c.execute("VACUUM")
 
 

@@ -308,8 +308,8 @@
               "$@"
           '';
 
-          flaskEntrypoint = pkgs.writeShellScriptBin "flask" ''
-            exec ${runtimeVenv}/bin/python -m flask --app oauthclientbridge "$@"
+          cliEntrypoint = pkgs.writeShellScriptBin "oauthclientbridge" ''
+            exec ${runtimeVenv}/bin/oauthclientbridge "$@"
           '';
 
           asgiEntrypoint = pkgs.writeShellScriptBin "entrypoint" ''
@@ -390,7 +390,7 @@
                 metadataLayer = nix2containerPkgs.buildLayer {
                   copyToRoot = [
                     entrypoint
-                    flaskEntrypoint
+                    cliEntrypoint
                     runtimeDirs
                   ];
                   layers = [
@@ -463,6 +463,7 @@
                 metadataLayer = nix2containerPkgs.buildLayer {
                   copyToRoot = [
                     asgiEntrypoint
+                    cliEntrypoint
                     asgiRuntimeDirs
                   ];
                   layers = [

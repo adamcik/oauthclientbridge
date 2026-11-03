@@ -34,6 +34,7 @@ dependencies = [
   "requests==2.34.2",
   "starlette==1.10.0",
   "structlog==26.1.0",
+  "typer==0.24.1",
   "uvicorn==0.52.0",
   "werkzeug==3.1.8",
 ]
@@ -41,6 +42,9 @@ dynamic = ["version"]
 
 [project.urls]
 repository = "https://github.com/adamcik/oauthclientbridge"
+
+[project.scripts]
+oauthclientbridge = "oauthclientbridge.cli:app"
 
 [dependency-groups]
 dev = [
