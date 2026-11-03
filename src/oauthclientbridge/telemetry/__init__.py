@@ -1,8 +1,8 @@
-from collections.abc import Awaitable, Callable
 from contextlib import AbstractContextManager
 from http import HTTPStatus
-from typing import Literal, Protocol
+from typing import Literal
 
+from anyio import abc
 from opentelemetry import trace
 
 from oauthclientbridge import types
@@ -101,11 +101,7 @@ start_background_refresh = _refresh.start_background_refresh
 stop_background_refresh = _refresh.stop_background_refresh
 
 
-class _TaskSpawner(Protocol):
-    def start_soon(self, func: Callable[[], Awaitable[None]]) -> None: ...
-
-
-def start_asyncio_monitor(task_spawner: _TaskSpawner, name: str) -> None:
+def start_asyncio_monitor(task_spawner: abc.TaskGroup, name: str) -> None:
     """Start event-loop health monitoring in an application task group."""
     monitor = _asyncio.AsyncioMonitor(name)
     task_spawner.start_soon(monitor.run)

@@ -1,9 +1,7 @@
 import logging
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Protocol
 
-from anyio import to_thread
+from anyio import abc, to_thread
 from opentelemetry import trace
 
 from oauthclientbridge import bridge, db, observer, telemetry
@@ -13,20 +11,16 @@ logger = logging.getLogger(__name__)
 tracer = trace.get_tracer(__name__)
 
 
-class TaskSpawner(Protocol):
-    def start_soon(self, func: Callable[[], Awaitable[None]]) -> None: ...
-
-
 class TokenStateRefresher:
     """Coalesce token-state metric updates in the ASGI application lifecycle."""
 
     def __init__(self, database: DatabaseSettings) -> None:
         self._database = database
-        self._task_spawner: TaskSpawner | None = None
+        self._task_spawner: abc.TaskGroup | None = None
         self._requested = False
         self._running = False
 
-    async def start(self, task_spawner: TaskSpawner) -> None:
+    async def start(self, task_spawner: abc.TaskGroup) -> None:
         self._task_spawner = task_spawner
         await self.request()
 
