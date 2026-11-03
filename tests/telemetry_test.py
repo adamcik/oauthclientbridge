@@ -111,6 +111,23 @@ def test_init_metrics_disabled() -> None:
     mock_set_meter_provider.assert_not_called()
 
 
+@pytest.mark.parametrize("name", ["http.server.duration", "http.server.size"])
+def test_histogram_records_overflow_bucket(
+    otel_mock: otel.OTelMocker, meter: metrics.Meter, name: str
+) -> None:
+    histogram = meter.create_histogram(name)
+    histogram.record(1_000_000)
+
+    metric = otel.get_metric(otel_mock.get_metrics_data(), name)
+    assert metric is not None
+    point = metric.metric.data.data_points[0]
+    assert isinstance(point, HistogramDataPoint)
+    assert point.explicit_bounds
+    assert all(bound < float("inf") for bound in point.explicit_bounds)
+    assert point.bucket_counts[-1] == 1
+    assert point.count == 1
+
+
 def test_init_metrics_sets_resource_attributes() -> None:
     settings = TelemetrySettings(
         components={TelemetryComponent.METRICS},
