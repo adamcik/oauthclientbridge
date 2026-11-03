@@ -58,17 +58,14 @@ cleanup() {
 trap cleanup EXIT
 
 mkdir -m 0777 "$workspace/data" "$workspace/run"
-python - "$workspace/data/sqlite.db" <<'PY'
-import sqlite3
-import sys
-from pathlib import Path
-
-database = Path(sys.argv[1])
-schema = Path("src/oauthclientbridge/schema.sql").read_text()
-with sqlite3.connect(database) as connection:
-    connection.executescript(schema)
-database.chmod(0o666)
-PY
+podman run --rm \
+  --read-only \
+  --userns=keep-id \
+  --user "$(id -u):$(id -g)" \
+  --cap-drop ALL \
+  --mount "type=bind,src=$workspace/data,dst=/data" \
+  --entrypoint /bin/oauthclientbridge \
+  "$image" initdb
 
 cat >"$workspace/callback.html" <<'EOF'
 {"client_id": {{ client_id|tojson|safe }}, "client_secret": {{ client_secret|tojson|safe }}}

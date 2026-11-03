@@ -41,7 +41,7 @@ following environment variables (see `.env.example`):
 Once these are set (e.g., by sourcing a `.env` file), you can initialize the
 database:
 
-    FLASK_APP=oauthclientbridge flask initdb
+    oauthclientbridge initdb
 
 Run the development server:
 
@@ -53,10 +53,14 @@ same, but background-refreshed metrics such as `oauth_token_records` are only
 kept fresh in the production WSGI entrypoint, which calls
 `start_runtime_services(app)` after the database has been initialized.
 
-Additionally you might want to run `cleandb` as a cron job to clear out
-stale data every now and then.:
+Run `upgradedb` when upgrading an existing database:
 
-    FLASK_APP=oauthclientbridge flask cleandb
+    oauthclientbridge upgradedb
+
+Additionally you might want to run `cleandb` as a cron job to reclaim
+unused database space:
+
+    oauthclientbridge cleandb
 
 ## Setting up a production instance
 

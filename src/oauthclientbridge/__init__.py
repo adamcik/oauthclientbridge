@@ -71,21 +71,6 @@ def create_app(
 
     app.register_blueprint(views.routes)
 
-    @app.cli.command("initdb")
-    def initdb():  # pyright: ignore[reportUnusedFunction]
-        print("Initializing %s" % settings.database.database)
-        db.initialize()
-
-    @app.cli.command("upgradedb")
-    def upgradedb():  # pyright: ignore[reportUnusedFunction]
-        print("Upgrading %s" % settings.database.database)
-        db.upgrade()
-
-    @app.cli.command("cleandb")
-    def cleandb():  # pyright: ignore[reportUnusedFunction]
-        print("Vacuumed %s" % settings.database.database)
-        db.vacuum()
-
     return app
 
 

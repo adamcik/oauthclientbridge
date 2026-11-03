@@ -351,10 +351,9 @@ image path, and Caddy transport only after that cycle completes without rollback
 - The `asgi` image starts the `oauthclientbridge.asgi:create_app` factory with one
   app instance per `WORKERS` process. The existing `latest` image remains the
   uWSGI runtime; only it includes the uWSGI base layer.
-- The `asgi` image does not yet provide standalone database administration
-  commands. Retain the `latest` image for initialization, upgrades, and cleanup
-  until a framework-neutral CLI is added; this must be resolved before removing
-  the legacy image.
+- Both images provide `/bin/oauthclientbridge` with `initdb`, `upgradedb`, and
+  `cleandb` commands. Set `DB_DATABASE` and use
+  `--entrypoint /bin/oauthclientbridge` to administer the mounted database.
 - Containers run with `--read-only`; writable paths are provided via bind mounts and tmpfs.
 - `tmpfs /run/prom` is intentionally ephemeral to avoid stale Prometheus multiprocess files.
 - Secrets are currently mixed into env files; move to sops-managed env files later if desired.
