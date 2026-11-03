@@ -113,6 +113,16 @@
             pyproject-build-systems.overlays.default
             overlay
             (final: prev: {
+              # Basedpyright's bundled Node crashes with newer
+              # Nix inputs. Use the Nix-built runtime at the wheel's expected path.
+              nodejs-wheel-binaries = prev.nodejs-wheel-binaries.overrideAttrs (old: {
+                postFixup =
+                  (old.postFixup or "")
+                  + ''
+                    ln -sf ${pkgs.nodejs_24}/bin/node "$out/${python.sitePackages}/nodejs_wheel/bin/node"
+                  '';
+              });
+
               oauthclientbridge = prev.oauthclientbridge.overrideAttrs (old: {
                 env =
                   (old.env or {})
