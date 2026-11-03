@@ -1,9 +1,66 @@
 import sqlite3
+import sys
 from pathlib import Path
+from unittest import mock
 
+import pytest
+import uvicorn
 from typer.testing import CliRunner
 
 from oauthclientbridge import cli
+
+
+@pytest.mark.parametrize("args", [[], ["serve"]], ids=["default", "explicit"])
+def test_serve_starts_uvicorn(args: list[str], monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "argv", ["oauthclientbridge", *args])
+    monkeypatch.delenv("WORKERS", raising=False)
+    monkeypatch.delenv("ASGI_GRACEFUL_SHUTDOWN_TIMEOUT", raising=False)
+
+    # Check server configuration without starting worker processes or binding a port.
+    with mock.patch.object(uvicorn, "run") as run:
+        with pytest.raises(SystemExit) as exit:
+            cli.main()
+
+    assert exit.value.code == 0
+    run.assert_called_once_with(
+        "oauthclientbridge.asgi:create_app",
+        factory=True,
+        proxy_headers=False,
+        host="127.0.0.1",
+        port=8000,
+        uds=None,
+        workers=4,
+        timeout_graceful_shutdown=25,
+    )
+
+
+def test_serve_uses_options_and_runtime_environment() -> None:
+    with mock.patch.object(uvicorn, "run") as run:
+        result = CliRunner().invoke(
+            cli.app,
+            ["serve", "--uds", "/run/asgi/server.sock", "--workers", "2"],
+            env={"WORKERS": "3", "ASGI_GRACEFUL_SHUTDOWN_TIMEOUT": "10"},
+        )
+
+    assert result.exit_code == 0, result.output
+    run.assert_called_once_with(
+        "oauthclientbridge.asgi:create_app",
+        factory=True,
+        proxy_headers=False,
+        host="127.0.0.1",
+        port=8000,
+        uds="/run/asgi/server.sock",
+        workers=2,
+        timeout_graceful_shutdown=10,
+    )
+
+
+def test_serve_rejects_invalid_worker_count() -> None:
+    with mock.patch.object(uvicorn, "run") as run:
+        result = CliRunner().invoke(cli.app, ["serve", "--workers", "0"])
+
+    assert result.exit_code == 2
+    run.assert_not_called()
 
 
 def test_initdb_creates_schema(tmp_path: Path) -> None:

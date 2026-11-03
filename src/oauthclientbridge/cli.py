@@ -1,8 +1,42 @@
+import sys
+from typing import Annotated
+
 import typer
+import uvicorn
+from typer import (
+    Option,  # pyright: ignore[reportUnknownVariableType] # Typer's Click ParamType annotation lacks a type argument.
+)
 
 from oauthclientbridge import db, settings
 
-app = typer.Typer(help="Administer the bridge database.", add_completion=False)
+app = typer.Typer(help="Run and administer OAuth Client Bridge.", add_completion=False)
+
+
+def main() -> None:
+    app(args=sys.argv[1:] or ["serve"])
+
+
+@app.command()
+def serve(
+    host: Annotated[str, Option()] = "127.0.0.1",
+    port: Annotated[int, Option(min=1, max=65535)] = 8000,
+    uds: Annotated[str | None, Option(help="Unix socket path.")] = None,
+    workers: Annotated[int, Option(min=1, envvar="WORKERS")] = 4,
+    timeout_graceful_shutdown: Annotated[
+        int, Option(min=0, envvar="ASGI_GRACEFUL_SHUTDOWN_TIMEOUT")
+    ] = 25,
+) -> None:
+    """Serve the ASGI application (the default when no command is given)."""
+    uvicorn.run(
+        "oauthclientbridge.asgi:create_app",
+        factory=True,
+        proxy_headers=False,
+        host=host,
+        port=port,
+        uds=uds,
+        workers=workers,
+        timeout_graceful_shutdown=timeout_graceful_shutdown,
+    )
 
 
 @app.command()

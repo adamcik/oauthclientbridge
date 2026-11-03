@@ -351,6 +351,8 @@ image path, and Caddy transport only after that cycle completes without rollback
 - The `asgi` image starts the `oauthclientbridge.asgi:create_app` factory with one
   app instance per `WORKERS` process. The existing `latest` image remains the
   uWSGI runtime; only it includes the uWSGI base layer.
+- The ASGI entrypoint runs `oauthclientbridge serve`, which starts Uvicorn
+  programmatically. Existing arguments such as `--uds` still select its listener.
 - Both images provide `/bin/oauthclientbridge` with `initdb`, `upgradedb`, and
   `cleandb` commands. Set `DB_DATABASE` and use
   `--entrypoint /bin/oauthclientbridge` to administer the mounted database.

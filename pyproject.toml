@@ -44,7 +44,7 @@ dynamic = ["version"]
 repository = "https://github.com/adamcik/oauthclientbridge"
 
 [project.scripts]
-oauthclientbridge = "oauthclientbridge.cli:app"
+oauthclientbridge = "oauthclientbridge.cli:main"
 
 [dependency-groups]
 dev = [
