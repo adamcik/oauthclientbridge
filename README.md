@@ -66,6 +66,9 @@ unused database space:
 
 ## Setting up a production instance
 
+See [native NixOS deployment](docs/nixos.md) or the existing
+[Podman Quadlet deployment](deploy/README.md).
+
 -   Always use HTTPS since we are passing access tokens around.
 -   Session cookies are secure by default. Set `BRIDGE_SESSION_COOKIE_SECURE` to
     `false` only for local HTTP development.
