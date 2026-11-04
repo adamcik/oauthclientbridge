@@ -140,8 +140,9 @@ if [ "$runtime" = asgi ]; then
     echo "$runtime container exited with status $exit_code" >&2
     exit 1
   fi
+  # Drain the log stream: grep -q can give Podman SIGPIPE under pipefail.
   if ! podman logs "$container" 2>&1 \
-    | grep --fixed-strings --quiet "Application shutdown complete"; then
+    | grep --fixed-strings "Application shutdown complete" >/dev/null; then
     echo "ASGI container did not complete graceful application shutdown" >&2
     exit 1
   fi
