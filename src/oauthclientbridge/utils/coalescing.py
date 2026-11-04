@@ -6,8 +6,6 @@ from collections.abc import Callable
 
 from opentelemetry import trace
 
-tracer = trace.get_tracer(__name__)
-
 
 class CoalescingWorker:
     """Run background work once for each burst of incoming refresh requests."""
@@ -83,7 +81,10 @@ class CoalescingWorker:
                 self._handled_generation = max(generation, self._generation)
                 handled_generation = self._handled_generation
 
-            with tracer.start_as_current_span(f"WORKER {self._name}") as span:
+            # Bind each run to the currently configured tracing provider.
+            with trace.get_tracer(__name__).start_as_current_span(
+                f"WORKER {self._name}"
+            ) as span:
                 span.set_attribute("worker.name", self._name)
                 span.set_attribute("worker.debounce_seconds", self._debounce_seconds)
                 span.set_attribute("worker.startup_delay_seconds", startup_delay)
