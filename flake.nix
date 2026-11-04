@@ -188,49 +188,57 @@
             export UV_NO_MANAGED_PYTHON="1"
             ${script}
           '';
-      in {
-        lock = mkCheck "uv-lock-check" ''
-          uv lock --check
-          touch "$out"
-        '';
+      in
+        {
+          lock = mkCheck "uv-lock-check" ''
+            uv lock --check
+            touch "$out"
+          '';
 
-        pyright = mkCheck "pyright-check" ''
-          basedpyright src/oauthclientbridge --level error
-          touch "$out"
-        '';
+          pyright = mkCheck "pyright-check" ''
+            basedpyright src/oauthclientbridge --level error
+            touch "$out"
+          '';
 
-        ty = mkCheck "ty-check" ''
-          ${pkgs.ty}/bin/ty check src/oauthclientbridge --python "$UV_PYTHON" --output-format concise
-          touch "$out"
-        '';
+          ty = mkCheck "ty-check" ''
+            ${pkgs.ty}/bin/ty check src/oauthclientbridge --python "$UV_PYTHON" --output-format concise
+            touch "$out"
+          '';
 
-        pytest = mkCheck "pytest-check" ''
-          export COVERAGE_FILE="$TMPDIR/.coverage"
-          mkdir -p "$out"
-          pytest \
-            --basetemp="$TMPDIR/.pytest_basetemp" \
-            -o cache_dir="$TMPDIR/.pytest_cache" \
-            --cov src/oauthclientbridge \
-            --cov-report term-missing:skip-covered \
-            --cov-report html:"$TMPDIR/htmlcov" \
-            --cov-report xml:"$TMPDIR/coverage.xml" \
-            tests
-          mv "$TMPDIR/htmlcov" "$out/htmlcov"
-          mv "$TMPDIR/coverage.xml" "$out/coverage.xml"
-        '';
+          pytest = mkCheck "pytest-check" ''
+            export COVERAGE_FILE="$TMPDIR/.coverage"
+            mkdir -p "$out"
+            pytest \
+              --basetemp="$TMPDIR/.pytest_basetemp" \
+              -o cache_dir="$TMPDIR/.pytest_cache" \
+              --cov src/oauthclientbridge \
+              --cov-report term-missing:skip-covered \
+              --cov-report html:"$TMPDIR/htmlcov" \
+              --cov-report xml:"$TMPDIR/coverage.xml" \
+              tests
+            mv "$TMPDIR/htmlcov" "$out/htmlcov"
+            mv "$TMPDIR/coverage.xml" "$out/coverage.xml"
+          '';
 
-        treefmt = treefmtEval.${system}.config.build.check ./.;
+          treefmt = treefmtEval.${system}.config.build.check ./.;
 
-        packages = pkgs.runCommand "oauthclientbridge-packages-check" {} ''
-          ${self.packages.${system}.management}/bin/oauthclientbridge --help > /dev/null
-          ${self.packages.${system}.web}/bin/oauthclientbridge-web --help > /dev/null
-          cmp ${./deploy/spotify/callback.html} ${self.packages.${system}.assets}/share/oauthclientbridge/templates/spotify.html
-          cmp ${./deploy/soundcloud/callback.html} ${self.packages.${system}.assets}/share/oauthclientbridge/templates/soundcloud.html
-          test -d ${self.packages.${system}.assets}/share/oauthclientbridge/static
-          cmp ${./deploy/static/robots.txt} ${self.packages.${system}.assets}/share/oauthclientbridge/static/robots.txt
-          touch "$out"
-        '';
-      }
+          packages = pkgs.runCommand "oauthclientbridge-packages-check" {} ''
+            ${self.packages.${system}.management}/bin/oauthclientbridge --help > /dev/null
+            ${self.packages.${system}.web}/bin/oauthclientbridge-web --help > /dev/null
+            cmp ${./deploy/spotify/callback.html} ${self.packages.${system}.assets}/share/oauthclientbridge/templates/spotify.html
+            cmp ${./deploy/soundcloud/callback.html} ${self.packages.${system}.assets}/share/oauthclientbridge/templates/soundcloud.html
+            test -d ${self.packages.${system}.assets}/share/oauthclientbridge/static
+            cmp ${./deploy/static/robots.txt} ${self.packages.${system}.assets}/share/oauthclientbridge/static/robots.txt
+            touch "$out"
+          '';
+        }
+        // lib.optionalAttrs (self.packages.${system} ? image) {
+          image-scripts = pkgs.runCommand "oauthclientbridge-image-scripts-check" {} ''
+            ${pkgs.python312}/bin/python ${./tests/packaging/check_image_scripts.py} \
+              ${self.packages.${system}.image} ${self.packages.${system}.asgi-image}
+            touch "$out"
+          '';
+        }
     );
 
     packages =

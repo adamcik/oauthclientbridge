@@ -19,8 +19,9 @@
   management = pkgs.writeShellScriptBin "oauthclientbridge" ''
     exec ${runtime}/bin/oauthclientbridge "$@"
   '';
+  # Images relocate management to /bin; its original store path does not survive.
   web = pkgs.writeShellScriptBin "oauthclientbridge-web" ''
-    exec ${management}/bin/oauthclientbridge serve "$@"
+    exec ${runtime}/bin/oauthclientbridge serve "$@"
   '';
 in {
   inherit runtime dependencies assets management web;
