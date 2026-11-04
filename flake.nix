@@ -78,22 +78,7 @@
     };
 
     projectPython = forAllSystems (
-      system:
-        nixpkgs.legacyPackages.${system}.python312.override {
-          bluezSupport = false;
-          stripConfig = true;
-          stripIdlelib = true;
-          stripTests = true;
-          stripTkinter = true;
-
-          rebuildBytecode = false;
-          stripBytecode = true;
-
-          readline = null;
-          ncurses = null;
-          gdbm = null;
-          withSqlite = true;
-        }
+      system: nixpkgs.legacyPackages.${system}.python312
     );
 
     # Python sets grouped per system
