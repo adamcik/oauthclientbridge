@@ -1,6 +1,8 @@
 import threading
 import time
 
+import pytest_otel_capture as otel_capture
+from oauthclientbridge import settings, telemetry
 from oauthclientbridge.utils.coalescing import CoalescingWorker
 
 from .plugins import otel
@@ -113,3 +115,28 @@ def test_worker_emits_root_span_for_each_run(otel_mock: otel.OTelMocker) -> None
         "worker.handled_generation": 1,
         "worker.coalesced_requests": 1,
     }
+
+
+def test_worker_uses_current_tracing_provider() -> None:
+    # OTel fixtures install a new provider between tests. Reproduce that lifecycle
+    # in one test so xdist scheduling cannot hide a cached tracer from an old one.
+    otel_capture.reset_otel_once()
+    for _ in range(2):
+        with otel_capture.OTelMocker(
+            otel_capture.InMemoryLogRecordExporter(),
+            otel_capture.InMemorySpanExporter(),
+            otel_capture.InMemoryMetricReader(),
+        ) as capture:
+            telemetry.init_tracing(settings.TelemetrySettings(), capture.span_processor)
+            ran = threading.Event()
+            worker = CoalescingWorker(ran.set, name="provider-lifecycle")
+            worker.start()
+            try:
+                worker.request()
+                assert ran.wait(timeout=1.0)
+            finally:
+                worker.stop()
+
+            spans = capture.get_finished_spans()
+            assert len(spans) == 1
+            assert spans[0].name == "WORKER provider-lifecycle"
