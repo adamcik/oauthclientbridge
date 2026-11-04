@@ -244,11 +244,16 @@
           pythonSet = pythonSets.${system};
           app = import ./nix/packages.nix {
             inherit pkgs pythonSet;
-            python = projectPython.${system};
           };
           runtimeVenv = app.runtime;
           depsVenv = app.dependencies;
-          uwsgi = app.uwsgi;
+          uwsgi = pkgs.uwsgi.override {
+            python3 = projectPython.${system};
+            plugins = ["python3"];
+            withPAM = false;
+            withSystemd = false;
+            withCap = false;
+          };
 
           # Default to a non-root runtime identity; override at run-time when bind-mount
           # ownership needs to match host users (for example: --user 33:33 for www-data).
@@ -280,7 +285,23 @@
           '';
 
           entrypoint = pkgs.writeShellScriptBin "entrypoint" ''
-            exec ${app.wsgi-web}/bin/oauthclientbridge-wsgi "$@"
+            uwsgi_args=(
+              --plugin python3
+              --module oauthclientbridge.wsgi:app
+              --disable-logging
+              --log-5xx
+              --log-master
+              --virtualenv "${runtimeVenv}"
+              --processes "''${WORKERS:-4}"
+              --threads "''${THREADS:-1}"
+              --master
+              --lazy-app
+              --py-call-uwsgi-fork-hooks
+              --die-on-term
+              --show-config
+              --need-app
+            )
+            exec ${uwsgi}/bin/uwsgi "''${uwsgi_args[@]}" "$@"
           '';
 
           cliEntrypoint = app.management;
@@ -292,7 +313,7 @@
           '';
         in
           {
-            inherit (app) web wsgi-web management assets;
+            inherit (app) web management assets;
             default = app.web;
           }
           // lib.optionalAttrs (pkgs.stdenv.isLinux && hasNix2container) {
