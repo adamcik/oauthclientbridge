@@ -162,6 +162,12 @@
         }
     );
   in {
+    nixosModules.default = {pkgs, ...}: {
+      imports = [
+        (import ./nix/module.nix {appPackages = self.packages.${pkgs.stdenv.hostPlatform.system};})
+      ];
+    };
+
     formatter = forAllSystems (system: treefmtEval.${system}.config.build.wrapper);
 
     checks = forAllSystems (
@@ -238,6 +244,13 @@
               ${self.packages.${system}.image} ${self.packages.${system}.asgi-image}
             touch "$out"
           '';
+        }
+        // lib.optionalAttrs pkgs.stdenv.isLinux {
+          nixos = import ./nix/test.nix {
+            inherit pkgs;
+            appPackages = self.packages.${system};
+            module = self.nixosModules.default;
+          };
         }
     );
 
