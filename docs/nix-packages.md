@@ -2,8 +2,9 @@
 
 `nix build .#web` builds the ASGI server (`bin/oauthclientbridge-web`).
 `management` supplies `bin/oauthclientbridge`, including `initdb`, `upgradedb`,
-and `cleandb`. `wsgi-web` retains the existing uWSGI configuration. All three use
-the same locked Python environment, including optional Sentry support.
+and `cleandb`. Both use the same locked Python environment, including optional
+Sentry support. WSGI remains supported only through the existing `image` Docker
+image; there is no standalone WSGI package.
 
 `image` and `asgi-image` consume these packages without changing their public
 entrypoints, users, settings, or writable mount layout. Their `/bin/entrypoint`
