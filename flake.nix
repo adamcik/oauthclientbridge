@@ -220,6 +220,16 @@
         '';
 
         treefmt = treefmtEval.${system}.config.build.check ./.;
+
+        packages = pkgs.runCommand "oauthclientbridge-packages-check" {} ''
+          ${self.packages.${system}.management}/bin/oauthclientbridge --help > /dev/null
+          ${self.packages.${system}.web}/bin/oauthclientbridge-web --help > /dev/null
+          cmp ${./deploy/spotify/callback.html} ${self.packages.${system}.assets}/share/oauthclientbridge/templates/spotify.html
+          cmp ${./deploy/soundcloud/callback.html} ${self.packages.${system}.assets}/share/oauthclientbridge/templates/soundcloud.html
+          test -d ${self.packages.${system}.assets}/share/oauthclientbridge/static
+          cmp ${./deploy/static/robots.txt} ${self.packages.${system}.assets}/share/oauthclientbridge/static/robots.txt
+          touch "$out"
+        '';
       }
     );
 
@@ -232,24 +242,13 @@
           nix2containerPkgs = nix2container.packages.${system}.nix2container;
 
           pythonSet = pythonSets.${system};
-          runtimeVenv = pythonSet.mkVirtualEnv "oauthclientbridge-runtime-env" {
-            oauthclientbridge = ["sentry"];
+          app = import ./nix/packages.nix {
+            inherit pkgs pythonSet;
+            python = projectPython.${system};
           };
-
-          depsVenv = pythonSet.mkVirtualEnv "oauthclientbridge-deps-env" (
-            pythonSet.oauthclientbridge.dependencies
-            // pythonSet.oauthclientbridge."dependency-groups".sentry
-          );
-
-          python = projectPython.${system};
-
-          uwsgi = pkgs.uwsgi.override {
-            python3 = python;
-            plugins = ["python3"];
-            withPAM = false;
-            withSystemd = false;
-            withCap = false;
-          };
+          runtimeVenv = app.runtime;
+          depsVenv = app.dependencies;
+          uwsgi = app.uwsgi;
 
           # Default to a non-root runtime identity; override at run-time when bind-mount
           # ownership needs to match host users (for example: --user 33:33 for www-data).
@@ -281,39 +280,22 @@
           '';
 
           entrypoint = pkgs.writeShellScriptBin "entrypoint" ''
-            uwsgi_args=(
-              --plugin python3
-              --module oauthclientbridge.wsgi:app
-              --disable-logging
-              --log-5xx
-              --log-master
-              --virtualenv "${runtimeVenv}"
-              --processes "''${WORKERS:-4}"
-              --threads "''${THREADS:-1}"
-              --master
-              --lazy-app
-              --py-call-uwsgi-fork-hooks
-              --die-on-term
-              --show-config
-              --need-app
-            )
-
-            exec ${uwsgi}/bin/uwsgi \
-              "''${uwsgi_args[@]}" \
-              "$@"
+            exec ${app.wsgi-web}/bin/oauthclientbridge-wsgi "$@"
           '';
 
-          cliEntrypoint = pkgs.writeShellScriptBin "oauthclientbridge" ''
-            exec ${runtimeVenv}/bin/oauthclientbridge "$@"
-          '';
+          cliEntrypoint = app.management;
 
           asgiEntrypoint = pkgs.writeShellScriptBin "entrypoint" ''
             # Caddy connects through the host directory's www-data group.
             umask 0007
-            exec ${runtimeVenv}/bin/oauthclientbridge serve "$@"
+            exec ${app.web}/bin/oauthclientbridge-web "$@"
           '';
         in
-          lib.optionalAttrs (pkgs.stdenv.isLinux && hasNix2container) {
+          {
+            inherit (app) web wsgi-web management assets;
+            default = app.web;
+          }
+          // lib.optionalAttrs (pkgs.stdenv.isLinux && hasNix2container) {
             # Expose Docker container in packages
             image = nix2containerPkgs.buildImage {
               name = "ghcr.io/adamcik/oauthclientbridge";
@@ -382,6 +364,7 @@
                     entrypoint
                     cliEntrypoint
                     runtimeDirs
+                    app.assets
                   ];
                   layers = [
                     baseLayer
@@ -455,6 +438,7 @@
                     asgiEntrypoint
                     cliEntrypoint
                     asgiRuntimeDirs
+                    app.assets
                   ];
                   layers = [
                     depsLayer
