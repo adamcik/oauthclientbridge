@@ -10,7 +10,13 @@ backups. SQLite is the app's existing database, not a new deployment dependency.
   imports = [ inputs.oauthclientbridge.nixosModules.default ];
   services.oauthclientbridge.instances = {
     spotify = {
-      environmentFile = "/run/secrets/oauthclientbridge-spotify";
+      credentials = {
+        OAUTH_CLIENT_SECRET.file = "/run/secrets/spotify-client-secret";
+        BRIDGE_SESSION_SECRET = {
+          file = "/run/credstore.encrypted/spotify-session.cred";
+          encrypted = true;
+        };
+      };
       workers = 4;
       environment = {
         OAUTH_CLIENT_ID = "public-client-id";
@@ -37,9 +43,48 @@ web on demand. State and metrics directories remain mode `0700`.
 before forcing shutdown. Units restrict privileges, devices, writable paths,
 address families, and system calls without blocking outbound provider requests.
 
-Provision the runtime environment file through the host's existing secret
-manager, owned by root with mode `0600`. It uses systemd EnvironmentFile syntax,
-not shell syntax (`KEY=value`, no `export`). Include at least:
+## Runtime secrets through systemd credentials
+
+`credentials` maps full application setting names to runtime source files.
+systemd uses `LoadCredential` by default, or `LoadCredentialEncrypted` when
+`encrypted = true`. Each web, migration, and cleanup unit gets its own protected
+credential directory. The app reads files from `CREDENTIALS_DIRECTORY` directly;
+credential contents are not copied into process environment variables or command
+lines. Existing mount hardening also isolates each unit's credential directory.
+
+Provision source files through the host's existing secret manager; keep plaintext
+sources owned by root with mode `0600`. Paths must be absolute strings outside
+the Nix store, not Nix path literals. Plaintext files
+contain one setting's UTF-8 value, without `KEY=` or shell syntax. Pydantic trims
+surrounding whitespace; non-string settings use the same value format as their
+environment counterparts. At minimum, provide `OAUTH_CLIENT_SECRET` and
+`BRIDGE_SESSION_SECRET`.
+
+Encrypted files must carry the same credential name as the option key. For
+example, on the target host:
+
+```sh
+systemd-creds encrypt --name=BRIDGE_SESSION_SECRET session-secret.txt spotify-session.cred
+```
+
+This is an operator step, not a build or activation hook. Choose the host's
+TPM/host-key policy and protect the plaintext input through its existing secret
+management procedure. Encrypted blobs can be bound to the host key and/or TPM;
+do not assume copying them to another machine makes them usable there. See
+[systemd credentials](https://systemd.io/CREDENTIALS/) for encryption policy and
+backup implications. This module does not provision keys, a TPM, or a secret manager.
+
+Missing or undecryptable configured credential files prevent unit activation.
+Credentials are acquired at each activation and remain immutable while the unit
+runs. After rotating a source file, explicitly restart web; the next migration
+or scheduled job reads its own fresh copy. Nix cannot track runtime file contents.
+Do not inspect credentials by printing their contents into journals or diagnostics.
+
+### Existing environment-file deployments
+
+`environmentFile` remains optional and backward compatible. Provision it through
+the host's existing secret manager, owned by root with mode `0600`. It uses
+systemd EnvironmentFile syntax, not shell syntax (`KEY=value`, no `export`):
 
 ```text
 OAUTH_CLIENT_SECRET=provider-secret
@@ -47,13 +92,17 @@ BRIDGE_SESSION_SECRET=long-random-session-secret
 ```
 
 Never put secret values in `environment`, a Nix string literal, or a Nix path:
-these enter the world-readable store. The file must exist before any web or
-management unit starts. Its values override `environment`. Database and metrics
-paths are module-owned and enforced after loading the file. Use existing app
-settings for optional Sentry, telemetry, scopes, metrics authorization, and
-callback rendering. Changes to file contents require an explicit service restart;
-Nix cannot track runtime secret rotations. Processes necessarily receive secrets
-in their environment, so privileged host administrators can inspect them.
+these enter the world-readable store. A configured environment file must exist
+before any web or management unit starts. Its values override `environment`, and
+both take precedence over credential files. Remove old secret assignments when
+switching to credentials, otherwise they continue to win. Explicit values passed
+to the Python settings constructor retain their existing highest precedence.
+
+Environment-file secrets still enter the process environment; prefer credentials
+for new deployments. Database and metrics paths and `CREDENTIALS_DIRECTORY` are
+module-owned. Use the normal app settings for optional Sentry, telemetry, scopes,
+metrics authorization, and callback rendering. Out-of-band environment-file
+changes also require an explicit service restart.
 
 ## Provisioning and migrations are explicit
 
@@ -94,7 +143,7 @@ To move a container instance:
    `oauthclientbridge-spotify:oauthclientbridge-spotify`, mode `0600`; keep its
    parent directory mode `0700`. Keep the host's backup configuration responsible
    for this new path.
-5. Install equivalent runtime settings and secrets. Preserve provider redirect
+5. Install equivalent runtime settings and secret files. Preserve provider redirect
    URIs, cookie settings, callback template, scopes, and telemetry configuration.
 6. Explicitly start `oauthclientbridge-spotify-upgradedb.service` if required by
    the target version. Check its journal and exit status before starting web.
@@ -152,10 +201,13 @@ Run `nix fmt`, `nix flake check`, and
 `nix build .#image .#asgi-image`. On Linux, flake checks include the VM test;
 run it alone with `nix build -L .#checks.x86_64-linux.nixos`.
 It boots NixOS with the real packaged app, SQLite, two isolated instances,
-runtime secret files, explicit initialization and legacy migration, an opt-in
+plaintext and host-key-encrypted credentials, explicit initialization and legacy migration, an opt-in
 timer, and a host-configured nginx serving store assets. It verifies Unix socket
 permissions, proxy-group access, denied cross-instance access, no app TCP listener,
 socket activation after web shutdown, and listener shutdown during migration.
+It verifies credential delivery to web and management units, a credential-only
+instance without an environment file, cross-instance denial, and absence of
+secret values from process environments.
 A local fake OAuth provider avoids real credentials and external network
 dependencies; it does not test provider availability. Existing rootless Podman
 smoke tests remain useful for container-specific behavior (see `deploy/README.md`).

@@ -1,4 +1,5 @@
 import logging
+import os
 import sys
 from enum import IntEnum, StrEnum
 from http import HTTPStatus
@@ -10,12 +11,42 @@ from flask import current_app
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import (
     BaseSettings,
+    PydanticBaseSettingsSource,
+    SecretsSettingsSource,
     SettingsConfigDict,
 )
 from werkzeug.local import LocalProxy
 
 from oauthclientbridge import types
 from oauthclientbridge.errors import OAuthError
+
+
+class _CredentialSettings(BaseSettings):
+    """Read systemd credential files as a fallback to explicit and environment values.
+
+    Each category keeps its normal prefix, so OAuth's client secret is the file
+    OAUTH_CLIENT_SECRET inside CREDENTIALS_DIRECTORY. Resolve the directory when
+    constructing settings, not when importing this module.
+    """
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        if (
+            isinstance(file_secret_settings, SecretsSettingsSource)
+            and file_secret_settings.secrets_dir is None
+        ):
+            # Keep the per-construction source's other options and explicit directory.
+            file_secret_settings.secrets_dir = (
+                os.environ.get("CREDENTIALS_DIRECTORY") or None
+            )
+        return init_settings, env_settings, dotenv_settings, file_secret_settings
 
 
 class ClientResetError(StrEnum):
@@ -32,11 +63,11 @@ class ClientResetError(StrEnum):
 def _settings_factory[T: BaseSettings](
     settings_type: type[T],
 ) -> Callable[[], T]:
-    # BaseSettings reads required values from its configured environment source.
+    # BaseSettings reads required values from its configured sources.
     return cast(Callable[[], T], settings_type)
 
 
-class OAuthSettings(BaseSettings):
+class OAuthSettings(_CredentialSettings):
     model_config = SettingsConfigDict(env_prefix="OAUTH_")
 
     client_id: str
@@ -70,7 +101,7 @@ class OAuthSettings(BaseSettings):
     """
 
 
-class FetchSettings(BaseSettings):
+class FetchSettings(_CredentialSettings):
     model_config = SettingsConfigDict(env_prefix="FETCH_")
 
     total_timeout: float = 20.0
@@ -179,7 +210,7 @@ class FetchSettings(BaseSettings):
         return self
 
 
-class DatabaseSettings(BaseSettings):
+class DatabaseSettings(_CredentialSettings):
     model_config = SettingsConfigDict(env_prefix="DB_")
 
     database: str = "./sqlite.db"
@@ -195,7 +226,7 @@ class DatabaseSettings(BaseSettings):
     Note, this is JSON formatted in the ENV."""
 
 
-class SentrySettings(BaseSettings):
+class SentrySettings(_CredentialSettings):
     model_config = SettingsConfigDict(env_prefix="SENTRY_")
 
     enabled: bool = False
@@ -235,7 +266,7 @@ class TelemetryComponent(StrEnum):
     METRICS = "metrics"
 
 
-class TelemetrySettings(BaseSettings):
+class TelemetrySettings(_CredentialSettings):
     model_config = SettingsConfigDict(env_prefix="TELEMETRY_")
 
     components: set[TelemetryComponent] = Field(
@@ -292,7 +323,7 @@ class TelemetrySettings(BaseSettings):
         return self
 
 
-class PrometheusSettings(BaseSettings):
+class PrometheusSettings(_CredentialSettings):
     model_config = SettingsConfigDict(env_prefix="PROMETHEUS_")
 
     multiproc_dir: Path | None = None
@@ -307,7 +338,7 @@ class LogLevel(IntEnum):
     DEBUG = logging.DEBUG
 
 
-class LogSettings(BaseSettings):
+class LogSettings(_CredentialSettings):
     model_config = SettingsConfigDict(env_prefix="LOG_")
 
     level: LogLevel = LogLevel.INFO
@@ -323,7 +354,7 @@ class LogSettings(BaseSettings):
     """Format string to use for access logs."""
 
 
-class Settings(BaseSettings):
+class Settings(_CredentialSettings):
     """
     Application settings for oauthclientbridge.
     """

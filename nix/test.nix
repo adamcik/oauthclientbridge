@@ -10,7 +10,28 @@ pkgs.testers.runNixOSTest {
     lib,
     ...
   }: {
-    imports = [module];
+    imports = [
+      module
+      {
+        # Check credential delivery for web, explicit migrations, and the job.
+        systemd.services =
+          lib.genAttrs [
+            "oauthclientbridge-alpha"
+            "oauthclientbridge-alpha-initdb"
+            "oauthclientbridge-alpha-upgradedb"
+            "oauthclientbridge-alpha-cleandb"
+            "oauthclientbridge-beta"
+            "oauthclientbridge-beta-upgradedb"
+          ] (_: {
+            preStart = ''
+              test -r "$CREDENTIALS_DIRECTORY/OAUTH_CLIENT_SECRET"
+              test -r "$CREDENTIALS_DIRECTORY/BRIDGE_SESSION_SECRET"
+              test -z "''${OAUTH_CLIENT_SECRET+x}"
+              test -z "''${BRIDGE_SESSION_SECRET+x}"
+            '';
+          });
+      }
+    ];
     virtualisation.memorySize = 2048;
     virtualisation.cores = 2;
     documentation.enable = false;
@@ -19,11 +40,26 @@ pkgs.testers.runNixOSTest {
     services.oauthclientbridge.instances = {
       alpha = {
         environmentFile = "/run/secrets/alpha";
+        credentials = {
+          OAUTH_CLIENT_SECRET.file = "/run/secrets/alpha-client-secret";
+          BRIDGE_SESSION_SECRET.file = "/run/secrets/alpha-session-secret";
+        };
         workers = 2;
         cleanDatabase.enable = true;
       };
       beta = {
-        environmentFile = "/run/secrets/beta";
+        environment = {
+          OAUTH_CLIENT_ID = "test-beta";
+          OAUTH_AUTHORIZATION_URI = "https://provider.example/authorize";
+          OAUTH_TOKEN_URI = "https://provider.example/token";
+        };
+        credentials = {
+          OAUTH_CLIENT_SECRET.file = "/run/secrets/beta-client-secret";
+          BRIDGE_SESSION_SECRET = {
+            file = "/run/secrets/beta-session.cred";
+            encrypted = true;
+          };
+        };
         workers = 1;
       };
     };
@@ -72,22 +108,24 @@ pkgs.testers.runNixOSTest {
     upstream_port = machine.succeed("cat /run/upstream/port").strip()
     machine.succeed("install -d -m 0700 /run/secrets")
     for name in ("alpha", "beta"):
-        # These are deliberately fake test credentials, written only at runtime.
-        environment = "\n".join([
-            "OAUTH_CLIENT_ID=smoke-client",
-            "OAUTH_CLIENT_SECRET=smoke-secret",
-            f"OAUTH_AUTHORIZATION_URI=http://127.0.0.1:{upstream_port}/authorize",
-            f"OAUTH_TOKEN_URI=http://127.0.0.1:{upstream_port}/token",
-            "OAUTH_REDIRECT_URI=https://auth.example.com/spotify/callback",
-            f"BRIDGE_SESSION_SECRET=test-session-{name}",
-            "BRIDGE_SESSION_COOKIE_DOMAIN=auth.example.com",
-            "BRIDGE_SESSION_COOKIE_PATH=/spotify",
-            "BRIDGE_CALLBACK_TEMPLATE_FILE=/run/test-callback.html",
-            # A runtime secret file cannot redirect module-owned writable paths.
-            "DB_DATABASE=/tmp/wrong-database",
-            "PROMETHEUS_MULTIPROC_DIR=/tmp/wrong-metrics",
-        ]) + "\n"
-        machine.succeed(f"printf %s {shlex.quote(environment)} > /run/secrets/{name}; chmod 0600 /run/secrets/{name}")
+        # These are fake test credentials, never secret environment assignments.
+        machine.succeed(f"printf %s smoke-secret > /run/secrets/{name}-client-secret")
+        machine.succeed(f"printf %s test-session-{name} > /run/secrets/{name}-session-secret")
+    machine.succeed("${pkgs.systemd}/bin/systemd-creds encrypt --with-key=host --name=BRIDGE_SESSION_SECRET /run/secrets/beta-session-secret /run/secrets/beta-session.cred")
+    machine.succeed("chmod 0600 /run/secrets/*")
+    environment = "\n".join([
+        "OAUTH_CLIENT_ID=smoke-client",
+        f"OAUTH_AUTHORIZATION_URI=http://127.0.0.1:{upstream_port}/authorize",
+        f"OAUTH_TOKEN_URI=http://127.0.0.1:{upstream_port}/token",
+        "OAUTH_REDIRECT_URI=https://auth.example.com/spotify/callback",
+        "BRIDGE_SESSION_COOKIE_DOMAIN=auth.example.com",
+        "BRIDGE_SESSION_COOKIE_PATH=/spotify",
+        "BRIDGE_CALLBACK_TEMPLATE_FILE=/run/test-callback.html",
+        # A runtime environment file cannot redirect module-owned writable paths.
+        "DB_DATABASE=/tmp/wrong-database",
+        "PROMETHEUS_MULTIPROC_DIR=/tmp/wrong-metrics",
+    ]) + "\n"
+    machine.succeed(f"printf %s {shlex.quote(environment)} > /run/secrets/alpha; chmod 0600 /run/secrets/alpha")
     callback = '{"client_id": {{ client_id|tojson|safe }}, "client_secret": {{ client_secret|tojson|safe }}}'
     machine.succeed(f"printf %s {shlex.quote(callback)} > /run/test-callback.html")
 
@@ -139,7 +177,7 @@ pkgs.testers.runNixOSTest {
             machine.succeed(f"test $(stat -c %a /run/oauthclientbridge-{name}) = 700")
             machine.fail(f"runuser -u oauthclientbridge-{name} -- cat /var/lib/oauthclientbridge-{other}/sqlite.db")
             machine.fail(f"runuser -u oauthclientbridge-{name} -- ls /run/oauthclientbridge-{other}/prom")
-            machine.fail(f"runuser -u oauthclientbridge-{name} -- cat /run/secrets/{name}")
+            machine.fail(f"runuser -u oauthclientbridge-{name} -- cat /run/secrets/{name}-client-secret")
             machine.succeed(f"test $(stat -c '%a:%U:%G' /run/oauthclientbridge-{name}.sock) = 660:oauthclientbridge-{name}:oauthclientbridge-{name}")
             machine.fail(f"runuser -u oauthclientbridge-{name} -- " + metrics(other))
             pid = machine.succeed(f"systemctl show oauthclientbridge-{name} -p MainPID --value").strip()
@@ -152,6 +190,19 @@ pkgs.testers.runNixOSTest {
         machine.succeed("test -n \"$(find /run/oauthclientbridge-alpha/prom -name '*.db' -print -quit)\"")
         machine.succeed("runuser -u nginx -- " + metrics("alpha"))
         machine.fail("runuser -u nginx -- " + metrics("beta"))
+
+    with subtest("credentials stay private and are not exported into process environments"):
+        for name, other in (("alpha", "beta"), ("beta", "alpha")):
+            unit = f"oauthclientbridge-{name}"
+            pid = machine.succeed(f"systemctl show {unit} -p MainPID --value").strip()
+            keys = set(machine.succeed(f"tr '\\0' '\\n' < /proc/{pid}/environ | cut -d= -f1").splitlines())
+            assert "OAUTH_CLIENT_SECRET" not in keys and "BRIDGE_SESSION_SECRET" not in keys
+            directory = machine.succeed(f"tr '\\0' '\\n' < /proc/{pid}/environ | grep '^CREDENTIALS_DIRECTORY=' | cut -d= -f2-").strip()
+            for key in ("OAUTH_CLIENT_SECRET", "BRIDGE_SESSION_SECRET"):
+                path = shlex.quote(f"{directory}/{key}")
+                machine.succeed(f"nsenter -t {pid} -m -- runuser -u {unit} -- test -r {path}")
+                machine.fail(f"nsenter -t {pid} -m -- runuser -u oauthclientbridge-{other} -- test -r {path}")
+            machine.succeed(f"nsenter -t {pid} -m -- cmp {shlex.quote(directory + '/BRIDGE_SESSION_SECRET')} /run/secrets/{name}-session-secret")
 
     with subtest("cleanup is opt-in and a real timer runs the real command"):
         machine.succeed("systemctl start oauthclientbridge-alpha-cleandb.timer")

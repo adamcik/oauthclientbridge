@@ -8,14 +8,38 @@
   cfg = config.services.oauthclientbridge;
   instances = cfg.instances;
   unitName = name: "oauthclientbridge-${name}";
-  reserved = ["DB_DATABASE" "PROMETHEUS_MULTIPROC_DIR" "PYTHONDONTWRITEBYTECODE"];
+  reserved = ["DB_DATABASE" "PROMETHEUS_MULTIPROC_DIR" "PYTHONDONTWRITEBYTECODE" "CREDENTIALS_DIRECTORY"];
+  isRuntimeFile = path: lib.hasPrefix "/" path && !(lib.hasPrefix "/nix/store/" path);
   instanceOptions = {name, ...}: {
     options = {
       environmentFile = mkOption {
-        type = types.str;
+        type = types.nullOr types.str;
+        default = null;
         description = ''
-          Absolute runtime path to a root-owned systemd EnvironmentFile containing
-          secrets and provider settings. Do not use a Nix path or put secrets in the store.
+          Optional absolute runtime path to a root-owned systemd EnvironmentFile.
+          Retained for compatibility; prefer credentials for secrets. Do not use
+          a Nix path or put secret values in the store.
+        '';
+      };
+      credentials = mkOption {
+        type = types.attrsOf (types.submodule {
+          options = {
+            file = mkOption {
+              type = types.str;
+              description = "Absolute runtime credential source path outside the Nix store.";
+            };
+            encrypted = mkOption {
+              type = types.bool;
+              default = false;
+              description = "Load and decrypt this file with LoadCredentialEncrypted instead of LoadCredential.";
+            };
+          };
+        });
+        default = {};
+        description = ''
+          Credential files keyed by full application setting name, for example
+          OAUTH_CLIENT_SECRET. systemd loads these for web and management units;
+          the application reads them without exporting their contents.
         '';
       };
       environment = mkOption {
@@ -72,33 +96,42 @@
     '';
     common = {
       environment = instance.environment;
-      serviceConfig = {
-        User = unit;
-        Group = unit;
-        EnvironmentFile = instance.environmentFile;
-        StateDirectory = unit;
-        StateDirectoryMode = "0700";
-        WorkingDirectory = instance.stateDirectory;
-        UMask = "0077";
-        NoNewPrivileges = true;
-        PrivateTmp = true;
-        PrivateDevices = true;
-        ProtectSystem = "strict";
-        ProtectHome = true;
-        ProtectKernelTunables = true;
-        ProtectKernelModules = true;
-        ProtectKernelLogs = true;
-        ProtectControlGroups = true;
-        RestrictSUIDSGID = true;
-        RestrictRealtime = true;
-        RestrictNamespaces = true;
-        LockPersonality = true;
-        MemoryDenyWriteExecute = true;
-        CapabilityBoundingSet = "";
-        RestrictAddressFamilies = ["AF_UNIX" "AF_INET" "AF_INET6"];
-        SystemCallFilter = ["@system-service"];
-        RuntimeDirectoryMode = "0700";
-      };
+      serviceConfig =
+        {
+          User = unit;
+          Group = unit;
+          LoadCredential =
+            lib.mapAttrsToList (key: credential: "${key}:${credential.file}")
+            (lib.filterAttrs (_: credential: !credential.encrypted) instance.credentials);
+          LoadCredentialEncrypted =
+            lib.mapAttrsToList (key: credential: "${key}:${credential.file}")
+            (lib.filterAttrs (_: credential: credential.encrypted) instance.credentials);
+          StateDirectory = unit;
+          StateDirectoryMode = "0700";
+          WorkingDirectory = instance.stateDirectory;
+          UMask = "0077";
+          NoNewPrivileges = true;
+          PrivateTmp = true;
+          PrivateDevices = true;
+          ProtectSystem = "strict";
+          ProtectHome = true;
+          ProtectKernelTunables = true;
+          ProtectKernelModules = true;
+          ProtectKernelLogs = true;
+          ProtectControlGroups = true;
+          RestrictSUIDSGID = true;
+          RestrictRealtime = true;
+          RestrictNamespaces = true;
+          LockPersonality = true;
+          MemoryDenyWriteExecute = true;
+          CapabilityBoundingSet = "";
+          RestrictAddressFamilies = ["AF_UNIX" "AF_INET" "AF_INET6"];
+          SystemCallFilter = ["@system-service"];
+          RuntimeDirectoryMode = "0700";
+        }
+        // lib.optionalAttrs (instance.environmentFile != null) {
+          EnvironmentFile = instance.environmentFile;
+        };
     };
     managementUnit = command:
       lib.recursiveUpdate common {
@@ -174,12 +207,20 @@ in {
           message = "OAuth Client Bridge instance names must be 1–12 lowercase letters, digits, or hyphens, starting with a letter.";
         }
         {
-          assertion = lib.hasPrefix "/" instance.environmentFile && !(lib.hasPrefix "/nix/store/" instance.environmentFile);
+          assertion = instance.environmentFile == null || isRuntimeFile instance.environmentFile;
           message = "OAuth Client Bridge environmentFile must be an absolute runtime path outside the Nix store.";
         }
         {
           assertion = lib.all (key: !(builtins.hasAttr key instance.environment)) reserved;
-          message = "OAuth Client Bridge owns DB_DATABASE, PROMETHEUS_MULTIPROC_DIR, and PYTHONDONTWRITEBYTECODE.";
+          message = "OAuth Client Bridge owns ${lib.concatStringsSep ", " reserved}.";
+        }
+        {
+          assertion = lib.all (key: builtins.match "[A-Z][A-Z0-9_]{0,254}" key != null && !(lib.elem key reserved)) (lib.attrNames instance.credentials);
+          message = "OAuth Client Bridge credential names must be uppercase setting names, excluding module-owned variables.";
+        }
+        {
+          assertion = lib.all (credential: isRuntimeFile credential.file) (lib.attrValues instance.credentials);
+          message = "OAuth Client Bridge credential files must be absolute runtime paths outside the Nix store.";
         }
       ])
       instances);
