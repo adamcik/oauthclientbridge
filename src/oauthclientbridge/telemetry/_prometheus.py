@@ -135,6 +135,13 @@ BuildInfoGauge = prometheus_client.Gauge(
     registry=registry,
 )
 
+RefreshTokenResponseCounter = prometheus_client.Counter(
+    "oauth_refresh_token_responses_total",
+    "Validated successful upstream refresh responses by refresh token replacement outcome, before persistence.",
+    ["token_update"],
+    registry=registry,
+)
+
 RefreshTokenInvalidationCounter = prometheus_client.Counter(
     "oauth_refresh_token_invalidations_total",
     "Stored refresh tokens invalidated locally after authoritative upstream failures.",

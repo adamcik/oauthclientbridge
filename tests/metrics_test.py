@@ -1,15 +1,19 @@
 import sqlite3
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 from flask import Flask
 from flask.testing import FlaskClient
+from prometheus_client import parser
 from pydantic import SecretStr
+from requests_mock import Mocker
 
 from oauthclientbridge import (
     create_app,
+    crypto,
     db,
     oauth,
     start_runtime_services,
@@ -233,6 +237,107 @@ def test_metrics_exposes_workaround_counter(
     assert b'oauth_workarounds_total{workaround="revoked_grant"}' in resp.data
 
 
+@dataclass(frozen=True)
+class RefreshTokenResponseCase:
+    name: str
+    response: dict[str, str | int]
+    expected_update: str | None
+    expected_status: int = 200
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        RefreshTokenResponseCase(
+            name="absent",
+            response={"access_token": "new-access", "token_type": "Bearer"},
+            expected_update="absent",
+        ),
+        RefreshTokenResponseCase(
+            name="unchanged",
+            response={
+                "access_token": "new-access",
+                "token_type": "Bearer",
+                "refresh_token": "abc",
+            },
+            expected_update="unchanged",
+        ),
+        RefreshTokenResponseCase(
+            name="changed",
+            response={
+                "access_token": "new-access",
+                "token_type": "Bearer",
+                "refresh_token": "new-refresh",
+            },
+            expected_update="changed",
+        ),
+        RefreshTokenResponseCase(
+            name="invalid response excluded",
+            response={"access_token": "new-access", "refresh_token": "new-refresh"},
+            expected_update=None,
+            expected_status=400,
+        ),
+        RefreshTokenResponseCase(
+            name="oauth error excluded",
+            response={"error": "invalid_grant"},
+            expected_update=None,
+            expected_status=400,
+        ),
+    ],
+    ids=lambda case: case.name,
+)
+def test_metrics_classifies_refresh_token_responses(
+    client: FlaskClient,
+    post: PostClient,
+    refresh_token: TokenTuple,
+    requests_mock: Mocker,
+    settings: Settings,
+    case: RefreshTokenResponseCase,
+):
+    requests_mock.post(settings.oauth.token_uri, json=case.response)
+    before = _refresh_token_response_counts(client)
+
+    response = post(
+        "/token",
+        {
+            "client_id": refresh_token.client_id,
+            "client_secret": refresh_token.client_secret,
+            "grant_type": "client_credentials",
+        },
+    )
+
+    assert response.status == case.expected_status
+    expected = before.copy()
+    if case.expected_update is not None:
+        expected[case.expected_update] = expected.get(case.expected_update, 0) + 1
+        assert "refresh_token" not in response.data
+        record = db.lookup(refresh_token.client_id)
+        assert record.encrypted_token is not None
+        stored = crypto.loads(refresh_token.client_secret, record.encrypted_token)
+        assert stored["refresh_token"] == case.response.get(
+            "refresh_token", refresh_token.value["refresh_token"]
+        )
+    assert _refresh_token_response_counts(client) == expected
+
+
+def test_metrics_excludes_stored_access_token_from_refresh_responses(
+    client: FlaskClient, post: PostClient, access_token: TokenTuple
+):
+    before = _refresh_token_response_counts(client)
+
+    response = post(
+        "/token",
+        {
+            "client_id": access_token.client_id,
+            "client_secret": access_token.client_secret,
+            "grant_type": "client_credentials",
+        },
+    )
+
+    assert response.status == 200
+    assert _refresh_token_response_counts(client) == before
+
+
 def test_metrics_exposes_token_grant_age_histogram_for_successful_token_use(
     cursor: sqlite3.Cursor,
     monkeypatch: pytest.MonkeyPatch,
@@ -295,3 +400,17 @@ def test_metrics_skips_token_grant_age_histogram_for_unknown_age(
 
     assert resp.status == 200
     assert observed == []
+
+
+def _refresh_token_response_counts(client: FlaskClient) -> dict[str, float]:
+    response = client.get("/metrics")
+    assert response.status_code == 200
+    counts: dict[str, float] = {}
+    for family in parser.text_string_to_metric_families(response.text):
+        for sample in family.samples:
+            if sample.name == "oauth_refresh_token_responses_total":
+                assert set(sample.labels) == {"token_update"}
+                outcome = sample.labels["token_update"]
+                assert outcome in {"absent", "unchanged", "changed"}
+                counts[outcome] = sample.value
+    return counts
