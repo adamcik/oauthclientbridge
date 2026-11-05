@@ -11,7 +11,6 @@ backups. SQLite is the app's existing database, not a new deployment dependency.
   services.oauthclientbridge.instances = {
     spotify = {
       environmentFile = "/run/secrets/oauthclientbridge-spotify";
-      port = 8001;
       workers = 4;
       environment = {
         OAUTH_CLIENT_ID = "public-client-id";
@@ -29,8 +28,11 @@ backups. SQLite is the app's existing database, not a new deployment dependency.
 Instance names are 1–12 lowercase letters, digits, or hyphens, starting with a
 letter. Each gets a dedicated `oauthclientbridge-NAME` user and group, a private
 `/var/lib/oauthclientbridge-NAME` state directory, and a private
-`/run/oauthclientbridge-NAME` runtime directory. Ports must be distinct. HTTP
-listens only on `127.0.0.1`; use the host's existing proxy to provide HTTPS.
+`/run/oauthclientbridge-NAME` runtime directory. Each instance listens on the HTTP
+Unix socket `/run/oauthclientbridge-NAME.sock`, owned by its dedicated user and
+group with mode `0660`. There is no native TCP listener or port option. systemd
+owns the socket and passes it to Uvicorn; it survives web restarts and can activate
+web on demand. State and metrics directories remain mode `0700`.
 `gracefulShutdownTimeout` defaults to 25 seconds; systemd allows 10 more seconds
 before forcing shutdown. Units restrict privileges, devices, writable paths,
 address families, and system calls without blocking outbound provider requests.
@@ -67,10 +69,13 @@ The first rebuild may show a failing web unit until this initialization is done.
 `initdb` is for new databases; for an existing database use `upgradedb` after
 backing it up. The management units use the same identity, environment, package,
 and state directory as the web service. Starting either migration unit explicitly
-stops that instance's web service; it does not restart it afterward.
+stops that instance's web service and socket listener; it does not restart them
+afterward. Stopping the listener prevents incoming requests from reactivating web
+during migration. Starting web afterward also starts its listener.
 
-For a native upgrade, stop its cleanup timer as well as web before taking the
-backup. Review activation ordering: a NixOS switch can restart web with the new
+For a native upgrade, stop its socket listener, web, and any enabled cleanup timer
+before taking the backup. Stopping only web permits socket traffic to reactivate
+it. Review activation ordering: a NixOS switch can restart web with the new
 package, but cannot establish database compatibility for you. Keep incompatible
 versions out of traffic until the explicit migration succeeds, then restart web
 and any previously enabled timer. Do not run migrations while other writers or
@@ -106,11 +111,22 @@ owner has been selected. Do not enable one job per replica of a shared database.
 
 ## Proxy and static files
 
-Configure the host's existing proxy to connect to the chosen loopback port. It
-must replace forwarded headers from untrusted clients and supply the intended
-scheme, host, port, and client address. Loopback trust is a host security boundary;
-do not let untrusted local processes act as proxies. Review the app's existing
-metrics access policy and expose only the routes intended for public use.
+Configure the host's existing proxy to speak HTTP over
+`services.oauthclientbridge.instances.spotify.socketPath`. Grant only the proxy
+user membership in the corresponding instance group, for example:
+
+```nix
+users.users.nginx.extraGroups = [ "oauthclientbridge-spotify" ];
+```
+
+This grants socket access, not access to the private state or metrics directories.
+For nginx, an upstream server address is
+`unix:/run/oauthclientbridge-spotify.sock`; this is HTTP, not the uWSGI protocol.
+The host still owns proxy routing and TLS. The proxy must replace forwarded
+headers from untrusted clients and supply the intended scheme, host, port, and
+client address. Socket access is a trust boundary: only trusted proxy users should
+join these groups. Review the app's existing metrics access policy and expose only
+the routes intended for public use.
 
 `services.oauthclientbridge.instances.spotify.staticRoot` is the matching store
 directory for the host's file server. It currently contains only `robots.txt`;
@@ -137,7 +153,9 @@ Run `nix fmt`, `nix flake check`, and
 run it alone with `nix build -L .#checks.x86_64-linux.nixos`.
 It boots NixOS with the real packaged app, SQLite, two isolated instances,
 runtime secret files, explicit initialization and legacy migration, an opt-in
-timer, and a host-configured nginx serving store assets. A local fake OAuth
-provider avoids real credentials and external network dependencies; it does not
-test provider availability. Existing rootless Podman smoke tests remain useful
-for container-specific behavior (see `deploy/README.md`).
+timer, and a host-configured nginx serving store assets. It verifies Unix socket
+permissions, proxy-group access, denied cross-instance access, no app TCP listener,
+socket activation after web shutdown, and listener shutdown during migration.
+A local fake OAuth provider avoids real credentials and external network
+dependencies; it does not test provider availability. Existing rootless Podman
+smoke tests remain useful for container-specific behavior (see `deploy/README.md`).

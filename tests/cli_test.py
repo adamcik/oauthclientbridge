@@ -10,8 +10,17 @@ from typer.testing import CliRunner
 from oauthclientbridge import cli
 
 
-@pytest.mark.parametrize("args", [[], ["serve"]], ids=["default", "explicit"])
-def test_serve_starts_uvicorn(args: list[str], monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    ("args", "fd"),
+    [
+        pytest.param([], None, id="default"),
+        pytest.param(["serve"], None, id="explicit"),
+        pytest.param(["serve", "--fd", "3"], 3, id="inherited-socket"),
+    ],
+)
+def test_serve_starts_uvicorn(
+    args: list[str], fd: int | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(sys, "argv", ["oauthclientbridge", *args])
     monkeypatch.delenv("WORKERS", raising=False)
     monkeypatch.delenv("ASGI_GRACEFUL_SHUTDOWN_TIMEOUT", raising=False)
@@ -29,6 +38,7 @@ def test_serve_starts_uvicorn(args: list[str], monkeypatch: pytest.MonkeyPatch) 
         host="127.0.0.1",
         port=8000,
         uds=None,
+        fd=fd,
         workers=4,
         timeout_graceful_shutdown=25,
     )
@@ -50,6 +60,7 @@ def test_serve_uses_options_and_runtime_environment() -> None:
         host="127.0.0.1",
         port=8000,
         uds="/run/asgi/server.sock",
+        fd=None,
         workers=2,
         timeout_graceful_shutdown=10,
     )

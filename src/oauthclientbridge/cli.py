@@ -21,6 +21,9 @@ def serve(
     host: Annotated[str, Option()] = "127.0.0.1",
     port: Annotated[int, Option(min=1, max=65535)] = 8000,
     uds: Annotated[str | None, Option(help="Unix socket path.")] = None,
+    fd: Annotated[
+        int | None, Option(min=0, help="Inherited listening socket FD.")
+    ] = None,
     workers: Annotated[int, Option(min=1, envvar="WORKERS")] = 4,
     timeout_graceful_shutdown: Annotated[
         int, Option(min=0, envvar="ASGI_GRACEFUL_SHUTDOWN_TIMEOUT")
@@ -34,6 +37,7 @@ def serve(
         host=host,
         port=port,
         uds=uds,
+        fd=fd,
         workers=workers,
         timeout_graceful_shutdown=timeout_graceful_shutdown,
     )

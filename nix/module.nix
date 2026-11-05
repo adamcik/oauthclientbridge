@@ -23,10 +23,11 @@
         default = {};
         description = "Non-secret application environment settings. The runtime file takes precedence.";
       };
-      port = mkOption {
-        type = types.port;
-        default = 8000;
-        description = "HTTP port on IPv4 loopback. Each instance must have a distinct port.";
+      socketPath = mkOption {
+        type = types.str;
+        readOnly = true;
+        default = "/run/${unitName name}.sock";
+        description = "HTTP Unix socket, accessible only to the instance user and group.";
       };
       workers = mkOption {
         type = types.ints.positive;
@@ -102,9 +103,9 @@
     managementUnit = command:
       lib.recursiveUpdate common {
         description = "OAuth Client Bridge ${name}: explicit ${command}";
-        # Starting a migration explicitly stops the web process, never the reverse.
-        conflicts = ["${unit}.service"];
-        before = ["${unit}.service"];
+        # Stop the listener too, so traffic cannot reactivate web during migration.
+        conflicts = ["${unit}.service" "${unit}.socket"];
+        before = ["${unit}.service" "${unit}.socket"];
         script =
           environmentScript
           + ''
@@ -121,20 +122,22 @@
         description = "OAuth Client Bridge (${name})";
         wantedBy = ["multi-user.target"];
         wants = ["network-online.target"];
-        after = ["network-online.target"];
+        requires = ["${unit}.socket"];
+        after = ["network-online.target" "${unit}.socket"];
         script =
           environmentScript
           + ''
             # Multiprocess metrics must not retain data from an earlier web process.
             rm -f "$PROMETHEUS_MULTIPROC_DIR"/*.db
             exec ${appPackages.web}/bin/oauthclientbridge-web \
-              --host 127.0.0.1 --port ${toString instance.port} \
+              --fd 3 \
               --workers ${toString instance.workers} \
               --timeout-graceful-shutdown ${toString instance.gracefulShutdownTimeout}
           '';
         serviceConfig = {
           Type = "simple";
           RuntimeDirectory = unit;
+          Sockets = ["${unit}.socket"];
           Restart = "on-failure";
           RestartSec = 5;
           TimeoutStopSec = instance.gracefulShutdownTimeout + 10;
@@ -165,28 +168,21 @@ in {
   };
 
   config = lib.mkIf (instances != {}) {
-    assertions =
-      [
+    assertions = lib.concatLists (lib.mapAttrsToList (name: instance: [
         {
-          assertion = lib.length (lib.unique (map (instance: instance.port) (lib.attrValues instances))) == lib.length (lib.attrNames instances);
-          message = "OAuth Client Bridge instances must use distinct loopback ports.";
+          assertion = builtins.match "[a-z][a-z0-9-]{0,11}" name != null;
+          message = "OAuth Client Bridge instance names must be 1–12 lowercase letters, digits, or hyphens, starting with a letter.";
         }
-      ]
-      ++ lib.concatLists (lib.mapAttrsToList (name: instance: [
-          {
-            assertion = builtins.match "[a-z][a-z0-9-]{0,11}" name != null;
-            message = "OAuth Client Bridge instance names must be 1–12 lowercase letters, digits, or hyphens, starting with a letter.";
-          }
-          {
-            assertion = lib.hasPrefix "/" instance.environmentFile && !(lib.hasPrefix "/nix/store/" instance.environmentFile);
-            message = "OAuth Client Bridge environmentFile must be an absolute runtime path outside the Nix store.";
-          }
-          {
-            assertion = lib.all (key: !(builtins.hasAttr key instance.environment)) reserved;
-            message = "OAuth Client Bridge owns DB_DATABASE, PROMETHEUS_MULTIPROC_DIR, and PYTHONDONTWRITEBYTECODE.";
-          }
-        ])
-        instances);
+        {
+          assertion = lib.hasPrefix "/" instance.environmentFile && !(lib.hasPrefix "/nix/store/" instance.environmentFile);
+          message = "OAuth Client Bridge environmentFile must be an absolute runtime path outside the Nix store.";
+        }
+        {
+          assertion = lib.all (key: !(builtins.hasAttr key instance.environment)) reserved;
+          message = "OAuth Client Bridge owns DB_DATABASE, PROMETHEUS_MULTIPROC_DIR, and PYTHONDONTWRITEBYTECODE.";
+        }
+      ])
+      instances);
 
     users.users = lib.mapAttrs' (name: _:
       lib.nameValuePair (unitName name) {
@@ -196,6 +192,18 @@ in {
     instances;
     users.groups = lib.mapAttrs' (name: _: lib.nameValuePair (unitName name) {}) instances;
     systemd.services = lib.foldl' lib.recursiveUpdate {} (lib.mapAttrsToList instanceServices instances);
+    systemd.sockets = lib.mapAttrs' (name: instance:
+      lib.nameValuePair (unitName name) {
+        wantedBy = ["sockets.target"];
+        socketConfig = {
+          ListenStream = instance.socketPath;
+          SocketUser = unitName name;
+          SocketGroup = unitName name;
+          SocketMode = "0660";
+          RemoveOnStop = true;
+        };
+      })
+    instances;
     systemd.timers = lib.mapAttrs' (name: instance:
       lib.nameValuePair "${unitName name}-cleandb" {
         wantedBy = ["timers.target"];
