@@ -10,7 +10,18 @@ from pytest_otel_capture import (
     InMemoryMetricReader,
     InMemorySpanExporter,
     OTelMocker,
+    reset_otel_once,
 )
+
+
+@pytest.fixture(name="reset_otel_once")
+def fixture_reset_otel_once() -> Generator[None, None, None]:
+    """Reset provider singleton guards around tests that replace providers."""
+    reset_otel_once()
+    try:
+        yield
+    finally:
+        reset_otel_once()
 
 
 @pytest.fixture(name="otel_mock")
