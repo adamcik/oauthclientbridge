@@ -14,18 +14,16 @@ pkgs.testers.runNixOSTest {
     virtualisation.memorySize = 2048;
     virtualisation.cores = 2;
     documentation.enable = false;
-    environment.systemPackages = [pkgs.curl pkgs.sqlite pkgs.python312 pkgs.util-linux];
+    environment.systemPackages = [pkgs.curl pkgs.sqlite pkgs.python312 pkgs.util-linux pkgs.iproute2];
 
     services.oauthclientbridge.instances = {
       alpha = {
         environmentFile = "/run/secrets/alpha";
-        port = 8001;
-        workers = 1;
+        workers = 2;
         cleanDatabase.enable = true;
       };
       beta = {
         environmentFile = "/run/secrets/beta";
-        port = 8002;
         workers = 1;
       };
     };
@@ -50,11 +48,13 @@ pkgs.testers.runNixOSTest {
     };
 
     # Proxy and file serving belong to the host, not the application module.
+    users.users.nginx.extraGroups = ["oauthclientbridge-alpha"];
     services.nginx = {
       enable = true;
+      upstreams.bridge.servers."unix:${config.services.oauthclientbridge.instances.alpha.socketPath}" = {};
       virtualHosts.test = {
         listen = [{addr = "unix:/run/nginx/smoke.sock";}];
-        locations."/".proxyPass = "http://127.0.0.1:8001";
+        locations."/".proxyPass = "http://bridge";
         locations."= /robots.txt".root = config.services.oauthclientbridge.instances.alpha.staticRoot;
       };
     };
@@ -62,6 +62,9 @@ pkgs.testers.runNixOSTest {
 
   testScript = ''
     import shlex
+
+    def metrics(name):
+        return f"curl --fail --max-time 3 --unix-socket /run/oauthclientbridge-{name}.sock http://localhost/metrics"
 
     start_all()
     machine.wait_for_unit("upstream.service")
@@ -106,10 +109,8 @@ pkgs.testers.runNixOSTest {
         assert "created_at" in columns and "last_updated_at" in columns
         assert machine.succeed("sqlite3 /var/lib/oauthclientbridge-beta/sqlite.db 'SELECT client_id FROM tokens'").strip() == "legacy"
         machine.succeed("systemctl start oauthclientbridge-alpha oauthclientbridge-beta")
-        machine.wait_for_open_port(8001)
-        machine.wait_for_open_port(8002)
-        machine.wait_until_succeeds("curl --fail http://127.0.0.1:8001/metrics")
-        machine.wait_until_succeeds("curl --fail http://127.0.0.1:8002/metrics")
+        machine.wait_until_succeeds(metrics("alpha"))
+        machine.wait_until_succeeds(metrics("beta"))
 
     with subtest("real OAuth exchange through the packaged app and database"):
         machine.wait_for_unit("nginx.service")
@@ -120,10 +121,14 @@ pkgs.testers.runNixOSTest {
     with subtest("explicit migration stops only its own web instance"):
         machine.succeed("systemctl start oauthclientbridge-alpha-upgradedb")
         machine.fail("systemctl is-active oauthclientbridge-alpha")
+        machine.fail("systemctl is-active oauthclientbridge-alpha.socket")
+        machine.succeed("test ! -e /run/oauthclientbridge-alpha.sock")
+        machine.fail(metrics("alpha"))
+        machine.fail("systemctl is-active oauthclientbridge-alpha")
         machine.succeed("systemctl is-active oauthclientbridge-beta")
         assert machine.succeed("sqlite3 /var/lib/oauthclientbridge-alpha/sqlite.db 'SELECT count(*) FROM tokens'").strip() == "1"
         machine.succeed("systemctl start oauthclientbridge-alpha")
-        machine.wait_until_succeeds("curl --fail http://127.0.0.1:8001/metrics")
+        machine.wait_until_succeeds(metrics("alpha"))
 
     with subtest("instance identities and writable directories remain isolated"):
         alpha_uid = machine.succeed("id -u oauthclientbridge-alpha").strip()
@@ -135,13 +140,18 @@ pkgs.testers.runNixOSTest {
             machine.fail(f"runuser -u oauthclientbridge-{name} -- cat /var/lib/oauthclientbridge-{other}/sqlite.db")
             machine.fail(f"runuser -u oauthclientbridge-{name} -- ls /run/oauthclientbridge-{other}/prom")
             machine.fail(f"runuser -u oauthclientbridge-{name} -- cat /run/secrets/{name}")
+            machine.succeed(f"test $(stat -c '%a:%U:%G' /run/oauthclientbridge-{name}.sock) = 660:oauthclientbridge-{name}:oauthclientbridge-{name}")
+            machine.fail(f"runuser -u oauthclientbridge-{name} -- " + metrics(other))
             pid = machine.succeed(f"systemctl show oauthclientbridge-{name} -p MainPID --value").strip()
+            machine.fail(f"ss --tcp --listening --processes --no-header | grep -F 'pid={pid},'")
             # DAC permits this write outside the service; its mount sandbox must not.
             machine.succeed(f"install -d -o oauthclientbridge-{name} /srv/{name}")
             machine.succeed(f"runuser -u oauthclientbridge-{name} -- touch /srv/{name}/outside")
             machine.fail(f"nsenter -t {pid} -m -- runuser -u oauthclientbridge-{name} -- touch /srv/{name}/inside")
             machine.succeed(f"nsenter -t {pid} -m -- runuser -u oauthclientbridge-{name} -- touch /var/lib/oauthclientbridge-{name}/writable")
         machine.succeed("test -n \"$(find /run/oauthclientbridge-alpha/prom -name '*.db' -print -quit)\"")
+        machine.succeed("runuser -u nginx -- " + metrics("alpha"))
+        machine.fail("runuser -u nginx -- " + metrics("beta"))
 
     with subtest("cleanup is opt-in and a real timer runs the real command"):
         machine.succeed("systemctl start oauthclientbridge-alpha-cleandb.timer")
@@ -153,11 +163,13 @@ pkgs.testers.runNixOSTest {
 
     with subtest("host serves matching static files from the store without Python"):
         machine.succeed("test $(curl --silent --output /dev/null --write-out '%{http_code}' --unix-socket /run/nginx/smoke.sock http://localhost/templates/spotify.html) = 404")
+        socket_inode = machine.succeed("stat -c %i /run/oauthclientbridge-alpha.sock").strip()
         machine.succeed("systemctl stop oauthclientbridge-alpha")
         machine.succeed("curl --fail --unix-socket /run/nginx/smoke.sock http://localhost/robots.txt > /run/robots.txt")
         machine.succeed("cmp /run/robots.txt ${appPackages.assets}/share/oauthclientbridge/static/robots.txt")
-        machine.succeed("systemctl start oauthclientbridge-alpha")
-        machine.wait_until_succeeds("curl --fail http://127.0.0.1:8001/metrics")
+        machine.fail("systemctl is-active oauthclientbridge-alpha")
+        machine.wait_until_succeeds(metrics("alpha"))
+        assert machine.succeed("stat -c %i /run/oauthclientbridge-alpha.sock").strip() == socket_inode
         assert machine.succeed("sqlite3 /var/lib/oauthclientbridge-alpha/sqlite.db 'SELECT count(*) FROM tokens'").strip() == "1"
   '';
 }
