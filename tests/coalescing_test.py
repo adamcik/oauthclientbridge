@@ -1,6 +1,8 @@
 import threading
 import time
 
+import pytest
+
 import pytest_otel_capture as otel_capture
 from oauthclientbridge import settings, telemetry
 from oauthclientbridge.utils.coalescing import CoalescingWorker
@@ -117,10 +119,10 @@ def test_worker_emits_root_span_for_each_run(otel_mock: otel.OTelMocker) -> None
     }
 
 
+@pytest.mark.usefixtures("reset_otel_once")
 def test_worker_uses_current_tracing_provider() -> None:
     # OTel fixtures install a new provider between tests. Reproduce that lifecycle
     # in one test so xdist scheduling cannot hide a cached tracer from an old one.
-    otel_capture.reset_otel_once()
     for _ in range(2):
         with otel_capture.OTelMocker(
             otel_capture.InMemoryLogRecordExporter(),
