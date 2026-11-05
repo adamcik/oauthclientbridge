@@ -47,6 +47,7 @@ __all__ = [
     "capture_unhandled_exception",
     "record_invalid_client_id_trace",
     "record_refresh_token_invalidation_metric",
+    "record_refresh_token_response_metric",
     "record_retry_decision_metric",
     "record_server_error_metric",
     "record_workaround_metric",
@@ -199,6 +200,12 @@ def record_client_response_metric(
     if size is not None:
         _prometheus.ClientResponseSizeHistogram.labels(**labels).observe(size)
     _prometheus.ClientLatencyHistogram.labels(**labels).observe(duration)
+
+
+def record_refresh_token_response_metric(
+    token_update: Literal["absent", "unchanged", "changed"],
+) -> None:
+    _prometheus.RefreshTokenResponseCounter.labels(token_update=token_update).inc()
 
 
 def record_refresh_token_invalidation_metric(reason: OAuthError) -> None:

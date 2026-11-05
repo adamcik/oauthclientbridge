@@ -127,6 +127,17 @@ the results.:
 
 [upstream documentation]: http://flask.pocoo.org/docs/latest/deploying/
 
+## Refresh token metrics
+
+The `/metrics` endpoint exposes `oauth_refresh_token_responses_total` for validated
+successful upstream refresh responses. Its `token_update` label distinguishes an
+omitted refresh token (`absent`), the submitted token returned again (`unchanged`),
+and a different token (`changed`). Observations happen before database persistence;
+they do not confirm that a replacement was saved. Token values and client identifiers
+are not included in the metric.
+
+Zero observed changes does not guarantee that concurrent refreshes are safe.
+
 ## OpenTelemetry Integration
 
 This project integrates with OpenTelemetry for distributed tracing and metrics

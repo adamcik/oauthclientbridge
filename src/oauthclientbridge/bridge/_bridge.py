@@ -332,6 +332,13 @@ class Bridge:
                 OAuthError.INVALID_REQUEST, "Invalid response from provider."
             )
 
+        if "refresh_token" not in refresh_result:
+            telemetry.record_refresh_token_response_metric("absent")
+        elif refresh_result["refresh_token"] == result["refresh_token"]:
+            telemetry.record_refresh_token_response_metric("unchanged")
+        else:
+            telemetry.record_refresh_token_response_metric("changed")
+
         if "scope" not in refresh_result and "scope" in result:
             refresh_result["scope"] = result["scope"]
         modified = oauth.scrub_refresh_token(result)
