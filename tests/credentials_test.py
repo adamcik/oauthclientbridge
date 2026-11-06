@@ -47,6 +47,7 @@ def test_reads_credentials_without_exporting_them_to_the_environment(
 
 @dataclass(frozen=True, kw_only=True)
 class PrecedenceCase:
+    name: str
     environment: str | None
     explicit: SecretStr | None
     expected: str
@@ -55,25 +56,26 @@ class PrecedenceCase:
 @pytest.mark.parametrize(
     "case",
     [
-        pytest.param(
-            PrecedenceCase(environment=None, explicit=None, expected="file-secret"),
-            id="credential-file",
+        PrecedenceCase(
+            name="credential-file",
+            environment=None,
+            explicit=None,
+            expected="file-secret",
         ),
-        pytest.param(
-            PrecedenceCase(
-                environment="env-secret", explicit=None, expected="env-secret"
-            ),
-            id="environment-over-file",
+        PrecedenceCase(
+            name="environment-over-file",
+            environment="env-secret",
+            explicit=None,
+            expected="env-secret",
         ),
-        pytest.param(
-            PrecedenceCase(
-                environment="env-secret",
-                explicit=SecretStr("explicit-secret"),
-                expected="explicit-secret",
-            ),
-            id="explicit-over-environment",
+        PrecedenceCase(
+            name="explicit-over-environment",
+            environment="env-secret",
+            explicit=SecretStr("explicit-secret"),
+            expected="explicit-secret",
         ),
     ],
+    ids=lambda case: case.name,
 )
 def test_credentials_follow_normal_settings_precedence(
     case: PrecedenceCase, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
