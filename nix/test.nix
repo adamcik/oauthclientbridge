@@ -41,8 +41,8 @@ pkgs.testers.runNixOSTest {
       alpha = {
         environmentFile = "/run/secrets/alpha";
         credentials = {
-          OAUTH_CLIENT_SECRET.file = "/run/secrets/alpha-client-secret";
-          BRIDGE_SESSION_SECRET.file = "/run/secrets/alpha-session-secret";
+          OAUTH_CLIENT_SECRET = "/run/secrets/alpha-client-secret";
+          BRIDGE_SESSION_SECRET = "/run/secrets/alpha-session-secret";
         };
         workers = 2;
         cleanDatabase.enable = true;
@@ -54,11 +54,8 @@ pkgs.testers.runNixOSTest {
           OAUTH_TOKEN_URI = "https://provider.example/token";
         };
         credentials = {
-          OAUTH_CLIENT_SECRET.file = "/run/secrets/beta-client-secret";
-          BRIDGE_SESSION_SECRET = {
-            file = "/run/secrets/beta-session.cred";
-            encrypted = true;
-          };
+          OAUTH_CLIENT_SECRET = "/run/secrets/beta-client-secret";
+          BRIDGE_SESSION_SECRET = "/run/secrets/beta-session-secret";
         };
         workers = 1;
       };
@@ -111,8 +108,7 @@ pkgs.testers.runNixOSTest {
         # These are fake test credentials, never secret environment assignments.
         machine.succeed(f"printf %s smoke-secret > /run/secrets/{name}-client-secret")
         machine.succeed(f"printf %s test-session-{name} > /run/secrets/{name}-session-secret")
-    machine.succeed("${pkgs.systemd}/bin/systemd-creds encrypt --with-key=host --name=BRIDGE_SESSION_SECRET /run/secrets/beta-session-secret /run/secrets/beta-session.cred")
-    machine.succeed("chmod 0600 /run/secrets/*")
+    machine.succeed("chmod 0400 /run/secrets/*")
     environment = "\n".join([
         "OAUTH_CLIENT_ID=smoke-client",
         f"OAUTH_AUTHORIZATION_URI=http://127.0.0.1:{upstream_port}/authorize",
