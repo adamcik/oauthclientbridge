@@ -5,17 +5,16 @@ the native service runs the same packaged ASGI entrypoint and CLI as `asgi-image
 The native module does not configure a database server, proxy, TLS, firewall, or
 backups. SQLite is the app's existing database, not a new deployment dependency.
 
+Assuming the host already imports sops-nix and declares the referenced secrets:
+
 ```nix
-{
+{ config, ... }: {
   imports = [ inputs.oauthclientbridge.nixosModules.default ];
   services.oauthclientbridge.instances = {
     spotify = {
       credentials = {
-        OAUTH_CLIENT_SECRET.file = "/run/secrets/spotify-client-secret";
-        BRIDGE_SESSION_SECRET = {
-          file = "/run/credstore.encrypted/spotify-session.cred";
-          encrypted = true;
-        };
+        OAUTH_CLIENT_SECRET = config.sops.secrets.spotify-client-secret.path;
+        BRIDGE_SESSION_SECRET = config.sops.secrets.spotify-session-secret.path;
       };
       workers = 4;
       environment = {
@@ -45,39 +44,27 @@ address families, and system calls without blocking outbound provider requests.
 
 ## Runtime secrets through systemd credentials
 
-`credentials` maps full application setting names to runtime source files.
-systemd uses `LoadCredential` by default, or `LoadCredentialEncrypted` when
-`encrypted = true`. Each web, migration, and cleanup unit gets its own protected
-credential directory. The app reads files from `CREDENTIALS_DIRECTORY` directly;
-credential contents are not copied into process environment variables or command
-lines. Existing mount hardening also isolates each unit's credential directory.
+`credentials` maps `OAUTH_CLIENT_SECRET`, `BRIDGE_SESSION_SECRET`,
+`BRIDGE_METRICS_TOKEN`, or `SENTRY_DSN` to decrypted sops-nix runtime paths.
+systemd uses `LoadCredential`. Each web, migration, and cleanup unit gets its own
+protected credential directory. The app reads files from `CREDENTIALS_DIRECTORY`
+directly; credential contents are not copied into process environment variables
+or command lines. Existing mount hardening also isolates each unit's credential directory.
 
-Provision source files through the host's existing secret manager; keep plaintext
-sources owned by root with mode `0600`. Paths must be absolute strings outside
-the Nix store, not Nix path literals. Plaintext files
-contain one setting's UTF-8 value, without `KEY=` or shell syntax. Pydantic trims
-surrounding whitespace; non-string settings use the same value format as their
-environment counterparts. At minimum, provide `OAUTH_CLIENT_SECRET` and
-`BRIDGE_SESSION_SECRET`.
+Let the host's sops-nix configuration handle decryption and provisioning. Use its
+root-owned, owner-readable secret files; the application user does not need access
+to the original sources. Supply `.path` strings as above, not Nix path literals
+that copy secrets into the store. Each file contains only the secret's UTF-8 value,
+without `KEY=` or shell syntax. Pydantic trims surrounding whitespace. At minimum,
+provide `OAUTH_CLIENT_SECRET` and `BRIDGE_SESSION_SECRET`.
 
-Encrypted files must carry the same credential name as the option key. For
-example, on the target host:
-
-```sh
-systemd-creds encrypt --name=BRIDGE_SESSION_SECRET session-secret.txt spotify-session.cred
-```
-
-This is an operator step, not a build or activation hook. Choose the host's
-TPM/host-key policy and protect the plaintext input through its existing secret
-management procedure. Encrypted blobs can be bound to the host key and/or TPM;
-do not assume copying them to another machine makes them usable there. See
-[systemd credentials](https://systemd.io/CREDENTIALS/) for encryption policy and
-backup implications. This module does not provision keys, a TPM, or a secret manager.
-
-Missing or undecryptable configured credential files prevent unit activation.
+This module does not configure sops-nix, encryption keys, or an additional
+encryption layer. Sources must exist before units start. Missing configured files
+prevent unit activation.
 Credentials are acquired at each activation and remain immutable while the unit
 runs. After rotating a source file, explicitly restart web; the next migration
-or scheduled job reads its own fresh copy. Nix cannot track runtime file contents.
+or scheduled job reads its own fresh copy. The host can use sops-nix `restartUnits`
+to restart `oauthclientbridge-spotify.service` when either secret changes.
 Do not inspect credentials by printing their contents into journals or diagnostics.
 
 ### Existing environment-file deployments
@@ -201,9 +188,10 @@ Run `nix fmt`, `nix flake check`, and
 `nix build .#image .#asgi-image`. On Linux, flake checks include the VM test;
 run it alone with `nix build -L .#checks.x86_64-linux.nixos`.
 It boots NixOS with the real packaged app, SQLite, two isolated instances,
-plaintext and host-key-encrypted credentials, explicit initialization and legacy migration, an opt-in
-timer, and a host-configured nginx serving store assets. It verifies Unix socket
-permissions, proxy-group access, denied cross-instance access, no app TCP listener,
+root-only runtime credential files matching sops-nix output, explicit initialization
+and legacy migration, an opt-in timer, and a host-configured nginx serving store
+assets. It verifies Unix socket permissions, proxy-group access, denied
+cross-instance access, no app TCP listener,
 socket activation after web shutdown, and listener shutdown during migration.
 It verifies credential delivery to web and management units, a credential-only
 instance without an environment file, cross-instance denial, and absence of

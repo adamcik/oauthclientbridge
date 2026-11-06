@@ -40,8 +40,8 @@ following environment variables (see `.env.example`):
 
 The app can also read these settings from files in `CREDENTIALS_DIRECTORY`, using
 their full environment-variable names as filenames. Environment values keep
-precedence over file values. The [NixOS module](docs/nixos.md) supports both
-plaintext and encrypted systemd credentials without exporting their contents.
+precedence over file values. The [NixOS module](docs/nixos.md) loads sops-nix secrets
+through systemd credentials without exporting secret contents.
 
 Once these are set (e.g., by sourcing a `.env` file), you can initialize the
 database:

@@ -9,6 +9,7 @@
   instances = cfg.instances;
   unitName = name: "oauthclientbridge-${name}";
   reserved = ["DB_DATABASE" "PROMETHEUS_MULTIPROC_DIR" "PYTHONDONTWRITEBYTECODE" "CREDENTIALS_DIRECTORY"];
+  credentialNames = ["OAUTH_CLIENT_SECRET" "BRIDGE_SESSION_SECRET" "BRIDGE_METRICS_TOKEN" "SENTRY_DSN"];
   isRuntimeFile = path: lib.hasPrefix "/" path && !(lib.hasPrefix "/nix/store/" path);
   instanceOptions = {name, ...}: {
     options = {
@@ -22,24 +23,13 @@
         '';
       };
       credentials = mkOption {
-        type = types.attrsOf (types.submodule {
-          options = {
-            file = mkOption {
-              type = types.str;
-              description = "Absolute runtime credential source path outside the Nix store.";
-            };
-            encrypted = mkOption {
-              type = types.bool;
-              default = false;
-              description = "Load and decrypt this file with LoadCredentialEncrypted instead of LoadCredential.";
-            };
-          };
-        });
+        type = types.attrsOf types.str;
         default = {};
         description = ''
-          Credential files keyed by full application setting name, for example
-          OAUTH_CLIENT_SECRET. systemd loads these for web and management units;
-          the application reads them without exporting their contents.
+          Decrypted sops-nix secret paths keyed by ${lib.concatStringsSep ", " credentialNames}.
+          systemd loads private copies for web and management units; the application
+          reads them without exporting their contents. Use runtime path strings,
+          not Nix path literals that copy secrets into the store.
         '';
       };
       environment = mkOption {
@@ -100,12 +90,7 @@
         {
           User = unit;
           Group = unit;
-          LoadCredential =
-            lib.mapAttrsToList (key: credential: "${key}:${credential.file}")
-            (lib.filterAttrs (_: credential: !credential.encrypted) instance.credentials);
-          LoadCredentialEncrypted =
-            lib.mapAttrsToList (key: credential: "${key}:${credential.file}")
-            (lib.filterAttrs (_: credential: credential.encrypted) instance.credentials);
+          LoadCredential = lib.mapAttrsToList (key: path: "${key}:${path}") instance.credentials;
           StateDirectory = unit;
           StateDirectoryMode = "0700";
           WorkingDirectory = instance.stateDirectory;
@@ -215,11 +200,11 @@ in {
           message = "OAuth Client Bridge owns ${lib.concatStringsSep ", " reserved}.";
         }
         {
-          assertion = lib.all (key: builtins.match "[A-Z][A-Z0-9_]{0,254}" key != null && !(lib.elem key reserved)) (lib.attrNames instance.credentials);
-          message = "OAuth Client Bridge credential names must be uppercase setting names, excluding module-owned variables.";
+          assertion = lib.all (key: lib.elem key credentialNames) (lib.attrNames instance.credentials);
+          message = "OAuth Client Bridge credentials must be ${lib.concatStringsSep ", " credentialNames}.";
         }
         {
-          assertion = lib.all (credential: isRuntimeFile credential.file) (lib.attrValues instance.credentials);
+          assertion = lib.all isRuntimeFile (lib.attrValues instance.credentials);
           message = "OAuth Client Bridge credential files must be absolute runtime paths outside the Nix store.";
         }
       ])
