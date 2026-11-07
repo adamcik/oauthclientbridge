@@ -33,7 +33,7 @@ class _Expectation:
 class _RequestHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
-    def do_POST(self) -> None:  # noqa: N802 # Required by BaseHTTPRequestHandler.
+    def do_POST(self) -> None:  # Required by BaseHTTPRequestHandler.
         oauth_server = cast("_OAuthServer", self.server).oauth_server
         expectation = oauth_server._next_expectation(
             ObservedRequest(

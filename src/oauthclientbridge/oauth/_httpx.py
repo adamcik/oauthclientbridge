@@ -45,17 +45,16 @@ class HttpxUpstreamClient:
         auth: str | None = None,
         **data: str | None,
     ) -> OAuthResponse:
-        async with self._fetches.track():
-            async with self._clients.acquire() as lease:
-                return await _fetch(
-                    lease,
-                    self._clients,
-                    self._settings,
-                    uri,
-                    upstream_grant_type,
-                    data,
-                    auth,
-                )
+        async with self._fetches.track(), self._clients.acquire() as lease:
+            return await _fetch(
+                lease,
+                self._clients,
+                self._settings,
+                uri,
+                upstream_grant_type,
+                data,
+                auth,
+            )
 
     async def aclose(self) -> None:
         with anyio.CancelScope(shield=True):
