@@ -31,6 +31,8 @@ jobs:
         with:
           name: oauthclientbridge
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          # Store scans avoid daemon drain timeouts on this isolated hosted runner.
+          useDaemon: false
 
       - name: Run nix fmt
         run: nix fmt
