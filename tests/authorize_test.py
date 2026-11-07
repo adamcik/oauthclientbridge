@@ -274,7 +274,7 @@ def test_callback_preserves_retry_after_for_temporarily_unavailable(
         new_callable=unittest.mock.AsyncMock,
         return_value={"error": "temporarily_unavailable", "retry_after": 10},
     ):
-        resp = get("/callback?state={state}&code=abc".format(state=state))
+        resp = get(f"/callback?state={state}&code=abc")
 
     assert resp.status == 503
     assert resp.data["error"] == OAuthError.TEMPORARILY_UNAVAILABLE

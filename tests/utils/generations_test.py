@@ -47,14 +47,16 @@ async def test_generations_observes_retired_drains() -> None:
     async def finalize(_resource: Resource) -> None:
         pass
 
-    async with Generations(
-        lambda: next(resources),
-        finalize,
-        on_retired_drain=drain_durations.append,
-    ) as generations:
-        async with generations.acquire() as first_lease:
-            async with generations.acquire():
-                await generations.rotate(first_lease)
+    async with (
+        Generations(
+            lambda: next(resources),
+            finalize,
+            on_retired_drain=drain_durations.append,
+        ) as generations,
+        generations.acquire() as first_lease,
+        generations.acquire(),
+    ):
+        await generations.rotate(first_lease)
 
     assert len(drain_durations) == 1
     assert drain_durations[0] >= 0

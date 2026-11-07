@@ -16,7 +16,7 @@ class RetryDecision:
     reason: RetryCondition
 
 
-@functools.lru_cache()
+@functools.lru_cache
 def get_retry_limiter(capacity: int, refill_per_initial: float) -> Bucket:
     """Return the process-local retry budget for matching settings."""
     return Bucket(capacity, refill_per_initial)

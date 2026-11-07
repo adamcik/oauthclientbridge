@@ -817,7 +817,7 @@ async def test_httpx_fetcher_cancels_inflight_request_and_closes_within_deadline
         protocol_version = "HTTP/1.1"
         requests = 0
 
-        def do_POST(self) -> None:  # noqa: N802 # Required by BaseHTTPRequestHandler.
+        def do_POST(self) -> None:  # Required by BaseHTTPRequestHandler.
             type(self).requests += 1
             self.rfile.read(int(self.headers["Content-Length"]))
             if self.requests == 1:

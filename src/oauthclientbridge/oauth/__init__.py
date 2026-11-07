@@ -18,14 +18,14 @@ from ._outcome import (
 )
 
 __all__ = [
-    "Error",
-    "UpstreamFetcher",
-    "HttpxUpstreamClient",
     "AUTHORIZATION_ERRORS",
     "TOKEN_ERRORS",
+    "Error",
+    "HttpxUpstreamClient",
+    "UpstreamFetcher",
+    "create_httpx_upstream_client",
     "error_handler",
     "fetch_with_requests",
-    "create_httpx_upstream_client",
     "normalize_error",
     "redirect",
     "sanitize_for_logging",

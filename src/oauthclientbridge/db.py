@@ -2,10 +2,10 @@ import contextlib
 import sqlite3
 import time
 import uuid
+from collections.abc import Generator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from importlib import resources
-from typing import Generator
 
 from flask import g, has_app_context
 from opentelemetry import metrics, trace
@@ -88,16 +88,18 @@ def is_initialized(database: DatabaseSettings | None = None) -> bool:
             )
             return c.fetchone() is not None
 
-    with _connect(database) as connection:
-        with cursor(
+    with (
+        _connect(database) as connection,
+        cursor(
             name=types.DatabaseOperation.CHECK_TOKENS_TABLE,
             connection=connection,
             database_name=database.database,
-        ) as c:
-            c.execute(
-                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'tokens'"
-            )
-            return c.fetchone() is not None
+        ) as c,
+    ):
+        c.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'tokens'"
+        )
+        return c.fetchone() is not None
 
 
 # TODO: Make this internal in favour of always needing to have a cursor
@@ -243,29 +245,31 @@ def insert(
     """Store encrypted token and return what client_id it was stored under."""
 
     now = time_utils.utcnow()
-    with _connect(database) as connection:
-        with cursor(
+    with (
+        _connect(database) as connection,
+        cursor(
             name=types.DatabaseOperation.INSERT_TOKEN,
             transaction=True,
             connection=connection,
             database_name=database.database if database else None,
-        ) as c:
-            c.execute(
-                (
-                    "INSERT INTO tokens "
-                    "(client_id, token, created_at, last_updated_at) VALUES (?, ?, ?, ?)"
-                ),
-                (
-                    str(client_id),
-                    _prepare_token(token),
-                    _prepare_timestamp(now),
-                    _prepare_timestamp(now),
-                ),
+        ) as c,
+    ):
+        c.execute(
+            (
+                "INSERT INTO tokens "
+                "(client_id, token, created_at, last_updated_at) VALUES (?, ?, ?, ?)"
+            ),
+            (
+                str(client_id),
+                _prepare_token(token),
+                _prepare_timestamp(now),
+                _prepare_timestamp(now),
+            ),
+        )
+        if inserted_fields is not None:
+            (span or trace.get_current_span()).add_event(
+                "Inserting token", {"inserted_fields": inserted_fields}
             )
-            if inserted_fields is not None:
-                (span or trace.get_current_span()).add_event(
-                    "Inserting token", {"inserted_fields": inserted_fields}
-                )
 
     if has_app_context():
         telemetry.request_refresh()
@@ -279,17 +283,19 @@ def lookup(
     Raises a LookupError if client_id is not found.
     Returns the encrypted token or None if token is revoked.
     """
-    with _connect(database) as connection:
-        with cursor(
+    with (
+        _connect(database) as connection,
+        cursor(
             name=types.DatabaseOperation.LOOKUP_TOKEN,
             connection=connection,
             database_name=database.database if database else None,
-        ) as c:
-            c.execute(
-                "SELECT token, created_at, last_updated_at FROM tokens WHERE client_id = ?",
-                (str(client_id),),
-            )
-            row = c.fetchone()
+        ) as c,
+    ):
+        c.execute(
+            "SELECT token, created_at, last_updated_at FROM tokens WHERE client_id = ?",
+            (str(client_id),),
+        )
+        row = c.fetchone()
 
     if row is None:
         raise LookupError("Client not found.")
@@ -313,19 +319,21 @@ def update(
     """Update a client_id with a new encrypted token."""
 
     now = time_utils.utcnow()
-    with _connect(database) as connection:
-        with cursor(
+    with (
+        _connect(database) as connection,
+        cursor(
             name=types.DatabaseOperation.UPDATE_TOKEN,
             transaction=True,
             connection=connection,
             database_name=database.database if database else None,
-        ) as c:
-            c.execute(
-                "UPDATE tokens SET token = ?, last_updated_at = ? WHERE client_id = ?",
-                (_prepare_token(token), _prepare_timestamp(now), str(client_id)),
-            )
-            trace.get_current_span().add_event("Update result", {"rows": c.rowcount})
-            rowcount = int(c.rowcount)
+        ) as c,
+    ):
+        c.execute(
+            "UPDATE tokens SET token = ?, last_updated_at = ? WHERE client_id = ?",
+            (_prepare_token(token), _prepare_timestamp(now), str(client_id)),
+        )
+        trace.get_current_span().add_event("Update result", {"rows": c.rowcount})
+        rowcount = int(c.rowcount)
 
     if rowcount and has_app_context():
         # TODO: Decouple refresh notification from Flask context for worker-thread writes.

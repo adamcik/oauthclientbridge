@@ -1,5 +1,5 @@
-from collections.abc import Generator
-from typing import Any, Mapping, cast
+from collections.abc import Generator, Mapping
+from typing import Any, cast
 
 import pytest
 from opentelemetry import metrics, trace

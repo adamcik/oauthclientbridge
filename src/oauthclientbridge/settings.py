@@ -1,11 +1,12 @@
 import logging
 import os
 import sys
+from collections.abc import Callable
 from enum import IntEnum, StrEnum
 from http import HTTPStatus
 from importlib.metadata import PackageNotFoundError, metadata, version
 from pathlib import Path
-from typing import Callable, Self, cast
+from typing import Self, cast
 
 from flask import current_app
 from pydantic import Field, SecretStr, model_validator
