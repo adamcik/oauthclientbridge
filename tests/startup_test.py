@@ -12,14 +12,14 @@ from tests.plugins import sentry
 
 
 @dataclass(frozen=True)
-class Failure:
+class FailureCase:
     id: str
     environment: dict[str, str] = field(default_factory=dict)
     error_type: str = "FileNotFoundError"
 
 
 @dataclass(frozen=True)
-class Command:
+class CommandCase:
     id: str
     args: list[str]
 
@@ -33,7 +33,7 @@ class ConsoleCase:
 @pytest.mark.parametrize(
     "command",
     [
-        Command(
+        CommandCase(
             id="cli",
             args=[
                 "from oauthclientbridge import cli; cli.main()",
@@ -42,41 +42,41 @@ class ConsoleCase:
                 "1",
             ],
         ),
-        Command(
+        CommandCase(
             id="asgi-factory",
             args=["from oauthclientbridge import asgi; asgi.create_app()"],
         ),
-        Command(id="wsgi", args=["import oauthclientbridge.wsgi"]),
+        CommandCase(id="wsgi", args=["import oauthclientbridge.wsgi"]),
     ],
     ids=lambda case: case.id,
 )
 @pytest.mark.parametrize(
     "failure",
     [
-        Failure(id="missing-template"),
-        Failure(
+        FailureCase(id="missing-template"),
+        FailureCase(
             id="invalid-logging-settings",
             environment={"LOG_LEVEL": "startup-secret-must-not-appear"},
             error_type="ValidationError",
         ),
-        Failure(
+        FailureCase(
             id="invalid-app-settings",
             environment={
                 "BRIDGE_SESSION_COOKIE_SECURE": "startup-secret-must-not-appear"
             },
             error_type="ValidationError",
         ),
-        Failure(
+        FailureCase(
             id="invalid-settings-json",
             environment={"OAUTH_SCOPES": "startup-secret-must-not-appear"},
             error_type="SettingsError",
         ),
-        Failure(
+        FailureCase(
             id="invalid-observability-settings",
             environment={"SENTRY_SAMPLE_RATE": "startup-secret-must-not-appear"},
             error_type="ValidationError",
         ),
-        Failure(
+        FailureCase(
             id="invalid-dictionary-setting",
             environment={
                 "BRIDGE_ERROR_LEVELS": '{"startup-secret-must-not-appear": "bad"}'
@@ -87,7 +87,7 @@ class ConsoleCase:
     ids=lambda case: case.id,
 )
 def test_startup_failure_is_one_safe_json_error(
-    tmp_path: Path, command: Command, failure: Failure
+    tmp_path: Path, command: CommandCase, failure: FailureCase
 ) -> None:
     missing_template = tmp_path / "missing.html"
     prefixes = ("OAUTH_", "BRIDGE_", "LOG_", "SENTRY_", "TELEMETRY_", "DB_")
