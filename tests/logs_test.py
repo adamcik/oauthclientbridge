@@ -78,6 +78,46 @@ def test_configure_structlog_json_output(capsys: pytest.CaptureFixture[str]):
     assert struct_log_json["struct_key"] == "struct_value"
 
 
+def test_reinitializing_logging_does_not_duplicate_server_logs(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Uvicorn can have installed its own non-propagating handler before the
+    # factory is called (for example when run through its own CLI).
+    server_logger = logging.getLogger("uvicorn.error")
+    server_logger.addHandler(logging.StreamHandler())
+    server_logger.propagate = False
+    server_logger.setLevel(logging.INFO)
+    for _ in range(2):
+        logs.init_logging(LogSettings(json_output=True, level=LogLevel.WARNING))
+
+    server_logger.info("Suppressed by application log level")
+    server_logger.error("Server failed")
+    records = parse_logs(capsys)
+    assert len(records) == 1
+    assert records[0]["logger"] == "uvicorn.error"
+    assert records[0]["event"] == "Server failed"
+
+
+def test_json_exception_has_frames_but_no_locals(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    logs.init_logging(LogSettings(json_output=True))
+    secret = "frame-local-must-not-be-logged"
+    try:
+        raise RuntimeError("test failure")
+    except RuntimeError:
+        logging.getLogger(__name__).exception("Failed")
+
+    output = capsys.readouterr().err
+    assert secret not in output
+    record = parse_log_record(output)
+    exceptions = record["exception"]
+    assert isinstance(exceptions, list)
+    assert exceptions[0]["exc_type"] == "RuntimeError"
+    assert exceptions[0]["frames"]
+    assert all("locals" not in frame for frame in exceptions[0]["frames"])
+
+
 def test_flask_request_logging(capsys: pytest.CaptureFixture[str]):
     log_settings = LogSettings(
         level=LogLevel.DEBUG,

@@ -4,7 +4,7 @@ from anyio import create_task_group, to_thread
 from starlette.applications import Starlette
 from starlette.middleware.sessions import SessionMiddleware
 
-from oauthclientbridge import bridge, db, logs, oauth, observer, telemetry
+from oauthclientbridge import bridge, db, oauth, observer, startup, telemetry
 from oauthclientbridge.asgi_context import AppContext, TokenStateRefresher
 from oauthclientbridge.proxy import ForwardedHeadersMiddleware
 from oauthclientbridge.routes import fallback, routes
@@ -20,17 +20,26 @@ def create_app(
     initialize_runtime: bool = True,
 ) -> Starlette:
     """Create the ASGI application for an in-process client or ASGI server."""
-    if settings is None:
-        settings = Settings()
-
     if initialize_runtime:
-        logs.init_logging(settings.log)
-        telemetry.init_sentry(settings.sentry, "starlette")
-        telemetry.instrument()
-        telemetry.init_tracing(settings.otel)
-        telemetry.init_metrics(settings.otel)
-        telemetry.set_build_info_metric(settings.otel)
+        with startup.bootstrap(settings.log if settings is not None else None):
+            settings = startup.initialize("starlette", settings)
+            telemetry.set_build_info_metric(settings.otel)
+            return _create_app(settings, fetch, fallback_observer, outcome_observer)
 
+    return _create_app(
+        settings if settings is not None else Settings(),
+        fetch,
+        fallback_observer,
+        outcome_observer,
+    )
+
+
+def _create_app(
+    settings: Settings,
+    fetch: oauth.UpstreamFetcher | None,
+    fallback_observer: observer.FallbackObserver | None,
+    outcome_observer: observer.OAuthOutcomeObserver | None,
+) -> Starlette:
     if settings.session_secret is None:
         raise ValueError("BRIDGE_SESSION_SECRET must be set for the ASGI adapter")
 

@@ -90,6 +90,7 @@ def init(
             LoggingIntegration(event_level=None, level=None),
         ],
         instrumenter="otel",
+        include_local_variables=False,
         transport=transport,
     )
 

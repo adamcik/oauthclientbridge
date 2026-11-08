@@ -146,6 +146,23 @@ are not included in the metric.
 
 Zero observed changes does not guarantee that concurrent refreshes are safe.
 
+## Logging and startup diagnostics
+
+Logs go to stderr. When stdout is a terminal, logs use a readable console format;
+otherwise they use one JSON object per line, suitable for journald and Loki. Set
+`LOG_JSON_OUTPUT=true` or `false` to override the format. CLI help and usage errors
+remain normal Typer output.
+
+The CLI and application workers establish local logging before validating settings.
+Invalid logging settings use the default format as a fallback. Workers initialize
+Sentry before loading application settings, then start tracing and metrics after
+validation. Failures before Sentry is available remain visible locally.
+
+Fatal startup errors exit nonzero and report their type and frame locations, plus
+validation fields or filesystem details where available. Raw validation inputs,
+arbitrary exception messages, and frame locals are omitted to avoid exposing
+credentials. Normal JSON exception logs and Sentry events also omit frame locals.
+
 ## OpenTelemetry Integration
 
 This project integrates with OpenTelemetry for distributed tracing and metrics

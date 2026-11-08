@@ -7,13 +7,18 @@ from typer import (
     Option,  # pyright: ignore[reportUnknownVariableType] # Typer's Click ParamType annotation lacks a type argument.
 )
 
-from oauthclientbridge import db, settings
+from oauthclientbridge import db, settings, startup
 
-app = typer.Typer(help="Run and administer OAuth Client Bridge.", add_completion=False)
+app = typer.Typer(
+    help="Run and administer OAuth Client Bridge.",
+    add_completion=False,
+    pretty_exceptions_enable=False,
+)
 
 
 def main() -> None:
-    app(args=sys.argv[1:] or ["serve"])
+    with startup.bootstrap():
+        app(args=sys.argv[1:] or ["serve"])
 
 
 @app.command()
@@ -40,6 +45,8 @@ def serve(
         fd=fd,
         workers=workers,
         timeout_graceful_shutdown=timeout_graceful_shutdown,
+        log_config=None,
+        access_log=False,
     )
 
 
