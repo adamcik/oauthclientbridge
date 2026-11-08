@@ -45,17 +45,16 @@ class HttpxUpstreamClient:
         auth: str | None = None,
         **data: str | None,
     ) -> OAuthResponse:
-        async with self._fetches.track():
-            async with self._clients.acquire() as lease:
-                return await _fetch(
-                    lease,
-                    self._clients,
-                    self._settings,
-                    uri,
-                    upstream_grant_type,
-                    data,
-                    auth,
-                )
+        async with self._fetches.track(), self._clients.acquire() as lease:
+            return await _fetch(
+                lease,
+                self._clients,
+                self._settings,
+                uri,
+                upstream_grant_type,
+                data,
+                auth,
+            )
 
     async def aclose(self) -> None:
         with anyio.CancelScope(shield=True):
@@ -375,11 +374,10 @@ async def _fetch_outcome(
                 if (
                     reset_error is not None
                     and reset_error in settings.client_reset_errors
-                ):
-                    if await clients.rotate(lease):
-                        telemetry.record_client_generation_reset(
-                            upstream_grant_type, reset_error
-                        )
+                ) and await clients.rotate(lease):
+                    telemetry.record_client_generation_reset(
+                        upstream_grant_type, reset_error
+                    )
                 if delay:
                     await _sleep(sleep_for)
     except TimeoutError:
