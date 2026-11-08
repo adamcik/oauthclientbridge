@@ -128,7 +128,7 @@ def add_otel_context_processor(_: Any, __: str, event_dict: EventDict) -> EventD
     if "_record" in event_dict:
         record = cast(logging.LogRecord, event_dict["_record"])
         if hasattr(record, "telemetry_attributes"):
-            event_dict.update(getattr(record, "telemetry_attributes"))
+            event_dict.update(getattr(record, "telemetry_attributes"))  # noqa: B009 - Added dynamically by the logging hook.
             return event_dict
 
     event_dict.update(telemetry.otel_log_attributes())

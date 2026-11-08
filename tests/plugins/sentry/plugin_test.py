@@ -113,8 +113,9 @@ def test_sentry_captures_user_and_tags(capsentry: SentryCapture) -> None:
 def test_sentry_captures_log_breadcrumbs(capsentry: SentryCapture) -> None:
     logs.init_logging(LogSettings(level=LogLevel.DEBUG))
 
-    logging.info("Starting the process.")
-    logging.warning("Something looks suspicious.")
+    logger = logging.getLogger(__name__)
+    logger.info("Starting the process.")
+    logger.warning("Something looks suspicious.")
 
     try:
         raise ValueError("test exception")
@@ -146,9 +147,11 @@ def test_sentry_captures_otel_span(
     capsentry: SentryCapture, tracer: trace.Tracer
 ) -> None:
     try:
-        with tracer.start_as_current_span("parent-operation"):
-            with tracer.start_as_current_span("child-operation"):
-                raise ValueError("test exception")
+        with (
+            tracer.start_as_current_span("parent-operation"),
+            tracer.start_as_current_span("child-operation"),
+        ):
+            raise ValueError("test exception")
     except ValueError:
         sentry_sdk.capture_exception()
 

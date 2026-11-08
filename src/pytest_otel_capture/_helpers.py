@@ -1,5 +1,5 @@
 import typing
-from typing import TypeVar, assert_never
+from typing import assert_never
 
 from opentelemetry import trace
 from opentelemetry.sdk.metrics.export import (
@@ -12,13 +12,6 @@ from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import Event, ReadableSpan
 from opentelemetry.sdk.trace import Status as SpanStatus
 from opentelemetry.sdk.util.instrumentation import InstrumentationScope
-
-DataPointType = TypeVar(
-    "DataPointType",
-    bound=typing.Union[
-        NumberDataPoint, HistogramDataPoint, ExponentialHistogramDataPoint
-    ],
-)
 
 
 class _LogRecordLike(typing.Protocol):
@@ -244,19 +237,16 @@ def find_metrics(
 ) -> list[CollectedMetric]:
     results: list[CollectedMetric] = []
     for collected_metric in metrics_data:
-        if collected_metric.name == metric_name and _matches_scope(
+        if collected_metric.name != metric_name or not _matches_scope(
             collected_metric.scope, scope
         ):
-            # For metrics, attributes are on the data points within the metric
-            if attributes is None:
-                results.append(collected_metric)
-            elif collected_metric.metric.data.data_points:
-                # Check if any data point matches the attributes
-                if any(
-                    _matches_attributes(dp.attributes, attributes)
-                    for dp in collected_metric.metric.data.data_points
-                ):
-                    results.append(collected_metric)
+            continue
+        # For metrics, attributes are on the data points within the metric.
+        if attributes is None or any(
+            _matches_attributes(dp.attributes, attributes)
+            for dp in collected_metric.metric.data.data_points
+        ):
+            results.append(collected_metric)
     return results
 
 
@@ -297,10 +287,12 @@ def assert_trace_header(header: str, expected_trace: int | trace.Span):
     assert header.startswith(expected_header)
 
 
-def latest_metric_data(
+def latest_metric_data[
+    DataPointType: NumberDataPoint | HistogramDataPoint | ExponentialHistogramDataPoint
+](
     metrics_data: list[CollectedMetric],
     metric_name: str,
-    data_point_type: typing.Type[DataPointType],
+    data_point_type: type[DataPointType],
     attributes: typing.Mapping[str, typing.Any] | None = None,
     scope: str | None = None,
 ) -> DataPointType:

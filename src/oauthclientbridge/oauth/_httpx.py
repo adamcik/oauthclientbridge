@@ -45,17 +45,16 @@ class HttpxUpstreamClient:
         auth: str | None = None,
         **data: str | None,
     ) -> OAuthResponse:
-        async with self._fetches.track():
-            async with self._clients.acquire() as lease:
-                return await _fetch(
-                    lease,
-                    self._clients,
-                    self._settings,
-                    uri,
-                    upstream_grant_type,
-                    data,
-                    auth,
-                )
+        async with self._fetches.track(), self._clients.acquire() as lease:
+            return await _fetch(
+                lease,
+                self._clients,
+                self._settings,
+                uri,
+                upstream_grant_type,
+                data,
+                auth,
+            )
 
     async def aclose(self) -> None:
         with anyio.CancelScope(shield=True):
@@ -126,8 +125,9 @@ def _create_client(settings: FetchSettings) -> httpx.AsyncClient:
     return httpx.AsyncClient(
         follow_redirects=False,
         headers={
-            "User-Agent": "oauthclientbridge %s"
-            % importlib.metadata.version("oauthclientbridge")
+            "User-Agent": "oauthclientbridge {}".format(
+                importlib.metadata.version("oauthclientbridge")
+            )
         },
         limits=httpx.Limits(
             max_connections=settings.pool_max_connections,
@@ -285,8 +285,7 @@ async def _fetch_outcome(
                     )
                     if response.is_redirect:
                         result = OAuthError.SERVER_ERROR.json(
-                            description="Unhandled provider error (HTTP %s)."
-                            % response.status_code
+                            description=f"Unhandled provider error (HTTP {response.status_code})."
                         )
                     else:
                         try:
@@ -298,8 +297,7 @@ async def _fetch_outcome(
                                 )
                             else:
                                 result = OAuthError.SERVER_ERROR.json(
-                                    description="Unhandled provider error (HTTP %s)."
-                                    % response.status_code
+                                    description=f"Unhandled provider error (HTTP {response.status_code})."
                                 )
                 finally:
                     telemetry.record_client_response_metric(
@@ -375,11 +373,10 @@ async def _fetch_outcome(
                 if (
                     reset_error is not None
                     and reset_error in settings.client_reset_errors
-                ):
-                    if await clients.rotate(lease):
-                        telemetry.record_client_generation_reset(
-                            upstream_grant_type, reset_error
-                        )
+                ) and await clients.rotate(lease):
+                    telemetry.record_client_generation_reset(
+                        upstream_grant_type, reset_error
+                    )
                 if delay:
                     await _sleep(sleep_for)
     except TimeoutError:

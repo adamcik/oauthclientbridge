@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
+from typing import ClassVar
 from urllib.parse import parse_qs, urlsplit
 
 import httpx
@@ -163,10 +164,10 @@ async def test_asgi_callback_reuses_its_upstream_connection(
 
     class OAuthHandler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
-        connections: set[tuple[str, int]] = set()
+        connections: ClassVar[set[tuple[str, int]]] = set()
         response_status = HTTPStatus.OK
 
-        def do_POST(self) -> None:  # noqa: N802 # Required by BaseHTTPRequestHandler.
+        def do_POST(self) -> None:  # Required by BaseHTTPRequestHandler.
             self.connections.add(self.client_address)
             length = int(self.headers["Content-Length"])
             self.rfile.read(length)
@@ -191,24 +192,15 @@ async def test_asgi_callback_reuses_its_upstream_connection(
     try:
         app = create_app(settings, initialize_runtime=False)
         transport = httpx.ASGITransport(app=app)
-        async with app.router.lifespan_context(app):
-            async with httpx.AsyncClient(
+        async with (
+            app.router.lifespan_context(app),
+            httpx.AsyncClient(
                 transport=transport,
                 base_url="https://bridge.example.com",
                 follow_redirects=False,
-            ) as client:
-                for _ in range(2):
-                    authorization = await client.get("/")
-                    state = parse_qs(urlsplit(authorization.headers["location"]).query)[
-                        "state"
-                    ][0]
-                    callback = await client.get(
-                        "/callback",
-                        params={"code": "authorization-code", "state": state},
-                    )
-                    assert callback.status_code == HTTPStatus.OK
-
-                OAuthHandler.response_status = HTTPStatus.FOUND
+            ) as client,
+        ):
+            for _ in range(2):
                 authorization = await client.get("/")
                 state = parse_qs(urlsplit(authorization.headers["location"]).query)[
                     "state"
@@ -217,7 +209,18 @@ async def test_asgi_callback_reuses_its_upstream_connection(
                     "/callback",
                     params={"code": "authorization-code", "state": state},
                 )
-                assert callback.status_code == HTTPStatus.BAD_REQUEST
+                assert callback.status_code == HTTPStatus.OK
+
+            OAuthHandler.response_status = HTTPStatus.FOUND
+            authorization = await client.get("/")
+            state = parse_qs(urlsplit(authorization.headers["location"]).query)[
+                "state"
+            ][0]
+            callback = await client.get(
+                "/callback",
+                params={"code": "authorization-code", "state": state},
+            )
+            assert callback.status_code == HTTPStatus.BAD_REQUEST
     finally:
         server.shutdown()
         server.server_close()
@@ -242,10 +245,9 @@ async def test_asgi_callback_returns_initial_failure_when_retry_budget_is_exhaus
     oauth_server.expect("/token").respond(status=HTTPStatus.SERVICE_UNAVAILABLE)
     app = create_app(settings, initialize_runtime=False)
 
-    async with app.router.lifespan_context(app):
-        async with asgi_client(app) as client:
-            response = await _callback(client)
-            metrics = await client.get("/metrics")
+    async with app.router.lifespan_context(app), asgi_client(app) as client:
+        response = await _callback(client)
+        metrics = await client.get("/metrics")
 
     assert response.status_code == HTTPStatus.SERVICE_UNAVAILABLE
     assert response.json()["error"] == "temporarily_unavailable"
@@ -303,11 +305,10 @@ async def test_asgi_callback_retry_connection_and_generation_observability(
     app = create_app(settings, initialize_runtime=False)
     metric_labels = {"endpoint": "authorization_code", "error": "http_503"}
 
-    async with app.router.lifespan_context(app):
-        async with asgi_client(app) as client:
-            metrics_before = await client.get("/metrics")
-            response = await _callback(client)
-            metrics_after = await client.get("/metrics")
+    async with app.router.lifespan_context(app), asgi_client(app) as client:
+        metrics_before = await client.get("/metrics")
+        response = await _callback(client)
+        metrics_after = await client.get("/metrics")
 
     assert response.status_code == HTTPStatus.OK
     connections = {request.client_address for request in oauth_server.requests}

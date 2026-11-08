@@ -16,5 +16,5 @@ class FallbackObserver:
             span.record_exception(exception)
             span.set_status(trace.Status(trace.StatusCode.ERROR))
             _sentry.capture_unhandled_exception(exception)
-        except Exception:
+        except Exception:  # noqa: BLE001 - Telemetry must not break the fallback response.
             return

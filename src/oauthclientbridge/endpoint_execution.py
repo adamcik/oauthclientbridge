@@ -1,7 +1,6 @@
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from http import HTTPStatus
-from typing import ParamSpec
 
 import structlog
 
@@ -9,7 +8,6 @@ from oauthclientbridge import bridge, observer, types
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import Settings
 
-P = ParamSpec("P")
 logger: structlog.BoundLogger = structlog.get_logger()
 
 
@@ -26,7 +24,7 @@ class EndpointResult:
     log_context: dict[str, str]
 
 
-async def run(
+async def run[**P](
     settings: Settings,
     fallback_observer: observer.FallbackObserver,
     outcome_observer: observer.OAuthOutcomeObserver,
@@ -48,7 +46,7 @@ async def run(
     """
     try:
         result = await operation(*args, **kwargs)
-    except Exception as exception:
+    except Exception as exception:  # noqa: BLE001 - Endpoint failures use the shared fallback.
         response = fallback(settings, fallback_observer, endpoint, exception)
         _observe_outcome(outcome_observer, endpoint, response, OAuthError.SERVER_ERROR)
         return EndpointResult(

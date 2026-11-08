@@ -47,14 +47,16 @@ async def test_generations_observes_retired_drains() -> None:
     async def finalize(_resource: Resource) -> None:
         pass
 
-    async with Generations(
-        lambda: next(resources),
-        finalize,
-        on_retired_drain=drain_durations.append,
-    ) as generations:
-        async with generations.acquire() as first_lease:
-            async with generations.acquire():
-                await generations.rotate(first_lease)
+    async with (
+        Generations(
+            lambda: next(resources),
+            finalize,
+            on_retired_drain=drain_durations.append,
+        ) as generations,
+        generations.acquire() as first_lease,
+        generations.acquire(),
+    ):
+        await generations.rotate(first_lease)
 
     assert len(drain_durations) == 1
     assert drain_durations[0] >= 0
@@ -79,13 +81,15 @@ async def test_generations_finalizes_retired_value_when_rotation_is_cancelled() 
         with cancel_rotation:
             await generations.rotate(lease)
 
-    async with Generations(lambda: next(resources), finalize) as generations:
-        async with generations.acquire() as lease:
-            async with anyio.create_task_group() as task_group:
-                task_group.start_soon(rotate, generations, lease)
-                await finalization_started.wait()
-                cancel_rotation.cancel()
-                release_finalization.set()
+    async with (
+        Generations(lambda: next(resources), finalize) as generations,
+        generations.acquire() as lease,
+        anyio.create_task_group() as task_group,
+    ):
+        task_group.start_soon(rotate, generations, lease)
+        await finalization_started.wait()
+        cancel_rotation.cancel()
+        release_finalization.set()
 
     assert finalized == [Resource("first"), Resource("second")]
 
@@ -114,14 +118,16 @@ async def test_generations_rotate_stale_lease_to_current_value() -> None:
     async def finalize(resource: Resource) -> None:
         finalized.append(resource)
 
-    async with Generations(lambda: next(resources), finalize) as generations:
-        async with generations.acquire() as first_lease:
-            async with generations.acquire() as second_lease:
-                await generations.rotate(first_lease)
-                await generations.rotate(second_lease)
+    async with (
+        Generations(lambda: next(resources), finalize) as generations,
+        generations.acquire() as first_lease,
+        generations.acquire() as second_lease,
+    ):
+        await generations.rotate(first_lease)
+        await generations.rotate(second_lease)
 
-                assert first_lease.value == Resource("second")
-                assert second_lease.value == Resource("second")
+        assert first_lease.value == Resource("second")
+        assert second_lease.value == Resource("second")
 
     assert finalized == [Resource("first"), Resource("second")]
 
@@ -133,15 +139,17 @@ async def test_generations_rotate_concurrent_leases_once() -> None:
     async def finalize(_resource: Resource) -> None:
         pass
 
-    async with Generations(lambda: next(resources), finalize) as generations:
-        async with generations.acquire() as first_lease:
-            async with generations.acquire() as second_lease:
-                async with anyio.create_task_group() as task_group:
-                    task_group.start_soon(generations.rotate, first_lease)
-                    task_group.start_soon(generations.rotate, second_lease)
+    async with (
+        Generations(lambda: next(resources), finalize) as generations,
+        generations.acquire() as first_lease,
+        generations.acquire() as second_lease,
+    ):
+        async with anyio.create_task_group() as task_group:
+            task_group.start_soon(generations.rotate, first_lease)
+            task_group.start_soon(generations.rotate, second_lease)
 
-                assert first_lease.value == Resource("second")
-                assert second_lease.value == Resource("second")
+        assert first_lease.value == Resource("second")
+        assert second_lease.value == Resource("second")
 
 
 @pytest.mark.anyio
