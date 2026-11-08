@@ -36,13 +36,13 @@ def test_authorize_wrong_method(client: FlaskClient):
 
 def test_authorize_redirect_uri(client: FlaskClient, settings: Settings):
     redirect_uri = settings.oauth.redirect_uri
-    url = "/?%s" % urllib.parse.urlencode({"redirect_uri": redirect_uri})
+    url = "/?{}".format(urllib.parse.urlencode({"redirect_uri": redirect_uri}))
     resp = client.get(url)
     assert resp.status_code == 302
 
 
 def test_authorize_wrong_redirect_uri(client: FlaskClient):
-    url = "/?%s" % urllib.parse.urlencode({"redirect_uri": "wrong-value"})
+    url = "/?{}".format(urllib.parse.urlencode({"redirect_uri": "wrong-value"}))
     resp = client.get(url)
     assert resp.status_code == 400
 
@@ -274,7 +274,7 @@ def test_callback_preserves_retry_after_for_temporarily_unavailable(
         new_callable=unittest.mock.AsyncMock,
         return_value={"error": "temporarily_unavailable", "retry_after": 10},
     ):
-        resp = get("/callback?state={state}&code=abc".format(state=state))
+        resp = get(f"/callback?state={state}&code=abc")
 
     assert resp.status == 503
     assert resp.data["error"] == OAuthError.TEMPORARILY_UNAVAILABLE

@@ -229,7 +229,7 @@ def _fetch_sync(
         )
 
         for i in range(settings.total_attempts):
-            prefix = "attempt #%d %s" % (i + 1, uri)
+            prefix = f"attempt #{i + 1} {uri}"
             backoff = (2**i - 1) * settings.backoff_factor
             remaining_timeout = deadline - time.monotonic()
 
@@ -401,8 +401,9 @@ def _fetch(
             data=prepared.body,
             headers={
                 **prepared.headers,
-                "User-Agent": "oauthclientbridge %s"
-                % importlib.metadata.version("oauthclientbridge"),
+                "User-Agent": "oauthclientbridge {}".format(
+                    importlib.metadata.version("oauthclientbridge")
+                ),
             },
             timeout=timeout,
         )
@@ -481,7 +482,7 @@ def _unexpected_response_error(
         description = "Provider is unavailable."
     else:
         error = OAuthError.SERVER_ERROR
-        description = "Unhandled provider error (HTTP %s)." % status_code
+        description = f"Unhandled provider error (HTTP {status_code})."
 
     return error.json(description=description)
 

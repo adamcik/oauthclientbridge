@@ -125,8 +125,9 @@ def _create_client(settings: FetchSettings) -> httpx.AsyncClient:
     return httpx.AsyncClient(
         follow_redirects=False,
         headers={
-            "User-Agent": "oauthclientbridge %s"
-            % importlib.metadata.version("oauthclientbridge")
+            "User-Agent": "oauthclientbridge {}".format(
+                importlib.metadata.version("oauthclientbridge")
+            )
         },
         limits=httpx.Limits(
             max_connections=settings.pool_max_connections,
@@ -284,8 +285,7 @@ async def _fetch_outcome(
                     )
                     if response.is_redirect:
                         result = OAuthError.SERVER_ERROR.json(
-                            description="Unhandled provider error (HTTP %s)."
-                            % response.status_code
+                            description=f"Unhandled provider error (HTTP {response.status_code})."
                         )
                     else:
                         try:
@@ -297,8 +297,7 @@ async def _fetch_outcome(
                                 )
                             else:
                                 result = OAuthError.SERVER_ERROR.json(
-                                    description="Unhandled provider error (HTTP %s)."
-                                    % response.status_code
+                                    description=f"Unhandled provider error (HTTP {response.status_code})."
                                 )
                 finally:
                     telemetry.record_client_response_metric(
