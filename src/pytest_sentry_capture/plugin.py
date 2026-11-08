@@ -47,13 +47,11 @@ class SentryCapture:
 
     def get_breadcrumbs(self) -> Generator[dict[str, Any], None, None]:
         for event in self.get_events():
-            for crumb in event.get("breadcrumbs", {}).get("values", []):
-                yield crumb
+            yield from event.get("breadcrumbs", {}).get("values", [])
 
     def get_exceptions(self) -> Generator[dict[str, Any], None, None]:
         for event in self.get_events():
-            for exception in event.get("exception", {}).get("values", []):
-                yield exception
+            yield from event.get("exception", {}).get("values", [])
 
     def find_transaction_by_name(self, name: str) -> dict[str, Any]:
         for transaction in self.get_transactions():

@@ -214,8 +214,8 @@ def adapter_client(
                 ) -> AdapterResponse:
                     request_headers = dict(headers)
                     encoded = base64.b64encode(":".join(auth).encode("ascii"))
-                    request_headers["Authorization"] = "Basic %s" % encoded.decode(
-                        "ascii"
+                    request_headers["Authorization"] = "Basic {}".format(
+                        encoded.decode("ascii")
                     )
                     response = await anyio.to_thread.run_sync(
                         lambda: client.post(path, data=data, headers=request_headers)
@@ -228,7 +228,7 @@ def adapter_client(
 
         return flask_client
 
-    raise ValueError("unknown adapter: %s" % request.param)
+    raise ValueError(f"unknown adapter: {request.param}")
 
 
 @pytest.fixture
@@ -346,8 +346,10 @@ def post(client: FlaskClient) -> PostClient:
         request_headers = dict(headers or {})
 
         if auth:
-            encoded = base64.b64encode(("%s:%s" % auth).encode("ascii"))
-            request_headers["Authorization"] = "Basic %s" % encoded.decode("ascii")
+            encoded = base64.b64encode(("{}:{}".format(*auth)).encode("ascii"))
+            request_headers["Authorization"] = "Basic {}".format(
+                encoded.decode("ascii")
+            )
 
         resp = client.post(path, headers=request_headers, data=data)
 
