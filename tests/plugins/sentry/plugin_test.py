@@ -146,9 +146,11 @@ def test_sentry_captures_otel_span(
     capsentry: SentryCapture, tracer: trace.Tracer
 ) -> None:
     try:
-        with tracer.start_as_current_span("parent-operation"):
-            with tracer.start_as_current_span("child-operation"):
-                raise ValueError("test exception")
+        with (
+            tracer.start_as_current_span("parent-operation"),
+            tracer.start_as_current_span("child-operation"),
+        ):
+            raise ValueError("test exception")
     except ValueError:
         sentry_sdk.capture_exception()
 

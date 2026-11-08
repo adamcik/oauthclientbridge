@@ -60,9 +60,11 @@ def test_telemetry_tracer_otel_enabled(
     I.e. we have a global trace provider wired up to this fixture.
     """
 
-    with tracer.start_as_current_span("test-span-1"):
-        with tracer.start_as_current_span("test-span-2"):
-            pass
+    with (
+        tracer.start_as_current_span("test-span-1"),
+        tracer.start_as_current_span("test-span-2"),
+    ):
+        pass
 
     spans = otel_mock.get_finished_spans()
     assert len(spans) == 2
@@ -255,11 +257,13 @@ def test_sqlite3_creates_spans(
     instrumented: None,
     tracer: trace.Tracer,
 ) -> None:
-    with tracer.start_as_current_span("parent-span") as parent_span:
+    with (
+        tracer.start_as_current_span("parent-span") as parent_span,
+        sqlite3.connect(":memory:") as conn,
+    ):
         # WARNING: `conn.execute()` is not instrumented!
-        with sqlite3.connect(":memory:") as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT 1")
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1")
 
     spans = otel_mock.get_finished_spans()
     assert len(spans) == 2
@@ -734,9 +738,11 @@ def test_db_cursor_duration_metric_error(
     app_context: flask.ctx.AppContext,
     otel_mock: otel.OTelMocker,
 ):
-    with pytest.raises(sqlite3.Error):
-        with db.cursor(types.DatabaseOperation.LOOKUP_TOKEN) as c:
-            c.execute("INVALID SQL QUERY")
+    with (
+        pytest.raises(sqlite3.Error),
+        db.cursor(types.DatabaseOperation.LOOKUP_TOKEN) as c,
+    ):
+        c.execute("INVALID SQL QUERY")
 
     metrics = otel_mock.get_metrics_data()
     data = otel.latest_metric_data(
@@ -757,9 +763,11 @@ def test_db_cursor_count_metric_error(
     app_context: flask.ctx.AppContext,
     otel_mock: otel.OTelMocker,
 ):
-    with pytest.raises(sqlite3.Error):
-        with db.cursor(types.DatabaseOperation.LOOKUP_TOKEN) as c:
-            c.execute("INVALID SQL QUERY")
+    with (
+        pytest.raises(sqlite3.Error),
+        db.cursor(types.DatabaseOperation.LOOKUP_TOKEN) as c,
+    ):
+        c.execute("INVALID SQL QUERY")
 
     metrics = otel_mock.get_metrics_data()
     data = otel.latest_metric_data(

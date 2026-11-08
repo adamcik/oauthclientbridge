@@ -237,19 +237,16 @@ def find_metrics(
 ) -> list[CollectedMetric]:
     results: list[CollectedMetric] = []
     for collected_metric in metrics_data:
-        if collected_metric.name == metric_name and _matches_scope(
+        if collected_metric.name != metric_name or not _matches_scope(
             collected_metric.scope, scope
         ):
-            # For metrics, attributes are on the data points within the metric
-            if attributes is None:
-                results.append(collected_metric)
-            elif collected_metric.metric.data.data_points:
-                # Check if any data point matches the attributes
-                if any(
-                    _matches_attributes(dp.attributes, attributes)
-                    for dp in collected_metric.metric.data.data_points
-                ):
-                    results.append(collected_metric)
+            continue
+        # For metrics, attributes are on the data points within the metric.
+        if attributes is None or any(
+            _matches_attributes(dp.attributes, attributes)
+            for dp in collected_metric.metric.data.data_points
+        ):
+            results.append(collected_metric)
     return results
 
 

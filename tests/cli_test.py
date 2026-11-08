@@ -26,9 +26,11 @@ def test_serve_starts_uvicorn(
     monkeypatch.delenv("ASGI_GRACEFUL_SHUTDOWN_TIMEOUT", raising=False)
 
     # Check server configuration without starting worker processes or binding a port.
-    with mock.patch.object(uvicorn, "run") as run:
-        with pytest.raises(SystemExit) as exit:
-            cli.main()
+    with (
+        mock.patch.object(uvicorn, "run") as run,
+        pytest.raises(SystemExit) as exit,
+    ):
+        cli.main()
 
     assert exit.value.code == 0
     run.assert_called_once_with(
