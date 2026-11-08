@@ -43,6 +43,8 @@ def test_serve_starts_uvicorn(
         fd=fd,
         workers=4,
         timeout_graceful_shutdown=25,
+        log_config=None,
+        access_log=False,
     )
 
 
@@ -65,6 +67,8 @@ def test_serve_uses_options_and_runtime_environment() -> None:
         fd=None,
         workers=2,
         timeout_graceful_shutdown=10,
+        log_config=None,
+        access_log=False,
     )
 
 
@@ -74,6 +78,29 @@ def test_serve_rejects_invalid_worker_count() -> None:
 
     assert result.exit_code == 2
     run.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("args", "exit_code"),
+    [
+        pytest.param(["--help"], 0, id="help"),
+        pytest.param(["serve", "--workers", "0"], 2, id="usage-error"),
+    ],
+)
+def test_main_preserves_typer_help_and_usage_errors(
+    args: list[str],
+    exit_code: int,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["oauthclientbridge", *args])
+    with pytest.raises(SystemExit) as exit:
+        cli.main()
+
+    assert exit.value.code == exit_code
+    output = capsys.readouterr()
+    assert "Usage:" in output.out + output.err
+    assert "Startup failed" not in output.out + output.err
 
 
 def test_initdb_creates_schema(tmp_path: Path) -> None:

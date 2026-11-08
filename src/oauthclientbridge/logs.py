@@ -61,7 +61,6 @@ def init_logging(settings: LogSettings) -> None:
         structlog.stdlib.PositionalArgumentsFormatter(),
         structlog.processors.StackInfoRenderer(),
         structlog.dev.set_exc_info,
-        structlog.processors.format_exc_info,
         structlog.processors.CallsiteParameterAdder(
             [
                 structlog.processors.CallsiteParameter.FILENAME,
@@ -96,11 +95,14 @@ def init_logging(settings: LogSettings) -> None:
         structlog.stdlib.ProcessorFormatter.remove_processors_meta,
     ]
     if not settings.json_output:
+        processors.append(structlog.processors.format_exc_info)
         processors.append(structlog.dev.ConsoleRenderer(colors=settings.colors))
     else:
         processors.extend(
             [
-                structlog.processors.dict_tracebacks,
+                structlog.processors.ExceptionRenderer(
+                    structlog.tracebacks.ExceptionDictTransformer(show_locals=False)
+                ),
                 structlog.processors.JSONRenderer(),
             ]
         )
@@ -112,16 +114,30 @@ def init_logging(settings: LogSettings) -> None:
         processors=processors,
     )
 
-    handler = logging.StreamHandler()
+    handler = _ApplicationLogHandler()
     handler.setFormatter(formatter)
 
     root_logger = logging.getLogger()
+    for existing in root_logger.handlers[:]:
+        if isinstance(existing, _ApplicationLogHandler):
+            root_logger.removeHandler(existing)
+            existing.close()
     root_logger.addHandler(handler)
 
     root_logger.setLevel(settings.level)
 
     werkzeug_logger = logging.getLogger("werkzeug")
     werkzeug_logger.disabled = True
+
+    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        server_logger = logging.getLogger(name)
+        server_logger.handlers.clear()
+        server_logger.propagate = True
+        server_logger.setLevel(logging.NOTSET)
+
+
+class _ApplicationLogHandler(logging.StreamHandler[Any]):
+    """An owned sink that can be replaced without removing host/test handlers."""
 
 
 def add_otel_context_processor(_: Any, __: str, event_dict: EventDict) -> EventDict:
