@@ -78,7 +78,7 @@ async def metrics(request: Request) -> Response:
             telemetry.export_metrics(settings.prometheus),
             media_type="text/plain; version=0.0.4",
         )
-    except Exception as exception:
+    except Exception as exception:  # noqa: BLE001 - Metrics failures use the shared fallback.
         context = _context(request)
         return _response(
             request,

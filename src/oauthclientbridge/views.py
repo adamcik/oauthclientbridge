@@ -135,7 +135,7 @@ def metrics() -> flask.Response:
         return flask.Response(
             telemetry.export_metrics(), mimetype="text/plain; version=0.0.4"
         )
-    except Exception as exception:
+    except Exception as exception:  # noqa: BLE001 - Metrics failures use the shared fallback.
         return _fallback(types.Endpoint.METRICS, exception)
 
 

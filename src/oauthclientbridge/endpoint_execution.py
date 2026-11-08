@@ -46,7 +46,7 @@ async def run[**P](
     """
     try:
         result = await operation(*args, **kwargs)
-    except Exception as exception:
+    except Exception as exception:  # noqa: BLE001 - Endpoint failures use the shared fallback.
         response = fallback(settings, fallback_observer, endpoint, exception)
         _observe_outcome(outcome_observer, endpoint, response, OAuthError.SERVER_ERROR)
         return EndpointResult(

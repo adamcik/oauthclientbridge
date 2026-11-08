@@ -42,7 +42,7 @@ class RequestLifecycleObserver:
             structlog.contextvars.clear_contextvars()
             _request.set(request)
             _started_at.set(time.perf_counter_ns())
-        except Exception:
+        except Exception:  # noqa: BLE001 - Observation must not affect request handling.
             return
 
     def complete(
@@ -82,7 +82,7 @@ class RequestLifecycleObserver:
                 self._formatter.format(self._access_log_format, **attributes),
                 **attributes,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 - Observation must not affect request handling.
             return
         finally:
             _request.set(None)
@@ -139,7 +139,7 @@ class RequestLifecycleMiddleware:
                 headers = _headers(message["headers"])
                 try:
                     self.response_header_observer(headers)
-                except Exception:
+                except Exception:  # noqa: BLE001, S110 - A broken observer must not block sending headers.
                     pass
                 response = observer.RequestLifecycleResponse(
                     status_code=message["status"],
