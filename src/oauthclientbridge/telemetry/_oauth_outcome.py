@@ -33,6 +33,5 @@ class OAuthOutcomeObserver:
                     status=_prometheus.status(status),
                     error=error.value,
                 ).inc()
-        except Exception:
-            # Observation failures must never change the OAuth response.
+        except Exception:  # noqa: BLE001 - Observation must not change the OAuth response.
             return

@@ -219,7 +219,7 @@ def _logging_log_hook(span: trace.Span, record: object) -> None:
     if not span or not span.is_recording():
         return
 
-    setattr(record, "telemetry_attributes", otel_log_attributes(span))
+    setattr(record, "telemetry_attributes", otel_log_attributes(span))  # noqa: B010 - The hook extends a third-party record.
 
 
 _system_metrics_instrumentor = SystemMetricsInstrumentor()
