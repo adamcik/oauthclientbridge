@@ -2,10 +2,10 @@ import contextlib
 import sqlite3
 import time
 import uuid
+from collections.abc import Generator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from importlib import resources
-from typing import Generator
 
 from flask import g, has_app_context
 from opentelemetry import metrics, trace
