@@ -2,7 +2,7 @@ import hmac
 from collections.abc import Awaitable, Callable
 from functools import partial
 from http import HTTPStatus
-from typing import ParamSpec, cast
+from typing import cast
 
 import anyio
 import flask
@@ -14,7 +14,6 @@ from oauthclientbridge import bridge, endpoint_execution, observer, telemetry, t
 from oauthclientbridge.settings import Settings, current_settings
 
 routes = Blueprint("views", __name__)
-P = ParamSpec("P")
 
 
 @routes.route("/")
@@ -94,7 +93,7 @@ def token() -> flask.Response:
     )
 
 
-def _run(
+def _run[**P](
     endpoint: types.Endpoint,
     operation: Callable[P, Awaitable[bridge.BridgeResult]],
     /,

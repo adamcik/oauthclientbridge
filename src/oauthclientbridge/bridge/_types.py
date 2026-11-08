@@ -1,12 +1,11 @@
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from http import HTTPStatus
-from typing import TypeAlias
 
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.types import JsonDict
 
-Session: TypeAlias = dict[str, str]
+type Session = dict[str, str]
 # OAuth responses can contain credentials or authorization state. Keep the cache
 # policy with their value type so every Bridge response producer gets it.
 _NO_CACHE_HEADERS = {

@@ -1,7 +1,6 @@
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from http import HTTPStatus
-from typing import ParamSpec
 
 import structlog
 
@@ -9,7 +8,6 @@ from oauthclientbridge import bridge, observer, types
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import Settings
 
-P = ParamSpec("P")
 logger: structlog.BoundLogger = structlog.get_logger()
 
 
@@ -26,7 +24,7 @@ class EndpointResult:
     log_context: dict[str, str]
 
 
-async def run(
+async def run[**P](
     settings: Settings,
     fallback_observer: observer.FallbackObserver,
     outcome_observer: observer.OAuthOutcomeObserver,

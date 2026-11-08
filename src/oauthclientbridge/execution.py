@@ -9,13 +9,9 @@ and do not use this module.
 
 from collections.abc import Awaitable, Callable
 from threading import current_thread, get_ident
-from typing import ParamSpec, TypeVar
 
 from anyio import from_thread, to_thread
 from opentelemetry import trace
-
-P = ParamSpec("P")
-T = TypeVar("T")
 
 tracer = trace.get_tracer(__name__)
 
@@ -28,7 +24,7 @@ def _thread_attributes() -> dict[str, str | int]:
     }
 
 
-async def run_sync(
+async def run_sync[**P, T](
     name: str, func: Callable[P, T], *args: P.args, **kwargs: P.kwargs
 ) -> T:
     """Run blocking synchronous work from async code in a traced worker thread.
@@ -47,7 +43,7 @@ async def run_sync(
     return await to_thread.run_sync(traced)
 
 
-def run_from_thread(
+def run_from_thread[**P, T](
     name: str, func: Callable[P, Awaitable[T]], *args: P.args, **kwargs: P.kwargs
 ) -> T:
     """Call async code from an AnyIO worker thread with a trace boundary.

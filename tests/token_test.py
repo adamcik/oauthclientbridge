@@ -1,6 +1,7 @@
 import urllib.parse
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, Protocol, cast
+from typing import Protocol, cast
 
 import pytest
 import requests
