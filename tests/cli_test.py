@@ -1,5 +1,6 @@
 import sqlite3
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from unittest import mock
 
@@ -80,24 +81,31 @@ def test_serve_rejects_invalid_worker_count() -> None:
     run.assert_not_called()
 
 
+@dataclass(frozen=True)
+class UsageCase:
+    id: str
+    args: list[str]
+    exit_code: int
+
+
 @pytest.mark.parametrize(
-    ("args", "exit_code"),
+    "case",
     [
-        pytest.param(["--help"], 0, id="help"),
-        pytest.param(["serve", "--workers", "0"], 2, id="usage-error"),
+        UsageCase(id="help", args=["--help"], exit_code=0),
+        UsageCase(id="usage-error", args=["serve", "--workers", "0"], exit_code=2),
     ],
+    ids=lambda case: case.id,
 )
 def test_main_preserves_typer_help_and_usage_errors(
-    args: list[str],
-    exit_code: int,
+    case: UsageCase,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    monkeypatch.setattr(sys, "argv", ["oauthclientbridge", *args])
+    monkeypatch.setattr(sys, "argv", ["oauthclientbridge", *case.args])
     with pytest.raises(SystemExit) as exit:
         cli.main()
 
-    assert exit.value.code == exit_code
+    assert exit.value.code == case.exit_code
     output = capsys.readouterr()
     assert "Usage:" in output.out + output.err
     assert "Startup failed" not in output.out + output.err
