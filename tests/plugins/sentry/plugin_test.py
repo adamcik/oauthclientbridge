@@ -113,8 +113,9 @@ def test_sentry_captures_user_and_tags(capsentry: SentryCapture) -> None:
 def test_sentry_captures_log_breadcrumbs(capsentry: SentryCapture) -> None:
     logs.init_logging(LogSettings(level=LogLevel.DEBUG))
 
-    logging.info("Starting the process.")
-    logging.warning("Something looks suspicious.")
+    logger = logging.getLogger(__name__)
+    logger.info("Starting the process.")
+    logger.warning("Something looks suspicious.")
 
     try:
         raise ValueError("test exception")

@@ -9,7 +9,7 @@ from urllib.parse import parse_qs
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
-    def do_POST(self) -> None:  # noqa: N802
+    def do_POST(self) -> None:
         length = int(self.headers.get("Content-Length", "0"))
         form = parse_qs(self.rfile.read(length).decode())
         expected = {
@@ -31,7 +31,7 @@ class Handler(BaseHTTPRequestHandler):
             },
         )
 
-    def log_message(self, format: str, *args: object) -> None:  # noqa: A002
+    def log_message(self, format: str, *args: object) -> None:
         del format, args
 
     def _respond(self, status: HTTPStatus, payload: dict[str, str]) -> None:
