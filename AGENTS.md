@@ -12,6 +12,6 @@ Prefer `pytest -q` for lower-noise test runs unless fuller output is needed.
 
 Run typing checks through `nix develop --command basedpyright` or `nix flake check`; do not invoke the virtualenv's type checker directly.
 
-For parametrized scenarios, use case DTOs with an `id` field and keyword-style construction, such as `Failure(id="missing-template", ...)`. Derive test names with `ids=lambda case: case.id` rather than wrapping cases in `pytest.param` or maintaining separate ID lists.
+For parametrized scenarios, name DTOs `<Name>Case` or `<Name>Scenario`, give them an `id` field, and use keyword-style construction, such as `FailureCase(id="missing-template", ...)`. Derive test names with `ids=lambda case: case.id` rather than wrapping cases in `pytest.param` or maintaining separate ID lists.
 
 When working through review feedback, pick one agreed change, make the smallest correct edit, verify it, and keep commits atomic.
