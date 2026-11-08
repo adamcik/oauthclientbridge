@@ -13,75 +13,81 @@ from tests.plugins import sentry
 
 @dataclass(frozen=True)
 class Failure:
+    id: str
     environment: dict[str, str] = field(default_factory=dict)
     error_type: str = "FileNotFoundError"
+
+
+@dataclass(frozen=True)
+class Command:
+    id: str
+    args: list[str]
+
+
+@dataclass(frozen=True)
+class ConsoleCase:
+    id: str
+    explicit: bool
 
 
 @pytest.mark.parametrize(
     "command",
     [
-        pytest.param(
-            [
+        Command(
+            id="cli",
+            args=[
                 "from oauthclientbridge import cli; cli.main()",
                 "serve",
                 "--workers",
                 "1",
             ],
-            id="cli",
         ),
-        pytest.param(
-            ["from oauthclientbridge import asgi; asgi.create_app()"], id="asgi-factory"
+        Command(
+            id="asgi-factory",
+            args=["from oauthclientbridge import asgi; asgi.create_app()"],
         ),
-        pytest.param(["import oauthclientbridge.wsgi"], id="wsgi"),
+        Command(id="wsgi", args=["import oauthclientbridge.wsgi"]),
     ],
+    ids=lambda case: case.id,
 )
 @pytest.mark.parametrize(
     "failure",
     [
-        pytest.param(Failure(), id="missing-template"),
-        pytest.param(
-            Failure(
-                environment={"LOG_LEVEL": "startup-secret-must-not-appear"},
-                error_type="ValidationError",
-            ),
+        Failure(id="missing-template"),
+        Failure(
             id="invalid-logging-settings",
+            environment={"LOG_LEVEL": "startup-secret-must-not-appear"},
+            error_type="ValidationError",
         ),
-        pytest.param(
-            Failure(
-                environment={
-                    "BRIDGE_SESSION_COOKIE_SECURE": "startup-secret-must-not-appear"
-                },
-                error_type="ValidationError",
-            ),
+        Failure(
             id="invalid-app-settings",
+            environment={
+                "BRIDGE_SESSION_COOKIE_SECURE": "startup-secret-must-not-appear"
+            },
+            error_type="ValidationError",
         ),
-        pytest.param(
-            Failure(
-                environment={"OAUTH_SCOPES": "startup-secret-must-not-appear"},
-                error_type="SettingsError",
-            ),
+        Failure(
             id="invalid-settings-json",
+            environment={"OAUTH_SCOPES": "startup-secret-must-not-appear"},
+            error_type="SettingsError",
         ),
-        pytest.param(
-            Failure(
-                environment={"SENTRY_SAMPLE_RATE": "startup-secret-must-not-appear"},
-                error_type="ValidationError",
-            ),
+        Failure(
             id="invalid-observability-settings",
+            environment={"SENTRY_SAMPLE_RATE": "startup-secret-must-not-appear"},
+            error_type="ValidationError",
         ),
-        pytest.param(
-            Failure(
-                environment={
-                    "BRIDGE_ERROR_LEVELS": '{"startup-secret-must-not-appear": "bad"}'
-                },
-                error_type="ValidationError",
-            ),
+        Failure(
             id="invalid-dictionary-setting",
+            environment={
+                "BRIDGE_ERROR_LEVELS": '{"startup-secret-must-not-appear": "bad"}'
+            },
+            error_type="ValidationError",
         ),
     ],
+    ids=lambda case: case.id,
 )
 def test_startup_failure_is_one_safe_json_error(
-    tmp_path: Path, command: list[str], failure: Failure
+    tmp_path: Path, command: Command, failure: Failure
 ) -> None:
     missing_template = tmp_path / "missing.html"
     prefixes = ("OAUTH_", "BRIDGE_", "LOG_", "SENTRY_", "TELEMETRY_", "DB_")
@@ -91,7 +97,7 @@ def test_startup_failure_is_one_safe_json_error(
         if not key.startswith(prefixes) and key != "CREDENTIALS_DIRECTORY"
     }
     result = subprocess.run(
-        [sys.executable, "-c", *command],
+        [sys.executable, "-c", *command.args],
         check=False,
         env={
             **environment,
@@ -124,16 +130,21 @@ def test_startup_failure_is_one_safe_json_error(
 
 
 @pytest.mark.parametrize(
-    "explicit_console", [False, True], ids=["tty-default", "explicit"]
+    "case",
+    [
+        ConsoleCase(id="tty-default", explicit=False),
+        ConsoleCase(id="explicit", explicit=True),
+    ],
+    ids=lambda case: case.id,
 )
 def test_bootstrap_keeps_console_output(
-    explicit_console: bool,
+    case: ConsoleCase,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.delenv("LOG_JSON_OUTPUT", raising=False)
-    monkeypatch.setattr(sys.stdout, "isatty", lambda: not explicit_console)
-    if explicit_console:
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: not case.explicit)
+    if case.explicit:
         monkeypatch.setenv("LOG_JSON_OUTPUT", "false")
     with pytest.raises(SystemExit) as exit, startup.bootstrap():
         raise FileNotFoundError(2, "No such file", "missing.html")
