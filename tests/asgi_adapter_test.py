@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
+from typing import ClassVar
 from urllib.parse import parse_qs, urlsplit
 
 import httpx
@@ -163,10 +164,10 @@ async def test_asgi_callback_reuses_its_upstream_connection(
 
     class OAuthHandler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
-        connections: set[tuple[str, int]] = set()
+        connections: ClassVar[set[tuple[str, int]]] = set()
         response_status = HTTPStatus.OK
 
-        def do_POST(self) -> None:  # noqa: N802 # Required by BaseHTTPRequestHandler.
+        def do_POST(self) -> None:  # Required by BaseHTTPRequestHandler.
             self.connections.add(self.client_address)
             length = int(self.headers["Content-Length"])
             self.rfile.read(length)
