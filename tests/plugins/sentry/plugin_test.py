@@ -1,6 +1,7 @@
 import importlib
 import logging
 import sys
+from collections.abc import Generator
 from typing import TypeGuard
 from unittest.mock import patch
 
@@ -8,11 +9,11 @@ import pytest
 import sentry_sdk
 from opentelemetry import trace
 from pydantic import SecretStr
+from pytest_sentry_capture import FakeTransport, SentryCapture
 
-from oauthclientbridge import logs
+from oauthclientbridge import logs, telemetry
 from oauthclientbridge.settings import LogLevel, LogSettings, SentrySettings
 from oauthclientbridge.telemetry import _sentry
-from pytest_sentry_capture import FakeTransport, SentryCapture
 
 type SentryEvent = dict[str, object]
 
@@ -32,10 +33,15 @@ def sentry_settings() -> SentrySettings:
 def capsentry(
     sentry_transport: FakeTransport,
     sentry_settings: SentrySettings,
-    sentry_capture: SentryCapture,
-) -> SentryCapture:
-    _sentry.init(sentry_settings, "flask", sentry_transport)
-    return sentry_capture
+    sentry_isolation_scope: None,
+) -> Generator[SentryCapture, None, None]:
+    client = None
+    try:
+        telemetry.init_sentry(sentry_settings, "flask", sentry_transport)
+        client = sentry_sdk.get_client()
+        yield SentryCapture(sentry_transport.captured_envelopes, client=client)
+    finally:
+        (client if client is not None else sentry_sdk.get_client()).close()
 
 
 def test_init_sentry_disabled() -> None:
@@ -102,6 +108,7 @@ def test_sentry_captures_user_and_tags(capsentry: SentryCapture) -> None:
     except ValueError:
         sentry_sdk.capture_exception()
 
+    capsentry.flush()
     event = next(capsentry.get_events())
 
     assert "user" in event
@@ -123,6 +130,7 @@ def test_sentry_captures_log_breadcrumbs(capsentry: SentryCapture) -> None:
     except ValueError:
         sentry_sdk.capture_exception()
 
+    capsentry.flush()
     info_log = capsentry.find_breadcrumb_by_level("info")
     assert info_log["message"] == "Starting the process."
 
@@ -139,6 +147,7 @@ def test_sentry_captures_chained_exception(capsentry: SentryCapture) -> None:
     except TypeError:
         sentry_sdk.capture_exception()
 
+    capsentry.flush()
     assert len(list(capsentry.get_exceptions())) == 2
     capsentry.find_exception_by_type("ZeroDivisionError")
     capsentry.find_exception_by_type("TypeError")
@@ -156,6 +165,7 @@ def test_sentry_captures_otel_span(
     except ValueError:
         sentry_sdk.capture_exception()
 
+    capsentry.flush()
     trace_context = sentry_trace_context(next(capsentry.get_events()))
     assert trace_context.get("trace_id") is not None
     assert trace_context.get("span_id") is not None
