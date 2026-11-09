@@ -2,9 +2,6 @@ from collections.abc import Generator
 
 import pytest
 from opentelemetry import metrics, trace
-
-from oauthclientbridge import telemetry
-from oauthclientbridge.settings import TelemetryComponent, TelemetrySettings
 from pytest_otel_capture import (
     InMemoryLogRecordExporter,
     InMemoryMetricReader,
@@ -12,6 +9,9 @@ from pytest_otel_capture import (
     OTelMocker,
     reset_otel_once,
 )
+
+from oauthclientbridge import telemetry
+from oauthclientbridge.settings import TelemetryComponent, TelemetrySettings
 
 
 @pytest.fixture(name="reset_otel_once")

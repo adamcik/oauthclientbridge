@@ -8,11 +8,11 @@ from flask import Flask
 from flask.testing import FlaskClient
 from opentelemetry import trace
 from prometheus_client.parser import text_string_to_metric_families
+from pytest_otel_capture import OTelMocker
 
 from oauthclientbridge import crypto, db, telemetry
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import Settings
-from pytest_otel_capture import OTelMocker
 from pytest_sentry_capture import SentryCapture
 
 from .conftest import TokenTuple

@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import httpx
 import pytest
+from pytest_otel_capture import OTelMocker
 from starlette.applications import Starlette
 from starlette.requests import Request
 
@@ -20,7 +21,6 @@ from oauthclientbridge.routes import (
     _response,  # pyright: ignore[reportPrivateUsage] # Adapter session-translation test.
 )
 from oauthclientbridge.settings import FetchSettings, Settings
-from pytest_otel_capture import OTelMocker
 from tests.oauth_server import OAuthServer
 from tests.prometheus import sample_value
 
