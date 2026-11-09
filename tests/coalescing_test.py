@@ -2,8 +2,8 @@ import threading
 import time
 
 import pytest
-
 import pytest_otel_capture as otel_capture
+
 from oauthclientbridge import settings, telemetry
 from oauthclientbridge.utils.coalescing import CoalescingWorker
 
