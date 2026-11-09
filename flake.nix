@@ -98,6 +98,18 @@
             pyproject-build-systems.overlays.default
             overlay
             (final: prev: {
+              # Git sources need explicit build tools until capture ships a compatible wheel.
+              pytest-otel-capture = prev.pytest-otel-capture.overrideAttrs (old: {
+                nativeBuildInputs =
+                  old.nativeBuildInputs
+                  ++ final.resolveBuildSystem {
+                    editables = [];
+                    hatch-vcs = [];
+                    hatchling = [];
+                  };
+                env = (old.env or {}) // {SETUPTOOLS_SCM_PRETEND_VERSION = old.version;};
+              });
+
               # Basedpyright's bundled Node crashes with newer
               # Nix inputs. Use the Nix-built runtime at the wheel's expected path.
               nodejs-wheel-binaries = prev.nodejs-wheel-binaries.overrideAttrs (old: {

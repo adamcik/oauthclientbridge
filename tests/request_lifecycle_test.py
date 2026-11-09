@@ -11,11 +11,11 @@ import httpx
 import pytest
 from flask.testing import FlaskClient
 from prometheus_client.parser import text_string_to_metric_families
+from pytest_otel_capture import OTelMocker
 
 from oauthclientbridge import create_app, logs, oauth
 from oauthclientbridge.asgi import create_app as create_asgi_app
 from oauthclientbridge.settings import Settings
-from pytest_otel_capture import OTelMocker
 
 
 @asynccontextmanager

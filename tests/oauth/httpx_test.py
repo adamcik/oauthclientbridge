@@ -6,6 +6,12 @@ import anyio
 import pytest
 from opentelemetry import trace
 from opentelemetry.sdk.metrics.export import HistogramDataPoint, NumberDataPoint
+from pytest_otel_capture import (
+    OTelMocker,
+    assert_trace_header,
+    assert_trace_id,
+    latest_metric_data,
+)
 
 from oauthclientbridge import oauth, telemetry, types
 from oauthclientbridge.oauth import (
@@ -18,12 +24,6 @@ from oauthclientbridge.settings import (
 )
 from oauthclientbridge.telemetry import (
     _prometheus as stats,  # pyright: ignore[reportPrivateUsage] # Metric emission contract.
-)
-from pytest_otel_capture import (
-    OTelMocker,
-    assert_trace_header,
-    assert_trace_id,
-    latest_metric_data,
 )
 from tests.oauth_server import OAuthServer
 from tests.prometheus import sample_value
