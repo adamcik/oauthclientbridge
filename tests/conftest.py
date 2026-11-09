@@ -12,6 +12,8 @@ from uuid import uuid4
 import anyio
 import httpx
 import pytest
+import pytest_sentry_capture
+import sentry_sdk
 import structlog
 from flask import Flask
 from flask.ctx import AppContext
@@ -19,7 +21,7 @@ from flask.testing import FlaskClient
 from pydantic import SecretStr
 from werkzeug.datastructures import Headers
 
-from oauthclientbridge import bridge, create_app, crypto, db, oauth, types
+from oauthclientbridge import bridge, create_app, crypto, db, oauth, telemetry, types
 from oauthclientbridge.asgi import create_app as create_asgi_app
 from oauthclientbridge.oauth import (
     _retry as oauth_retry,  # pyright: ignore[reportPrivateUsage] # Global retry limiter reset.
@@ -27,11 +29,12 @@ from oauthclientbridge.oauth import (
 from oauthclientbridge.settings import (
     DatabaseSettings,
     OAuthSettings,
+    SentrySettings,
     Settings,
 )
 from tests.oauth_server import OAuthServer
 
-pytest_plugins = ["tests.plugins.sentry", "tests.plugins.otel"]
+pytest_plugins = ["tests.plugins.otel"]
 
 
 @pytest.fixture(autouse=True)
@@ -39,6 +42,35 @@ def _isolate_sentry(  # pyright: ignore[reportUnusedFunction] # Used by pytest.
     sentry_isolation_scope: None,
 ) -> None:
     pass
+
+
+@pytest.fixture
+def app_sentry_capture(
+    sentry_transport: pytest_sentry_capture.FakeTransport,
+    sentry_isolation_scope: None,
+) -> Generator[pytest_sentry_capture.SentryCapture, None, None]:
+    """Use production SDK configuration, not the capture plugin's generic client.
+
+    Only the transport is replaced; this fixture owns the application client.
+    """
+    client = None
+    try:
+        telemetry.init_sentry(
+            SentrySettings(
+                enabled=True,
+                dsn=SecretStr("https://key@example.invalid/1"),
+                sample_rate=1.0,
+                traces_sample_rate=1.0,
+            ),
+            "flask",
+            sentry_transport,
+        )
+        client = sentry_sdk.get_client()
+        yield pytest_sentry_capture.SentryCapture(
+            sentry_transport.captured_envelopes, client=client
+        )
+    finally:
+        (client if client is not None else sentry_sdk.get_client()).close()
 
 
 @pytest.fixture(autouse=True)

@@ -1,15 +1,11 @@
-from .plugin import (
+"""Compatibility imports for Sentry capture types, not plugin registration."""
+
+from pytest_sentry_capture import (
     FakeTransport,
     SentryCapture,
-    sentry_capture,
-    sentry_isolation_scope,
-    sentry_transport,
 )
 
 __all__ = [
     "FakeTransport",
     "SentryCapture",
-    "sentry_capture",
-    "sentry_isolation_scope",
-    "sentry_transport",
 ]
