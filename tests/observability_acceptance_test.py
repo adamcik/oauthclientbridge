@@ -8,12 +8,12 @@ from flask import Flask
 from flask.testing import FlaskClient
 from opentelemetry import trace
 from prometheus_client.parser import text_string_to_metric_families
+from pytest_sentry_capture import SentryCapture
 
 from oauthclientbridge import crypto, db, telemetry
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import Settings
 from pytest_otel_capture import OTelMocker
-from pytest_sentry_capture import SentryCapture
 
 from .conftest import TokenTuple
 
@@ -96,7 +96,7 @@ class ExpectedOAuthFailure:
 def test_expected_oauth_failures_have_safe_observability(
     client: FlaskClient,
     otel_mock: OTelMocker,
-    sentry_capture: SentryCapture,
+    app_sentry_capture: SentryCapture,
     case: ExpectedOAuthFailure,
     settings: Settings,
 ) -> None:
@@ -123,14 +123,15 @@ def test_expected_oauth_failures_have_safe_observability(
     ]
     assert len(outcome_spans) == 1
     assert outcome_spans[0].status.status_code == trace.StatusCode.UNSET
-    assert list(sentry_capture.get_exceptions()) == []
+    app_sentry_capture.flush()
+    assert list(app_sentry_capture.get_exceptions()) == []
 
 
 def test_unexpected_token_failure_has_safe_response_and_error_observability(
     client: FlaskClient,
     monkeypatch: pytest.MonkeyPatch,
     otel_mock: OTelMocker,
-    sentry_capture: SentryCapture,
+    app_sentry_capture: SentryCapture,
     access_token: TokenTuple,
 ) -> None:
     def fail(*_: object) -> None:
@@ -172,14 +173,15 @@ def test_unexpected_token_failure_has_safe_response_and_error_observability(
         and event.attributes["exception.type"] == "RuntimeError"
         for event in outcome_spans[0].events
     )
-    exceptions = list(sentry_capture.get_exceptions())
+    app_sentry_capture.flush()
+    exceptions = list(app_sentry_capture.get_exceptions())
     assert [exception["type"] for exception in exceptions] == ["RuntimeError"]
 
 
 def test_unexpected_authorize_failure_has_safe_browser_response(
     client: FlaskClient,
     monkeypatch: pytest.MonkeyPatch,
-    sentry_capture: SentryCapture,
+    app_sentry_capture: SentryCapture,
 ) -> None:
     def fail() -> str:
         raise RuntimeError("internal detail")
@@ -195,7 +197,8 @@ def test_unexpected_authorize_failure_has_safe_browser_response(
     assert response.headers["Referrer-Policy"] == "no-referrer"
     assert response.headers["Cache-Control"] == "no-store"
     assert response.headers["Pragma"] == "no-cache"
-    assert [exception["type"] for exception in sentry_capture.get_exceptions()] == [
+    app_sentry_capture.flush()
+    assert [exception["type"] for exception in app_sentry_capture.get_exceptions()] == [
         "RuntimeError"
     ]
 
@@ -204,7 +207,7 @@ def test_metrics_failure_is_safe_and_not_an_oauth_outcome(
     client: FlaskClient,
     monkeypatch: pytest.MonkeyPatch,
     otel_mock: OTelMocker,
-    sentry_capture: SentryCapture,
+    app_sentry_capture: SentryCapture,
 ) -> None:
     def fail() -> NoReturn:
         raise RuntimeError("internal detail")
@@ -219,7 +222,8 @@ def test_metrics_failure_is_safe_and_not_an_oauth_outcome(
     assert response.headers["Cache-Control"] == "no-store"
     assert response.headers["Pragma"] == "no-cache"
     assert "internal detail" not in response.text
-    assert [exception["type"] for exception in sentry_capture.get_exceptions()] == [
+    app_sentry_capture.flush()
+    assert [exception["type"] for exception in app_sentry_capture.get_exceptions()] == [
         "RuntimeError"
     ]
     assert all(
@@ -230,18 +234,19 @@ def test_metrics_failure_is_safe_and_not_an_oauth_outcome(
 
 def test_framework_native_routing_responses_remain_unhandled(
     client: FlaskClient,
-    sentry_capture: SentryCapture,
+    app_sentry_capture: SentryCapture,
 ) -> None:
     assert client.get("/not-found").status_code == HTTPStatus.NOT_FOUND
     assert client.get("/token").status_code == HTTPStatus.METHOD_NOT_ALLOWED
-    assert list(sentry_capture.get_exceptions()) == []
+    app_sentry_capture.flush()
+    assert list(app_sentry_capture.get_exceptions()) == []
 
 
 def test_unknown_failure_is_safe_and_not_an_oauth_outcome(
     app: Flask,
     client: FlaskClient,
     otel_mock: OTelMocker,
-    sentry_capture: SentryCapture,
+    app_sentry_capture: SentryCapture,
 ) -> None:
     def fail() -> None:
         raise RuntimeError("internal detail")
@@ -256,7 +261,8 @@ def test_unknown_failure_is_safe_and_not_an_oauth_outcome(
     assert response.headers["Cache-Control"] == "no-store"
     assert response.headers["Pragma"] == "no-cache"
     assert "internal detail" not in response.text
-    assert [exception["type"] for exception in sentry_capture.get_exceptions()] == [
+    app_sentry_capture.flush()
+    assert [exception["type"] for exception in app_sentry_capture.get_exceptions()] == [
         "RuntimeError"
     ]
     assert all(

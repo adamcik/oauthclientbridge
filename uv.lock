@@ -418,6 +418,7 @@ dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pytest-freezer" },
+    { name = "pytest-sentry-capture" },
     { name = "pytest-xdist" },
     { name = "requests-mock" },
     { name = "ruff" },
@@ -436,6 +437,7 @@ test = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pytest-freezer" },
+    { name = "pytest-sentry-capture" },
     { name = "pytest-xdist" },
     { name = "requests-mock" },
     { name = "sentry-sdk", extra = ["opentelemetry"] },
@@ -483,6 +485,7 @@ dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pytest-freezer" },
+    { name = "pytest-sentry-capture", specifier = "~=0.2.0" },
     { name = "pytest-xdist" },
     { name = "requests-mock" },
     { name = "ruff", specifier = "==0.17.3" },
@@ -499,6 +502,7 @@ test = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pytest-freezer" },
+    { name = "pytest-sentry-capture", specifier = "~=0.2.0" },
     { name = "pytest-xdist" },
     { name = "requests-mock" },
     { name = "sentry-sdk", extras = ["opentelemetry"], specifier = "==2.73.0" },
@@ -975,6 +979,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/81/f0/98dcbc5324064360b19850b14c84cea9ca50785d921741dbfc442346e925/pytest_freezer-0.4.9.tar.gz", hash = "sha256:21bf16bc9cc46bf98f94382c4b5c3c389be7056ff0be33029111ae11b3f1c82a", size = 3177, upload-time = "2024-12-12T08:53:08.684Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c1/e9/30252bc05bcf67200a17f4f0b4cc7598f0a68df4fa9fa356193aa899f145/pytest_freezer-0.4.9-py3-none-any.whl", hash = "sha256:8b6c50523b7d4aec4590b52bfa5ff766d772ce506e2bf4846c88041ea9ccae59", size = 3192, upload-time = "2024-12-12T08:53:07.641Z" },
+]
+
+[[package]]
+name = "pytest-sentry-capture"
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pytest" },
+    { name = "sentry-sdk" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/3a/97/42366c57b3b00aec50bf9382c01cb76ff54e8f5a37c10456d4f39f0e81df/pytest_sentry_capture-0.2.0.tar.gz", hash = "sha256:71fc84af5853baf123a1369f553ea6eba5f69e77684dc93c6774ce89534a1bdf", size = 60383, upload-time = "2026-10-23T12:55:35.495Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/64/76/24d409bb5facb0ae8988e41789225ffdfe60f1faa3a48a93874ba71c0233/pytest_sentry_capture-0.2.0-py3-none-any.whl", hash = "sha256:89847219e592575cc02d0c7c614ed2fa924b2b445b2150d701d1c2b4fa9ba501", size = 13606, upload-time = "2026-10-23T12:55:34.064Z" },
 ]
 
 [[package]]

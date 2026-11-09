@@ -59,6 +59,7 @@ test = [
   "pytest",
   "pytest-cov",
   "pytest-freezer",
+  "pytest-sentry-capture~=0.2.0",
   "pytest-xdist",
   "requests_mock",
   { include-group = "sentry" },
@@ -80,7 +81,6 @@ source = "vcs"
 packages = [
   "src/oauthclientbridge",
   "src/pytest_otel_capture",
-  "src/pytest_sentry_capture",
 ]
 
 [tool.pyright]
