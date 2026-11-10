@@ -49,9 +49,14 @@ def app_sentry_capture(
     sentry_transport: pytest_sentry_capture.FakeTransport,
     sentry_isolation_scope: None,
 ) -> Generator[pytest_sentry_capture.SentryCapture, None, None]:
-    """Use production SDK configuration, not the capture plugin's generic client.
+    """Capture events processed by oauthclientbridge's real Sentry setup.
 
-    Only the transport is replaced; this fixture owns the application client.
+    The library's sentry_capture fixture creates a generic SDK client, bypassing
+    our integrations, sampling, and privacy settings. Run our initializer instead,
+    replacing only its transport so events stay local to the test.
+
+    Bind capture.flush() to that application-created client and close it at
+    teardown: the library's transport and isolation fixtures do not own it.
     """
     client = None
     try:
