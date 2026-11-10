@@ -1,11 +1,11 @@
 from collections.abc import Mapping
 from http import HTTPStatus
 
-import jinja2
+import jinja2.sandbox
 
 from ._types import BridgeResponse
 
-environment = jinja2.Environment(autoescape=True)
+_html_environment = jinja2.sandbox.SandboxedEnvironment(autoescape=True)
 
 
 def render_template(
@@ -30,7 +30,7 @@ def render_template(
     return BridgeResponse(
         status=status,
         headers=response_headers,
-        body=environment.from_string(template)
+        body=_html_environment.from_string(template)
         .render(variables=variables, **variables)
         .encode("utf-8"),
     )
