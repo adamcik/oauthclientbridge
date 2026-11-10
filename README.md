@@ -89,8 +89,18 @@ See [native NixOS deployment](docs/nixos.md) or the existing
 -   Callback HTML has a restrictive default CSP plus no-referrer, nosniff, and
     permissions-policy headers. Custom callback templates using scripts or
     external resources must set `BRIDGE_CALLBACK_CONTENT_SECURITY_POLICY` to a
-    suitable policy, or explicitly disable it with an empty
-    `BRIDGE_CALLBACK_CONTENT_SECURITY_POLICY` value.
+    suitable policy. For trusted inline scripts, use
+    `<script nonce="{{ csp_nonce }}">` in the template and the policy below.
+    The nonce is fresh per response and shared by the header and template.
+    Both templates use Jinja's sandbox. The HTML template keeps autoescaping and
+    standard filters. The header template receives only `csp_nonce`, has no
+    globals, filters, tests, or loader, and rejects unknown variables. Header
+    output is not HTML-escaped. Continue using `tojson` for values
+    embedded in JavaScript. An empty policy value explicitly disables CSP.
+
+    ```text
+    default-src 'none'; script-src 'nonce-{{ csp_nonce }}'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'
+    ```
 -   `/metrics` is enabled by default. Set `BRIDGE_METRICS_ENABLED=False` to
     disable it, or set `BRIDGE_METRICS_TOKEN` to require bearer authentication.
     Metrics expose

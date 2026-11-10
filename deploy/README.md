@@ -62,6 +62,11 @@ Image defaults (via nix2container) pin these settings:
 
 Use per-instance env files for secrets/provider settings; only set these in env files when intentionally overriding defaults.
 
+The supplied callback templates and all four provider env files use matching
+`csp_nonce` placeholders to authorize their inline scripts. Update both the
+template and policy when replacing either. The application generates a fresh
+nonce per response; do not replace the placeholder with a fixed value.
+
 SoundCloud note:
 
 - Keep `OAUTH_REDIRECT_URI=https://www.mopidy.com/soundcloud_callback`.
