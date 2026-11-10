@@ -1,5 +1,8 @@
 from http import HTTPStatus
 
+import jinja2.sandbox
+import pytest
+
 from oauthclientbridge.bridge import _template
 
 
@@ -36,3 +39,20 @@ def test_render_template_omits_disabled_content_security_policy():
     response = _template.render_template("callback", {}, status=HTTPStatus.BAD_REQUEST)
 
     assert "Content-Security-Policy" not in response.headers
+
+
+def test_html_template_sandbox_rejects_private_attribute_traversal():
+    with pytest.raises(jinja2.sandbox.SecurityError):
+        _template.render_template(
+            "{{ value.__class__.__mro__ }}", {"value": "text"}, status=HTTPStatus.OK
+        )
+
+
+def test_html_template_preserves_optional_variables_and_filters():
+    response = _template.render_template(
+        "{% if missing %}optional{% endif %}{{ value|upper }}",
+        {"value": "<text>"},
+        status=HTTPStatus.OK,
+    )
+
+    assert response.body == b"&lt;TEXT&gt;"

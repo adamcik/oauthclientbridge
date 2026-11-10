@@ -395,7 +395,7 @@ class Settings(_CredentialSettings):
 {% endif %}
 """
     """
-    Jinja2 template to use for the callback page. Possible context values are:
+    Sandboxed, autoescaped Jinja2 template for the callback page. Context values are:
     error, description, client_id, client_secret. Should be setup to give the
     client_id and client_secret to the user. Either directly or passing the
     value back to the parent window if this is being run in a pop-up window.
