@@ -399,6 +399,8 @@ class Settings(_CredentialSettings):
     error, description, client_id, client_secret. Should be setup to give the
     client_id and client_secret to the user. Either directly or passing the
     value back to the parent window if this is being run in a pop-up window.
+    The reserved csp_nonce value authorizes trusted inline scripts or styles when
+    also included in callback_content_security_policy.
     """
 
     callback_template_file: Path | None = None
@@ -407,7 +409,11 @@ class Settings(_CredentialSettings):
     callback_content_security_policy: str | None = (
         "default-src 'none'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
     )
-    """CSP for callback HTML. Set to None only when a custom template requires it."""
+    """Sandboxed Jinja2 CSP template with only csp_nonce in its context.
+    Unknown variables raise errors. No globals, filters, tests, or loader are provided.
+    HTML escaping is disabled so policy syntax is preserved.
+    Set to None to omit the header.
+    """
 
     error_levels: dict[str, LogLevel] = Field(
         default_factory=lambda: {

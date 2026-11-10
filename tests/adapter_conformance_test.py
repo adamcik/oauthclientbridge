@@ -84,6 +84,22 @@ async def test_adapter_preserves_safe_browser_oauth_errors(
 
 
 @pytest.mark.parametrize("adapter_client", ["flask", "starlette"], indirect=True)
+async def test_adapter_preserves_callback_nonce(
+    settings: Settings, adapter_client: AdapterClient
+) -> None:
+    settings.callback_template = '<script nonce="{{ csp_nonce }}"></script>'
+    settings.callback_content_security_policy = "script-src 'nonce-{{ csp_nonce }}'"
+
+    async with adapter_client(settings, None) as client:
+        response = await client.get("/callback")
+
+    nonce = response.content.decode("ascii").split('"')[1]
+    assert nonce
+    assert response.headers["content-security-policy"] == f"script-src 'nonce-{nonce}'"
+    assert response.headers["cache-control"] == "no-store"
+
+
+@pytest.mark.parametrize("adapter_client", ["flask", "starlette"], indirect=True)
 async def test_adapter_consumes_callback_session(
     settings: Settings,
     bridge_harness: BridgeHarness,

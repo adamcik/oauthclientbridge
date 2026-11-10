@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <title>Connect with Spotify</title>
-    <script>
+    <script nonce="{{ csp_nonce }}">
       const stateError = {
         error: "INVALID_STATE",
         error_description: "Authentication page send wrong state to pop-up.",

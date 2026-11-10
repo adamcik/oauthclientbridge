@@ -40,3 +40,4 @@ TELEMETRY_DEPLOYMENT_ENVIRONMENT=spotify
 
 WORKERS=4
 THREADS=2
+BRIDGE_CALLBACK_CONTENT_SECURITY_POLICY=default-src 'none'; script-src 'nonce-{{ csp_nonce }}'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'
