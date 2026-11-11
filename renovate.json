@@ -7,9 +7,6 @@
   "nix": {
     "enabled": true
   },
-  "pep621": {
-    "additionalBranchPrefix": ""
-  },
   "labels": ["dependencies"],
   "ignorePaths": ["deploy/**"],
   "lockFileMaintenance": {
