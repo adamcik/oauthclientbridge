@@ -1,11 +1,14 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:best-practices",
+    "github>adamcik/renovate-config:application",
     "github>adamcik/renovate-config:automerge"
   ],
   "nix": {
     "enabled": true
+  },
+  "pep621": {
+    "additionalBranchPrefix": ""
   },
   "labels": ["dependencies"],
   "ignorePaths": ["deploy/**"],
