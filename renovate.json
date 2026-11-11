@@ -1,12 +1,14 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:best-practices"],
+  "extends": [
+    "config:best-practices",
+    "github>adamcik/renovate-config:automerge"
+  ],
   "nix": {
     "enabled": true
   },
   "labels": ["dependencies"],
   "ignorePaths": ["deploy/**"],
-  "platformAutomerge": false,
   "lockFileMaintenance": {
     "enabled": true,
     "schedule": ["before 06:00 on the first day of the month"]
