@@ -129,11 +129,15 @@ def init_logging(settings: LogSettings) -> None:
     werkzeug_logger = logging.getLogger("werkzeug")
     werkzeug_logger.disabled = True
 
-    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+    for name, propagate in {
+        "uvicorn": True,
+        "uvicorn.error": True,
+        # Use our own enriched access logs without duplicating them in Uvicorn.
+        "uvicorn.access": False,
+    }.items():
         server_logger = logging.getLogger(name)
         server_logger.handlers.clear()
-        # Only application access logs redact OAuth callback query values.
-        server_logger.propagate = name != "uvicorn.access"
+        server_logger.propagate = propagate
         server_logger.setLevel(logging.NOTSET)
 
 
