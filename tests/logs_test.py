@@ -1,11 +1,16 @@
+import asyncio
 import json
 import logging
 import os
+import socket
 import threading
+from pathlib import Path
 from typing import cast
 
+import httpx
 import pytest
 import structlog
+import uvicorn
 from flask import Flask, Request
 from opentelemetry import trace
 from opentelemetry.semconv.attributes.client_attributes import (
@@ -32,9 +37,9 @@ from opentelemetry.semconv.attributes.user_agent_attributes import USER_AGENT_OR
 from werkzeug.datastructures import Headers
 from werkzeug.routing import Rule
 
-from oauthclientbridge import logs, oauth, types
+from oauthclientbridge import asgi, db, logs, oauth, startup, types
 from oauthclientbridge.errors import OAuthError
-from oauthclientbridge.settings import LogLevel, LogSettings
+from oauthclientbridge.settings import LogLevel, LogSettings, Settings
 
 tracer = trace.get_tracer(__name__)
 
@@ -96,6 +101,74 @@ def test_reinitializing_logging_does_not_duplicate_server_logs(
     assert len(records) == 1
     assert records[0]["logger"] == "uvicorn.error"
     assert records[0]["event"] == "Server failed"
+
+
+def test_uvicorn_startup_keeps_access_logs_suppressed(
+    instrumented: None,
+    settings: Settings,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    settings.log = LogSettings(json_output=True)
+    settings.database.database = str(tmp_path / "bridge.db")
+    db.initialize(settings.database)
+
+    async def requests() -> None:
+        ready = asyncio.Event()
+
+        class Server(uvicorn.Server):
+            async def startup(self, sockets=None) -> None:
+                await super().startup(sockets=sockets)
+                ready.set()
+
+        # Match CLI bootstrap -> Uvicorn configuration -> factory bootstrap.
+        with startup.bootstrap(settings.log):
+            config = uvicorn.Config(
+                lambda: asgi.create_app(settings),
+                factory=True,
+                proxy_headers=False,
+                log_config=None,
+                access_log=False,
+                host="127.0.0.1",
+                port=0,
+            )
+            server = Server(config)
+            with socket.socket() as listener:
+                listener.bind(("127.0.0.1", 0))
+                task = asyncio.create_task(server.serve(sockets=[listener]))
+                try:
+                    await asyncio.wait_for(ready.wait(), timeout=10)
+                    async with httpx.AsyncClient(
+                        base_url=f"http://127.0.0.1:{listener.getsockname()[1]}"
+                    ) as client:
+                        for _ in range(2):
+                            response = await client.get(
+                                "/callback?code=private-code&state=private-state"
+                            )
+                            assert response.status_code == 400
+                            logs.init_logging(settings.log)
+                    logging.getLogger("uvicorn.error").error("Server error probe")
+                finally:
+                    server.should_exit = True
+                    await asyncio.wait_for(task, timeout=10)
+
+    asyncio.run(requests())
+    output = capsys.readouterr().err
+    records = [parse_log_record(line) for line in output.splitlines()]
+    access = [r for r in records if r["logger"] == "oauthclientbridge.http"]
+    assert len(access) == 2
+    assert all(r[URL_PATH] == "/callback" and "?" not in r["event"] for r in access)
+    assert not any(r["logger"] == "uvicorn.access" for r in records)
+    access_output = "\n".join(
+        json.dumps(r)
+        for r in records
+        if r["logger"] in ("oauthclientbridge.http", "uvicorn.access")
+    )
+    assert "private-code" not in access_output
+    assert "private-state" not in access_output
+    server_logs = [r for r in records if r["logger"] == "uvicorn.error"]
+    assert sum(r["event"] == "Server error probe" for r in server_logs) == 1
+    assert any(r["event"] == "Application startup complete." for r in server_logs)
 
 
 def test_json_exception_has_frames_but_no_locals(

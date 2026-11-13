@@ -132,7 +132,8 @@ def init_logging(settings: LogSettings) -> None:
     for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
         server_logger = logging.getLogger(name)
         server_logger.handlers.clear()
-        server_logger.propagate = True
+        # Only application access logs redact OAuth callback query values.
+        server_logger.propagate = name != "uvicorn.access"
         server_logger.setLevel(logging.NOTSET)
 
 
