@@ -10,6 +10,19 @@ on:
       - published
 
 jobs:
+  actions-lock:
+    name: Actions dependency lockfile
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Verify Actions dependency lockfile
+        uses: adamcik/nix-tooling/actions/verify-actions-lock@a73c6c63e01f95b7f7e88e95fc5a20a8339c66d4
+
   ci:
     name: CI
     runs-on: ubuntu-latest
