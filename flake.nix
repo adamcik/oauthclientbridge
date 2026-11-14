@@ -245,14 +245,6 @@
             touch "$out"
           '';
         }
-        // lib.optionalAttrs pkgs.stdenv.isLinux {
-          nixos-permissions = import ./nix/permissions-test.nix {inherit pkgs;};
-          nixos = import ./nix/test.nix {
-            inherit pkgs;
-            appPackages = self.packages.${system};
-            module = self.nixosModules.default;
-          };
-        }
     );
 
     packages =
@@ -337,6 +329,14 @@
           {
             inherit (app) web management assets;
             default = app.web;
+          }
+          // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+            nixos-permissions-test = import ./nix/permissions-test.nix {inherit pkgs;};
+            nixos-test = import ./nix/test.nix {
+              inherit pkgs;
+              appPackages = self.packages.${system};
+              module = self.nixosModules.default;
+            };
           }
           // lib.optionalAttrs (pkgs.stdenv.isLinux && hasNix2container) {
             # Expose Docker container in packages

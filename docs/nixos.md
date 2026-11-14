@@ -208,8 +208,8 @@ its pinned image; avoid resuming writes to an obsolete pre-cutover copy.
 ## Verification
 
 Run `nix fmt`, `nix flake check`, and
-`nix build .#image .#asgi-image`. On Linux, flake checks include the VM test;
-run it alone with `nix build -L .#checks.x86_64-linux.nixos`.
+`nix build .#image .#asgi-image`. VM tests are opt-in and are not run by
+`nix flake check`. On Linux, run the full VM test with `nix build -L .#nixos-test`.
 It boots NixOS with the real packaged app, SQLite, two isolated instances,
 root-only runtime credential files matching sops-nix output, explicit initialization
 and legacy migration, an opt-in timer, and a host-configured nginx serving store
@@ -219,7 +219,7 @@ socket activation after web shutdown, and listener shutdown during migration.
 It verifies credential delivery to web and management units, a credential-only
 instance without an environment file, cross-instance denial, and absence of
 secret values from process environments. A focused systemd/SQLite permissions test,
-`nix build -L .#checks.x86_64-linux.nixos-permissions`, uses inert application
+`nix build -L .#nixos-permissions-test`, uses inert application
 commands and a real Litestream daemon to test explicit normalization of imported
 mode `0600` files, fresh sidecars created by either identity, both startup orders,
 and access across unit restarts without granting the proxy group state or private
