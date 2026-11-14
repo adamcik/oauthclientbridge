@@ -35,7 +35,7 @@ pkgs.testers.runNixOSTest {
     virtualisation.memorySize = 2048;
     virtualisation.cores = 2;
     documentation.enable = false;
-    environment.systemPackages = [pkgs.acl pkgs.curl pkgs.sqlite pkgs.python312 pkgs.util-linux pkgs.iproute2];
+    environment.systemPackages = [pkgs.curl pkgs.sqlite pkgs.python312 pkgs.util-linux pkgs.iproute2];
     users.users.litestream = {
       isSystemUser = true;
       group = "litestream";
@@ -51,6 +51,7 @@ pkgs.testers.runNixOSTest {
         };
         workers = 2;
         databaseAccessUsers = ["litestream"];
+        socketGroup = "nginx";
         cleanDatabase.enable = true;
       };
       beta = {
@@ -87,7 +88,6 @@ pkgs.testers.runNixOSTest {
     };
 
     # Proxy and file serving belong to the host, not the application module.
-    users.users.nginx.extraGroups = ["oauthclientbridge-alpha"];
     services.nginx = {
       enable = true;
       upstreams.bridge.servers."unix:${config.services.oauthclientbridge.instances.alpha.socketPath}" = {};
@@ -134,12 +134,6 @@ pkgs.testers.runNixOSTest {
     callback = '{"client_id": {{ client_id|tojson|safe }}, "client_secret": {{ client_secret|tojson|safe }}}'
     machine.succeed(f"printf %s {shlex.quote(callback)} > /run/test-callback.html")
 
-    with subtest("permission setup does not create a database"):
-        machine.wait_for_unit("oauthclientbridge-alpha-database-access.service")
-        machine.succeed("test ! -e /var/lib/oauthclientbridge-alpha/sqlite.db")
-        machine.succeed("runuser -u litestream -- test -w /var/lib/oauthclientbridge-alpha")
-        machine.fail("runuser -u nginx -- ls /var/lib/oauthclientbridge-alpha")
-
     with subtest("web startup does not initialize or migrate the database"):
         machine.succeed("systemctl start oauthclientbridge-alpha")
         machine.wait_until_succeeds("journalctl -u oauthclientbridge-alpha | grep 'Database must be initialized'")
@@ -147,6 +141,8 @@ pkgs.testers.runNixOSTest {
         table_count = "SELECT count(*) FROM sqlite_master WHERE name='tokens'"
         assert machine.succeed(f"sqlite3 /var/lib/oauthclientbridge-alpha/sqlite.db {shlex.quote(table_count)}").strip() == "0"
         machine.succeed("test ! -e /tmp/wrong-database")
+        machine.succeed("runuser -u litestream -- test -w /var/lib/oauthclientbridge-alpha")
+        machine.fail("runuser -u nginx -- ls /var/lib/oauthclientbridge-alpha")
 
     with subtest("explicit initialization and legacy schema upgrade"):
         machine.succeed("systemctl start oauthclientbridge-alpha-initdb")
@@ -187,14 +183,15 @@ pkgs.testers.runNixOSTest {
         for name, other in (("alpha", "beta"), ("beta", "alpha")):
             if name == "beta":
                 machine.succeed(f"test $(stat -c %a /var/lib/oauthclientbridge-{name}) = 700")
-            machine.succeed(f"test $(stat -c '%a:%U:%G' /run/oauthclientbridge-{name}) = 750:root:oauthclientbridge-{name}")
+            group = "nginx" if name == "alpha" else f"oauthclientbridge-{name}"
+            machine.succeed(f"test $(stat -c '%a:%U:%G' /run/oauthclientbridge-{name}) = 755:root:root")
             machine.succeed(f"test $(stat -c %a /run/oauthclientbridge-{name}/private/web) = 700")
             machine.fail(f"runuser -u oauthclientbridge-{name} -- cat /var/lib/oauthclientbridge-{other}/sqlite.db")
             machine.fail(f"runuser -u oauthclientbridge-{name} -- ls /run/oauthclientbridge-{other}/private/web/prom")
             machine.fail(f"runuser -u nginx -- ls /run/oauthclientbridge-{name}/private")
             machine.fail(f"runuser -u litestream -- ls /run/oauthclientbridge-{name}/private")
             machine.fail(f"runuser -u oauthclientbridge-{name} -- cat /run/secrets/{name}-client-secret")
-            machine.succeed(f"test $(stat -c '%a:%U:%G' /run/oauthclientbridge-{name}/http.sock) = 660:oauthclientbridge-{name}:oauthclientbridge-{name}")
+            machine.succeed(f"test $(stat -c '%a:%U:%G' /run/oauthclientbridge-{name}/http.sock) = 660:oauthclientbridge-{name}:{group}")
             machine.fail(f"runuser -u oauthclientbridge-{name} -- " + metrics(other))
             pid = machine.succeed(f"systemctl show oauthclientbridge-{name} -p MainPID --value").strip()
             machine.fail(f"ss --tcp --listening --processes --no-header | grep -F 'pid={pid},'")
