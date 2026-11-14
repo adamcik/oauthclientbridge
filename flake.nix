@@ -246,6 +246,7 @@
           '';
         }
         // lib.optionalAttrs pkgs.stdenv.isLinux {
+          nixos-permissions = import ./nix/permissions-test.nix {inherit pkgs;};
           nixos = import ./nix/test.nix {
             inherit pkgs;
             appPackages = self.packages.${system};

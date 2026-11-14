@@ -32,12 +32,15 @@ Assuming the host already imports sops-nix and declares the referenced secrets:
 
 Instance names are 1–12 lowercase letters, digits, or hyphens, starting with a
 letter. Each gets a dedicated `oauthclientbridge-NAME` user and group, a private
-`/var/lib/oauthclientbridge-NAME` state directory, and a private
-`/run/oauthclientbridge-NAME` runtime directory. Each instance listens on the HTTP
-Unix socket `/run/oauthclientbridge-NAME.sock`, owned by its dedicated user and
+`/var/lib/oauthclientbridge-NAME` state directory. Each instance listens on the HTTP
+Unix socket `/run/oauthclientbridge-NAME/http.sock`, owned by its dedicated user and
 group with mode `0660`. There is no native TCP listener or port option. systemd
 owns the socket and passes it to Uvicorn; it survives web restarts and can activate
-web on demand. State and metrics directories remain mode `0700`.
+web on demand. The root-owned runtime parent is mode `0750`, traversable by the
+instance group. Private per-unit runtime directories are under
+`/run/oauthclientbridge-NAME/private/{web,initdb,upgradedb,cleandb}`; the private
+parent and unit directories remain mode `0700`. Metrics live in each unit's `prom`
+subdirectory. State remains mode `0700` unless database access is explicitly granted.
 `gracefulShutdownTimeout` defaults to 25 seconds; systemd allows 10 more seconds
 before forcing shutdown. Units restrict privileges, devices, writable paths,
 address families, and system calls without blocking outbound provider requests.
@@ -157,7 +160,7 @@ users.users.nginx.extraGroups = [ "oauthclientbridge-spotify" ];
 
 This grants socket access, not access to the private state or metrics directories.
 For nginx, an upstream server address is
-`unix:/run/oauthclientbridge-spotify.sock`; this is HTTP, not the uWSGI protocol.
+`unix:/run/oauthclientbridge-spotify/http.sock`; this is HTTP, not the uWSGI protocol.
 The host still owns proxy routing and TLS. The proxy must replace forwarded
 headers from untrusted clients and supply the intended scheme, host, port, and
 client address. Socket access is a trust boundary: only trusted proxy users should
@@ -170,6 +173,30 @@ serve `/robots.txt` from that directory without routing through Python. No mutab
 collect-static step or frontend build is required. See [Nix packages](nix-packages.md)
 for template paths. Templates are **not** static responses: never expose the
 templates directory, and do not serve callback credentials from the store.
+
+## Database access for backups
+
+`databaseAccessUsers` defaults to `[]`. Set it to existing trusted backup users,
+for example `[ "litestream" ]`, to grant directory access and read/write access to
+`/var/lib/oauthclientbridge-NAME/sqlite.db` and its WAL/SHM sidecars. Paths, instance
+identities, and database contents are unchanged. The module does not configure a
+backup daemon, restore data, or initialize a database.
+
+For each opted-in instance, the host's backup service must require and start after
+`oauthclientbridge-NAME-database-access.service`. This app-owned oneshot creates
+only the state directory and establishes ACLs before either application or backup
+startup. Application units depend on it automatically and repair permissions on
+existing app-owned database files at startup, including imported mode `0600` files.
+Default ACLs name both the app and backup users so either can create SQLite sidecars.
+Backup processes must preserve these ACLs and must not restrict file modes afterward.
+An existing sidecar owned by another user must already permit app read/write access.
+
+With access enabled, state directory mode bits show `0770`: the group bits represent
+the ACL mask, not owning-group permissions. The owning-group ACL entry stays `---`,
+so proxy group membership still grants no state access. Application unit restarts
+preserve that mask. Backup access grants neither private runtime nor credentials.
+Treat these users as trusted database writers; do not grant the proxy or other
+instance users access. Quiesce database users before changing access policy.
 
 ## Rollback
 
@@ -195,7 +222,11 @@ cross-instance access, no app TCP listener,
 socket activation after web shutdown, and listener shutdown during migration.
 It verifies credential delivery to web and management units, a credential-only
 instance without an environment file, cross-instance denial, and absence of
-secret values from process environments.
+secret values from process environments. A focused systemd/SQLite permissions test,
+`nix build -L .#checks.x86_64-linux.nixos-permissions`, uses inert application
+commands to test imported mode `0600` files, fresh sidecars created by either
+identity, and access across unit restarts without granting the proxy group state
+or private runtime access. The full test uses the real app and backup-user ACLs.
 A local fake OAuth provider avoids real credentials and external network
 dependencies; it does not test provider availability. Existing rootless Podman
 smoke tests remain useful for container-specific behavior (see `deploy/README.md`).
