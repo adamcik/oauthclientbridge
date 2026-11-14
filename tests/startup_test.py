@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
+import sentry_sdk
 
 from oauthclientbridge import settings, startup, telemetry
 from tests.plugins import sentry
@@ -163,24 +164,34 @@ def test_sentry_receives_sanitized_settings_failure_before_app_is_created(
     sentry_transport: sentry.FakeTransport,
 ) -> None:
     initialize_sentry = telemetry.init_sentry
+    client = None
 
     def with_transport(configured: settings.SentrySettings, runtime: str) -> None:
+        nonlocal client
         assert runtime == "starlette"
-        initialize_sentry(configured, "starlette", sentry_transport)
+        try:
+            initialize_sentry(configured, "starlette", sentry_transport)
+        finally:
+            client = sentry_sdk.get_client()
 
     monkeypatch.setattr(telemetry, "init_sentry", with_transport)
     monkeypatch.setenv("SENTRY_ENABLED", "true")
     monkeypatch.setenv("SENTRY_DSN", "https://key@example.com/1")
     monkeypatch.setenv("BRIDGE_SESSION_COOKIE_SECURE", "validation-input-secret")
 
-    with pytest.raises(SystemExit) as exit, startup.bootstrap():
-        startup.initialize("starlette")
+    try:
+        with pytest.raises(SystemExit) as exit, startup.bootstrap():
+            startup.initialize("starlette")
 
-    assert exit.value.code == 1
-    capture = sentry.SentryCapture(sentry_transport.captured_envelopes)
-    events = list(capture.get_events())
-    assert len(events) == 1
-    event = events[0]
-    assert event["message"] == "Startup failed"
-    assert event["contexts"]["structlog"]["error_type"] == "ValidationError"
-    assert "validation-input-secret" not in json.dumps(event)
+        assert exit.value.code == 1
+        assert client is not None
+        client.flush()
+        events = list(sentry_transport.capture.get_events())
+        assert len(events) == 1
+        event = events[0]
+        assert event["message"] == "Startup failed"
+        assert event["contexts"]["structlog"]["error_type"] == "ValidationError"
+        assert "validation-input-secret" not in json.dumps(event)
+    finally:
+        if client is not None:
+            client.close()
