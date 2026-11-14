@@ -40,8 +40,13 @@
       socketPath = mkOption {
         type = types.str;
         readOnly = true;
-        default = "/run/${unitName name}.sock";
-        description = "HTTP Unix socket, accessible only to the instance user and group.";
+        default = "/run/${unitName name}/http.sock";
+        description = "HTTP Unix socket, accessible only to the instance user and socketGroup.";
+      };
+      socketGroup = mkOption {
+        type = types.str;
+        default = unitName name;
+        description = "Existing group allowed to connect to the HTTP socket, not private runtime data.";
       };
       workers = mkOption {
         type = types.ints.positive;
@@ -73,10 +78,22 @@
         default = "/var/lib/${unitName name}";
         description = "Private persistent instance data, including sqlite.db.";
       };
+      databaseAccessUsers = mkOption {
+        type = types.listOf types.str;
+        default = [];
+        description = ''
+          Existing trusted users added to the instance group for SQLite access.
+          Enables a setgid state directory and group-writable file creation.
+          Use a separate socketGroup for the proxy. Imported databases must already
+          have the instance group and mode 0660; backup writers must preserve that
+          group and use umask 0007. Does not repair files or configure backups.
+        '';
+      };
     };
   };
   instanceServices = name: instance: let
     unit = unitName name;
+    sharedDatabase = instance.databaseAccessUsers != [];
     # Enforce ownership of writable paths even if the runtime file sets these names.
     environmentScript = ''
       export DB_DATABASE=${lib.escapeShellArg "${instance.stateDirectory}/sqlite.db"}
@@ -92,9 +109,15 @@
           Group = unit;
           LoadCredential = lib.mapAttrsToList (key: path: "${key}:${path}") instance.credentials;
           StateDirectory = unit;
-          StateDirectoryMode = "0700";
+          StateDirectoryMode =
+            if sharedDatabase
+            then "2770"
+            else "0700";
           WorkingDirectory = instance.stateDirectory;
-          UMask = "0077";
+          UMask =
+            if sharedDatabase
+            then "0007"
+            else "0077";
           NoNewPrivileges = true;
           PrivateTmp = true;
           PrivateDevices = true;
@@ -131,7 +154,7 @@
           '';
         serviceConfig = {
           Type = "oneshot";
-          RuntimeDirectory = "${unit}-${command}";
+          RuntimeDirectory = "${unit}/private/${command}";
         };
       };
   in
@@ -154,7 +177,7 @@
           '';
         serviceConfig = {
           Type = "simple";
-          RuntimeDirectory = unit;
+          RuntimeDirectory = "${unit}/private/web";
           Sockets = ["${unit}.socket"];
           Restart = "on-failure";
           RestartSec = 5;
@@ -174,7 +197,7 @@
           '';
         serviceConfig = {
           Type = "oneshot";
-          RuntimeDirectory = "${unit}-cleandb";
+          RuntimeDirectory = "${unit}/private/cleandb";
         };
       };
     };
@@ -207,6 +230,14 @@ in {
           assertion = lib.all isRuntimeFile (lib.attrValues instance.credentials);
           message = "OAuth Client Bridge credential files must be absolute runtime paths outside the Nix store.";
         }
+        {
+          assertion = lib.all (user: builtins.hasAttr user config.users.users) instance.databaseAccessUsers;
+          message = "OAuth Client Bridge databaseAccessUsers must name existing users.";
+        }
+        {
+          assertion = builtins.hasAttr instance.socketGroup config.users.groups;
+          message = "OAuth Client Bridge socketGroup must name an existing group.";
+        }
       ])
       instances);
 
@@ -216,15 +247,26 @@ in {
         group = unitName name;
       })
     instances;
-    users.groups = lib.mapAttrs' (name: _: lib.nameValuePair (unitName name) {}) instances;
+    users.groups = lib.mapAttrs' (name: instance:
+      lib.nameValuePair (unitName name) {
+        members = instance.databaseAccessUsers;
+      })
+    instances;
+    systemd.tmpfiles.rules = lib.concatLists (lib.mapAttrsToList (name: _: [
+        "d /run/${unitName name} 0755 root root -"
+        "d /run/${unitName name}/private 0700 ${unitName name} ${unitName name} -"
+      ])
+      instances);
     systemd.services = lib.foldl' lib.recursiveUpdate {} (lib.mapAttrsToList instanceServices instances);
     systemd.sockets = lib.mapAttrs' (name: instance:
       lib.nameValuePair (unitName name) {
         wantedBy = ["sockets.target"];
+        requires = ["systemd-tmpfiles-setup.service"];
+        after = ["systemd-tmpfiles-setup.service"];
         socketConfig = {
           ListenStream = instance.socketPath;
           SocketUser = unitName name;
-          SocketGroup = unitName name;
+          SocketGroup = instance.socketGroup;
           SocketMode = "0660";
           RemoveOnStop = true;
         };

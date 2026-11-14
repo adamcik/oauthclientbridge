@@ -36,6 +36,11 @@ pkgs.testers.runNixOSTest {
     virtualisation.cores = 2;
     documentation.enable = false;
     environment.systemPackages = [pkgs.curl pkgs.sqlite pkgs.python312 pkgs.util-linux pkgs.iproute2];
+    users.users.litestream = {
+      isSystemUser = true;
+      group = "litestream";
+    };
+    users.groups.litestream = {};
 
     services.oauthclientbridge.instances = {
       alpha = {
@@ -45,6 +50,8 @@ pkgs.testers.runNixOSTest {
           BRIDGE_SESSION_SECRET = "/run/secrets/alpha-session-secret";
         };
         workers = 2;
+        databaseAccessUsers = ["litestream"];
+        socketGroup = "nginx";
         cleanDatabase.enable = true;
       };
       beta = {
@@ -81,7 +88,6 @@ pkgs.testers.runNixOSTest {
     };
 
     # Proxy and file serving belong to the host, not the application module.
-    users.users.nginx.extraGroups = ["oauthclientbridge-alpha"];
     services.nginx = {
       enable = true;
       upstreams.bridge.servers."unix:${config.services.oauthclientbridge.instances.alpha.socketPath}" = {};
@@ -97,7 +103,10 @@ pkgs.testers.runNixOSTest {
     import shlex
 
     def metrics(name):
-        return f"curl --fail --max-time 3 --unix-socket /run/oauthclientbridge-{name}.sock http://localhost/metrics"
+        return f"curl --fail --max-time 3 --unix-socket /run/oauthclientbridge-{name}/http.sock http://localhost/metrics"
+
+    def sqlite_as(user, sql):
+        return machine.succeed(f"runuser -u {user} -- sqlite3 /var/lib/oauthclientbridge-alpha/sqlite.db {shlex.quote(sql)}")
 
     start_all()
     machine.wait_for_unit("upstream.service")
@@ -132,6 +141,8 @@ pkgs.testers.runNixOSTest {
         table_count = "SELECT count(*) FROM sqlite_master WHERE name='tokens'"
         assert machine.succeed(f"sqlite3 /var/lib/oauthclientbridge-alpha/sqlite.db {shlex.quote(table_count)}").strip() == "0"
         machine.succeed("test ! -e /tmp/wrong-database")
+        machine.succeed("runuser -u litestream -- test -w /var/lib/oauthclientbridge-alpha")
+        machine.fail("runuser -u nginx -- ls /var/lib/oauthclientbridge-alpha")
 
     with subtest("explicit initialization and legacy schema upgrade"):
         machine.succeed("systemctl start oauthclientbridge-alpha-initdb")
@@ -156,7 +167,7 @@ pkgs.testers.runNixOSTest {
         machine.succeed("systemctl start oauthclientbridge-alpha-upgradedb")
         machine.fail("systemctl is-active oauthclientbridge-alpha")
         machine.fail("systemctl is-active oauthclientbridge-alpha.socket")
-        machine.succeed("test ! -e /run/oauthclientbridge-alpha.sock")
+        machine.succeed("test ! -e /run/oauthclientbridge-alpha/http.sock")
         machine.fail(metrics("alpha"))
         machine.fail("systemctl is-active oauthclientbridge-alpha")
         machine.succeed("systemctl is-active oauthclientbridge-beta")
@@ -164,17 +175,23 @@ pkgs.testers.runNixOSTest {
         machine.succeed("systemctl start oauthclientbridge-alpha")
         machine.wait_until_succeeds(metrics("alpha"))
 
+        sqlite_as("litestream", "SELECT count(*) FROM tokens;")
     with subtest("instance identities and writable directories remain isolated"):
         alpha_uid = machine.succeed("id -u oauthclientbridge-alpha").strip()
         beta_uid = machine.succeed("id -u oauthclientbridge-beta").strip()
         assert alpha_uid != beta_uid and alpha_uid != "0" and beta_uid != "0"
         for name, other in (("alpha", "beta"), ("beta", "alpha")):
-            machine.succeed(f"test $(stat -c %a /var/lib/oauthclientbridge-{name}) = 700")
-            machine.succeed(f"test $(stat -c %a /run/oauthclientbridge-{name}) = 700")
+            if name == "beta":
+                machine.succeed(f"test $(stat -c %a /var/lib/oauthclientbridge-{name}) = 700")
+            group = "nginx" if name == "alpha" else f"oauthclientbridge-{name}"
+            machine.succeed(f"test $(stat -c '%a:%U:%G' /run/oauthclientbridge-{name}) = 755:root:root")
+            machine.succeed(f"test $(stat -c %a /run/oauthclientbridge-{name}/private/web) = 700")
             machine.fail(f"runuser -u oauthclientbridge-{name} -- cat /var/lib/oauthclientbridge-{other}/sqlite.db")
-            machine.fail(f"runuser -u oauthclientbridge-{name} -- ls /run/oauthclientbridge-{other}/prom")
+            machine.fail(f"runuser -u oauthclientbridge-{name} -- ls /run/oauthclientbridge-{other}/private/web/prom")
+            machine.fail(f"runuser -u nginx -- ls /run/oauthclientbridge-{name}/private")
+            machine.fail(f"runuser -u litestream -- ls /run/oauthclientbridge-{name}/private")
             machine.fail(f"runuser -u oauthclientbridge-{name} -- cat /run/secrets/{name}-client-secret")
-            machine.succeed(f"test $(stat -c '%a:%U:%G' /run/oauthclientbridge-{name}.sock) = 660:oauthclientbridge-{name}:oauthclientbridge-{name}")
+            machine.succeed(f"test $(stat -c '%a:%U:%G' /run/oauthclientbridge-{name}/http.sock) = 660:oauthclientbridge-{name}:{group}")
             machine.fail(f"runuser -u oauthclientbridge-{name} -- " + metrics(other))
             pid = machine.succeed(f"systemctl show oauthclientbridge-{name} -p MainPID --value").strip()
             machine.fail(f"ss --tcp --listening --processes --no-header | grep -F 'pid={pid},'")
@@ -183,9 +200,10 @@ pkgs.testers.runNixOSTest {
             machine.succeed(f"runuser -u oauthclientbridge-{name} -- touch /srv/{name}/outside")
             machine.fail(f"nsenter -t {pid} -m -- runuser -u oauthclientbridge-{name} -- touch /srv/{name}/inside")
             machine.succeed(f"nsenter -t {pid} -m -- runuser -u oauthclientbridge-{name} -- touch /var/lib/oauthclientbridge-{name}/writable")
-        machine.succeed("test -n \"$(find /run/oauthclientbridge-alpha/prom -name '*.db' -print -quit)\"")
+        machine.succeed("test -n \"$(find /run/oauthclientbridge-alpha/private/web/prom -name '*.db' -print -quit)\"")
         machine.succeed("runuser -u nginx -- " + metrics("alpha"))
         machine.fail("runuser -u nginx -- " + metrics("beta"))
+        machine.fail("runuser -u litestream -- cat /var/lib/oauthclientbridge-beta/sqlite.db")
 
     with subtest("credentials stay private and are not exported into process environments"):
         for name, other in (("alpha", "beta"), ("beta", "alpha")):
@@ -203,6 +221,7 @@ pkgs.testers.runNixOSTest {
     with subtest("cleanup is opt-in and a real timer runs the real command"):
         machine.succeed("systemctl start oauthclientbridge-alpha-cleandb.timer")
         machine.wait_until_succeeds("journalctl -u oauthclientbridge-alpha-cleandb | grep 'Vacuumed /var/lib/oauthclientbridge-alpha/sqlite.db'")
+        sqlite_as("litestream", "SELECT count(*) FROM tokens;")
         machine.fail("systemctl cat oauthclientbridge-beta-cleandb.timer")
         machine.fail("systemctl cat oauthclientbridge-beta-cleandb.service")
         for name in ("alpha", "beta"):
@@ -210,13 +229,13 @@ pkgs.testers.runNixOSTest {
 
     with subtest("host serves matching static files from the store without Python"):
         machine.succeed("test $(curl --silent --output /dev/null --write-out '%{http_code}' --unix-socket /run/nginx/smoke.sock http://localhost/templates/spotify.html) = 404")
-        socket_inode = machine.succeed("stat -c %i /run/oauthclientbridge-alpha.sock").strip()
+        socket_inode = machine.succeed("stat -c %i /run/oauthclientbridge-alpha/http.sock").strip()
         machine.succeed("systemctl stop oauthclientbridge-alpha")
         machine.succeed("curl --fail --unix-socket /run/nginx/smoke.sock http://localhost/robots.txt > /run/robots.txt")
         machine.succeed("cmp /run/robots.txt ${appPackages.assets}/share/oauthclientbridge/static/robots.txt")
         machine.fail("systemctl is-active oauthclientbridge-alpha")
         machine.wait_until_succeeds(metrics("alpha"))
-        assert machine.succeed("stat -c %i /run/oauthclientbridge-alpha.sock").strip() == socket_inode
+        assert machine.succeed("stat -c %i /run/oauthclientbridge-alpha/http.sock").strip() == socket_inode
         assert machine.succeed("sqlite3 /var/lib/oauthclientbridge-alpha/sqlite.db 'SELECT count(*) FROM tokens'").strip() == "1"
   '';
 }
