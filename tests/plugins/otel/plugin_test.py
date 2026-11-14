@@ -7,10 +7,10 @@ from opentelemetry.sdk.metrics.export import MetricReader
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import SpanProcessor
 from opentelemetry.sdk.util.instrumentation import InstrumentationScope
+from pytest_otel_capture import CollectedLog, OTelMocker
 
 from oauthclientbridge import telemetry
 from oauthclientbridge.settings import TelemetrySettings
-from pytest_otel_capture import CollectedLog, OTelMocker
 
 
 def test_otel_mock_fixture_initializes_telemetry(
@@ -78,15 +78,15 @@ def test_collected_log_uses_structural_typing_for_new_otel_versions() -> None:
         attributes: Mapping[str, Any] | None = {"k": "v"}
         body: Any = "hello"
 
-        def to_json(self) -> str:
-            return "{}"
-
     class FakeLogData:
         instrumentation_scope: InstrumentationScope | None = InstrumentationScope(
             "test"
         )
         resource: Resource = Resource.create()
         log_record: FakeRecord = FakeRecord()
+
+        def to_json(self) -> str:
+            return "{}"
 
     collected = CollectedLog(FakeLogData())
 

@@ -418,6 +418,7 @@ dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pytest-freezer" },
+    { name = "pytest-otel-capture" },
     { name = "pytest-xdist" },
     { name = "requests-mock" },
     { name = "ruff" },
@@ -436,6 +437,7 @@ test = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pytest-freezer" },
+    { name = "pytest-otel-capture" },
     { name = "pytest-xdist" },
     { name = "requests-mock" },
     { name = "sentry-sdk", extra = ["opentelemetry"] },
@@ -483,6 +485,7 @@ dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pytest-freezer" },
+    { name = "pytest-otel-capture", git = "https://github.com/adamcik/pytest-otel-capture?branch=main" },
     { name = "pytest-xdist" },
     { name = "requests-mock" },
     { name = "ruff", specifier = "==0.17.3" },
@@ -499,6 +502,7 @@ test = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pytest-freezer" },
+    { name = "pytest-otel-capture", git = "https://github.com/adamcik/pytest-otel-capture?branch=main" },
     { name = "pytest-xdist" },
     { name = "requests-mock" },
     { name = "sentry-sdk", extras = ["opentelemetry"], specifier = "==2.74.0" },
@@ -975,6 +979,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/81/f0/98dcbc5324064360b19850b14c84cea9ca50785d921741dbfc442346e925/pytest_freezer-0.4.9.tar.gz", hash = "sha256:21bf16bc9cc46bf98f94382c4b5c3c389be7056ff0be33029111ae11b3f1c82a", size = 3177, upload-time = "2024-12-12T08:53:08.684Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c1/e9/30252bc05bcf67200a17f4f0b4cc7598f0a68df4fa9fa356193aa899f145/pytest_freezer-0.4.9-py3-none-any.whl", hash = "sha256:8b6c50523b7d4aec4590b52bfa5ff766d772ce506e2bf4846c88041ea9ccae59", size = 3192, upload-time = "2024-12-12T08:53:07.641Z" },
+]
+
+[[package]]
+name = "pytest-otel-capture"
+version = "0.1.2.dev2+g81bbf5fe2"
+source = { git = "https://github.com/adamcik/pytest-otel-capture?branch=main#81bbf5fe201a411f0e20b9ed8f9374d6a26c9ad1" }
+dependencies = [
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-sdk" },
 ]
 
 [[package]]
