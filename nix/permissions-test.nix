@@ -86,6 +86,8 @@ in
               machine.wait_until_succeeds(f"test -s {state}/sqlite.db-wal && test -s {state}/sqlite.db-shm")
               sqlite_as(peer, "INSERT INTO probe VALUES(3);")
               for command in (f"start {app}", f"restart {app}", f"start {app}-cleandb", f"start {app}-upgradedb", f"start {app}"):
+                  # Fast runners otherwise exhaust the default start budget during deliberate restarts.
+                  machine.succeed(f"systemctl reset-failed {app}.service")
                   machine.succeed(f"systemctl {command}")
                   sqlite_as("backup", "INSERT INTO probe VALUES(4);")
                   sqlite_as(app, "INSERT INTO probe VALUES(5);")
@@ -99,6 +101,7 @@ in
       with subtest("proxy gets only socket access and default instances stay private"):
           for name in ("alpha", "beta"):
               unit = f"oauthclientbridge-{name}"
+              machine.succeed(f"systemctl reset-failed {unit}.service")
               machine.succeed(f"systemctl start {unit}")
               machine.succeed(f"test $(stat -c '%a:%U:%G' /run/{unit}) = 750:root:{unit}")
               machine.succeed(f"test $(stat -c %a /run/{unit}/private/web) = 700")
