@@ -74,6 +74,17 @@ unused database space:
 See [native NixOS deployment](docs/nixos.md) or the existing
 [Podman Quadlet deployment](deploy/README.md).
 
+The Nix runtime and development package set uses Determinate Systems'
+[weekly nixpkgs feed](https://determinate.systems/blog/nixpkgs-cooldown/), with a
+seven-day cooldown. Weekly publication can delay security fixes further. This does
+not constrain Python dependencies, fetched releases, or other flake inputs.
+
+For an urgent fix, temporarily point `inputs.nixpkgs.url` at a reviewed upstream
+revision or `github:NixOS/nixpkgs/nixos-unstable`, run `nix flake update nixpkgs`, and
+validate through a PR. Restore the weekly feed once it includes the fix. Publish the
+refreshed native and container outputs before updating consumer pins; retain this
+flake's own runtime package set for cache compatibility.
+
 -   Always use HTTPS since we are passing access tokens around.
 -   Session cookies are secure by default. Set `BRIDGE_SESSION_COOKIE_SECURE` to
     `false` only for local HTTP development.
