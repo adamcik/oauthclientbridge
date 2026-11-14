@@ -2,7 +2,6 @@
 {appPackages}: {
   config,
   lib,
-  pkgs,
   ...
 }: let
   inherit (lib) mkOption types;
@@ -42,7 +41,12 @@
         type = types.str;
         readOnly = true;
         default = "/run/${unitName name}/http.sock";
-        description = "HTTP Unix socket, accessible only to the instance user and group.";
+        description = "HTTP Unix socket, accessible only to the instance user and socketGroup.";
+      };
+      socketGroup = mkOption {
+        type = types.str;
+        default = unitName name;
+        description = "Existing group allowed to connect to the HTTP socket, not private runtime data.";
       };
       workers = mkOption {
         type = types.ints.positive;
@@ -78,10 +82,11 @@
         type = types.listOf types.str;
         default = [];
         description = ''
-          Existing trusted users granted read/write SQLite and sidecar access, not
-          runtime or credential access. Order backup services after and require
-          oauthclientbridge-NAME-database-access.service. Does not configure backups
-          or initialize a database. The instance group retains no state access.
+          Existing trusted users added to the instance group for SQLite access.
+          Enables a setgid state directory and group-writable file creation.
+          Use a separate socketGroup for the proxy. Imported databases must already
+          have the instance group and mode 0660; backup writers must preserve that
+          group and use umask 0007. Does not repair files or configure backups.
         '';
       };
     };
@@ -89,23 +94,6 @@
   instanceServices = name: instance: let
     unit = unitName name;
     sharedDatabase = instance.databaseAccessUsers != [];
-    databaseUsers = lib.unique ([unit] ++ instance.databaseAccessUsers);
-    accessEntries = permissions: lib.concatMapStringsSep "," (user: "u:${user}:${permissions}") databaseUsers;
-    databasePermissions = ''
-      # Run as the app owner, never as root against app-controlled paths.
-      ${pkgs.acl}/bin/setfacl --set ${lib.escapeShellArg "u::rwx,g::---,o::---,${accessEntries "rwx"},m::rwx,d:u::rwx,d:g::---,d:o::---,d:${lib.replaceStrings [","] [",d:"] (accessEntries "rwx")},d:m::rwx"} ${lib.escapeShellArg instance.stateDirectory}
-      for file in "$STATE_DIRECTORY/sqlite.db" "$STATE_DIRECTORY/sqlite.db-wal" "$STATE_DIRECTORY/sqlite.db-shm"; do
-        test ! -L "$file"
-        if test -e "$file"; then
-          if test -O "$file"; then
-            ${pkgs.acl}/bin/setfacl --set ${lib.escapeShellArg "u::rw-,g::---,o::---,${accessEntries "rw-"},m::rw-"} "$file" || test ! -e "$file"
-          else
-            # Backup-created sidecars inherit the same ACL, including the app user.
-            { test -r "$file" && test -w "$file"; } || test ! -e "$file"
-          fi
-        fi
-      done
-    '';
     # Enforce ownership of writable paths even if the runtime file sets these names.
     environmentScript = ''
       export DB_DATABASE=${lib.escapeShellArg "${instance.stateDirectory}/sqlite.db"}
@@ -115,23 +103,21 @@
     '';
     common = {
       environment = instance.environment;
-      requires = lib.optional sharedDatabase "${unit}-database-access.service";
-      after = lib.optional sharedDatabase "${unit}-database-access.service";
-      preStart = lib.optionalString sharedDatabase databasePermissions;
       serviceConfig =
         {
           User = unit;
           Group = unit;
           LoadCredential = lib.mapAttrsToList (key: path: "${key}:${path}") instance.credentials;
           StateDirectory = unit;
-          # The access unit establishes g::--- before this mask is widened.
-          # Reapplying 0700 here would revoke named-user access on every restart.
           StateDirectoryMode =
             if sharedDatabase
-            then "0770"
+            then "2770"
             else "0700";
           WorkingDirectory = instance.stateDirectory;
-          UMask = "0077";
+          UMask =
+            if sharedDatabase
+            then "0007"
+            else "0077";
           NoNewPrivileges = true;
           PrivateTmp = true;
           PrivateDevices = true;
@@ -177,8 +163,8 @@
         description = "OAuth Client Bridge (${name})";
         wantedBy = ["multi-user.target"];
         wants = ["network-online.target"];
-        requires = common.requires ++ ["${unit}.socket"];
-        after = common.after ++ ["network-online.target" "${unit}.socket"];
+        requires = ["${unit}.socket"];
+        after = ["network-online.target" "${unit}.socket"];
         script =
           environmentScript
           + ''
@@ -212,27 +198,6 @@
         serviceConfig = {
           Type = "oneshot";
           RuntimeDirectory = "${unit}/private/cleandb";
-        };
-      };
-    }
-    // lib.optionalAttrs sharedDatabase {
-      "${unit}-database-access" = {
-        description = "OAuth Client Bridge ${name}: database permissions";
-        wantedBy = ["multi-user.target"];
-        script = databasePermissions;
-        serviceConfig = {
-          Type = "oneshot";
-          RemainAfterExit = true;
-          User = unit;
-          Group = unit;
-          StateDirectory = unit;
-          StateDirectoryMode = "0700";
-          UMask = "0077";
-          NoNewPrivileges = true;
-          CapabilityBoundingSet = "";
-          ProtectSystem = "strict";
-          ProtectHome = true;
-          PrivateTmp = true;
         };
       };
     };
@@ -269,6 +234,10 @@ in {
           assertion = lib.all (user: builtins.hasAttr user config.users.users) instance.databaseAccessUsers;
           message = "OAuth Client Bridge databaseAccessUsers must name existing users.";
         }
+        {
+          assertion = builtins.hasAttr instance.socketGroup config.users.groups;
+          message = "OAuth Client Bridge socketGroup must name an existing group.";
+        }
       ])
       instances);
 
@@ -278,9 +247,13 @@ in {
         group = unitName name;
       })
     instances;
-    users.groups = lib.mapAttrs' (name: _: lib.nameValuePair (unitName name) {}) instances;
+    users.groups = lib.mapAttrs' (name: instance:
+      lib.nameValuePair (unitName name) {
+        members = instance.databaseAccessUsers;
+      })
+    instances;
     systemd.tmpfiles.rules = lib.concatLists (lib.mapAttrsToList (name: _: [
-        "d /run/${unitName name} 0750 root ${unitName name} -"
+        "d /run/${unitName name} 0755 root root -"
         "d /run/${unitName name}/private 0700 ${unitName name} ${unitName name} -"
       ])
       instances);
@@ -293,7 +266,7 @@ in {
         socketConfig = {
           ListenStream = instance.socketPath;
           SocketUser = unitName name;
-          SocketGroup = unitName name;
+          SocketGroup = instance.socketGroup;
           SocketMode = "0660";
           RemoveOnStop = true;
         };

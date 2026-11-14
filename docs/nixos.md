@@ -34,10 +34,10 @@ Instance names are 1–12 lowercase letters, digits, or hyphens, starting with a
 letter. Each gets a dedicated `oauthclientbridge-NAME` user and group, a private
 `/var/lib/oauthclientbridge-NAME` state directory. Each instance listens on the HTTP
 Unix socket `/run/oauthclientbridge-NAME/http.sock`, owned by its dedicated user and
-group with mode `0660`. There is no native TCP listener or port option. systemd
+`socketGroup` (the instance group by default) with mode `0660`. There is no native TCP listener or port option. systemd
 owns the socket and passes it to Uvicorn; it survives web restarts and can activate
-web on demand. The root-owned runtime parent is mode `0750`, traversable by the
-instance group. Private per-unit runtime directories are under
+web on demand. The root-owned runtime parent is mode `0755`; the socket's mode and
+group control HTTP access. Private per-unit runtime directories are under
 `/run/oauthclientbridge-NAME/private/{web,initdb,upgradedb,cleandb}`; the private
 parent and unit directories remain mode `0700`. Metrics live in each unit's `prom`
 subdirectory. State remains mode `0700` unless database access is explicitly granted.
@@ -151,11 +151,11 @@ owner has been selected. Do not enable one job per replica of a shared database.
 ## Proxy and static files
 
 Configure the host's existing proxy to speak HTTP over
-`services.oauthclientbridge.instances.spotify.socketPath`. Grant only the proxy
-user membership in the corresponding instance group, for example:
+`services.oauthclientbridge.instances.spotify.socketPath`. Assign the socket to
+the proxy's existing group, for example:
 
 ```nix
-users.users.nginx.extraGroups = [ "oauthclientbridge-spotify" ];
+services.oauthclientbridge.instances.spotify.socketGroup = "nginx";
 ```
 
 This grants socket access, not access to the private state or metrics directories.
@@ -163,8 +163,8 @@ For nginx, an upstream server address is
 `unix:/run/oauthclientbridge-spotify/http.sock`; this is HTTP, not the uWSGI protocol.
 The host still owns proxy routing and TLS. The proxy must replace forwarded
 headers from untrusted clients and supply the intended scheme, host, port, and
-client address. Socket access is a trust boundary: only trusted proxy users should
-join these groups. Review the app's existing metrics access policy and expose only
+client address. Socket access is a trust boundary: choose a trusted proxy group.
+Review the app's existing metrics access policy and expose only
 the routes intended for public use.
 
 `services.oauthclientbridge.instances.spotify.staticRoot` is the matching store
@@ -177,26 +177,22 @@ templates directory, and do not serve callback credentials from the store.
 ## Database access for backups
 
 `databaseAccessUsers` defaults to `[]`. Set it to existing trusted backup users,
-for example `[ "litestream" ]`, to grant directory access and read/write access to
-`/var/lib/oauthclientbridge-NAME/sqlite.db` and its WAL/SHM sidecars. Paths, instance
-identities, and database contents are unchanged. The module does not configure a
-backup daemon, restore data, or initialize a database.
+for example `[ "litestream" ]`, to add them to the instance group. Opted-in state
+directories use mode `2770` (setgid), and application units use umask `0007` so new
+SQLite files are group-writable. The directory preserves the instance group on
+files created by either writer. Private runtime directories remain `0700`.
 
-For each opted-in instance, the host's backup service must require and start after
-`oauthclientbridge-NAME-database-access.service`. This app-owned oneshot creates
-only the state directory and establishes ACLs before either application or backup
-startup. Application units depend on it automatically and repair permissions on
-existing app-owned database files at startup, including imported mode `0600` files.
-Default ACLs name both the app and backup users so either can create SQLite sidecars.
-Backup processes must preserve these ACLs and must not restrict file modes afterward.
-An existing sidecar owned by another user must already permit app read/write access.
+Use a separate `socketGroup` for the proxy; do not add it to the instance group.
+Each app retains only its own group, while a backup identity can belong to several
+instance groups. These users are trusted database writers, not read-only readers.
 
-With access enabled, state directory mode bits show `0770`: the group bits represent
-the ACL mask, not owning-group permissions. The owning-group ACL entry stays `---`,
-so proxy group membership still grants no state access. Application unit restarts
-preserve that mask. Backup access grants neither private runtime nor credentials.
-Treat these users as trusted database writers; do not grant the proxy or other
-instance users access. Quiesce database users before changing access policy.
+Imported databases and existing sidecars must have the instance group and mode
+`0660` before enabling backups. Backup writers must also use umask `0007` and keep
+that group and mode on SQLite files. Normalizing existing files is a host rollout
+step, not an application startup action. There are no ACLs or permission-preparation
+units. The module does not configure a backup daemon, initialize or restore a
+database, or rewrite existing file permissions. Quiesce writers before changing
+the access policy or normalizing files.
 
 ## Rollback
 
@@ -224,9 +220,10 @@ It verifies credential delivery to web and management units, a credential-only
 instance without an environment file, cross-instance denial, and absence of
 secret values from process environments. A focused systemd/SQLite permissions test,
 `nix build -L .#checks.x86_64-linux.nixos-permissions`, uses inert application
-commands to test imported mode `0600` files, fresh sidecars created by either
-identity, and access across unit restarts without granting the proxy group state
-or private runtime access. The full test uses the real app and backup-user ACLs.
+commands and a real Litestream daemon to test explicit normalization of imported
+mode `0600` files, fresh sidecars created by either identity, both startup orders,
+and access across unit restarts without granting the proxy group state or private
+runtime access. The full test uses the real app and backup-user group membership.
 A local fake OAuth provider avoids real credentials and external network
 dependencies; it does not test provider availability. Existing rootless Podman
 smoke tests remain useful for container-specific behavior (see `deploy/README.md`).
