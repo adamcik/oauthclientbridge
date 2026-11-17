@@ -32,7 +32,7 @@ Assuming the host already imports sops-nix and declares the referenced secrets:
 
 Instance names are 1–12 lowercase letters, digits, or hyphens, starting with a
 letter. Each gets a dedicated `oauthclientbridge-NAME` user and group, a private
-`/var/lib/oauthclientbridge-NAME` state directory. Each instance listens on the HTTP
+`/var/lib/oauthclientbridge/NAME` state directory. Each instance listens on the HTTP
 Unix socket `/run/oauthclientbridge-NAME/http.sock`, owned by its dedicated user and
 `socketGroup` (the instance group by default) with mode `0660`. There is no native TCP listener or port option. systemd
 owns the socket and passes it to Uvicorn; it survives web restarts and can activate
@@ -44,6 +44,12 @@ subdirectory. State remains mode `0700` unless database access is explicitly gra
 `gracefulShutdownTimeout` defaults to 25 seconds; systemd allows 10 more seconds
 before forcing shutdown. Units restrict privileges, devices, writable paths,
 address families, and system calls without blocking outbound provider requests.
+
+Existing native deployments must move their state from
+`/var/lib/oauthclientbridge-NAME` to `/var/lib/oauthclientbridge/NAME` while web,
+socket, maintenance, and backup writers are stopped. The module does not move data,
+create compatibility links, or fall back to the old path. Update external backup
+paths before restarting writers; instance users, groups, and runtime paths stay unchanged.
 
 ## Runtime secrets through systemd credentials
 
@@ -129,7 +135,7 @@ To move a container instance:
 3. Take a consistent SQLite backup using the host's backup procedure. Copying only
    the main file while WAL writes are active can lose committed data. Quiesce all
    writers and checkpoint, or use SQLite's backup API. Preserve the original.
-4. Install the copy as `/var/lib/oauthclientbridge-spotify/sqlite.db`, owned by
+4. Install the copy as `/var/lib/oauthclientbridge/spotify/sqlite.db`, owned by
    `oauthclientbridge-spotify:oauthclientbridge-spotify`, mode `0600`; keep its
    parent directory mode `0700`. Keep the host's backup configuration responsible
    for this new path.

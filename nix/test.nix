@@ -106,7 +106,7 @@ pkgs.testers.runNixOSTest {
         return f"curl --fail --max-time 3 --unix-socket /run/oauthclientbridge-{name}/http.sock http://localhost/metrics"
 
     def sqlite_as(user, sql):
-        return machine.succeed(f"runuser -u {user} -- sqlite3 /var/lib/oauthclientbridge-alpha/sqlite.db {shlex.quote(sql)}")
+        return machine.succeed(f"runuser -u {user} -- sqlite3 /var/lib/oauthclientbridge/alpha/sqlite.db {shlex.quote(sql)}")
 
     start_all()
     machine.wait_for_unit("upstream.service")
@@ -139,20 +139,20 @@ pkgs.testers.runNixOSTest {
         machine.wait_until_succeeds("journalctl -u oauthclientbridge-alpha | grep 'Database must be initialized'")
         machine.succeed("systemctl stop oauthclientbridge-alpha")
         table_count = "SELECT count(*) FROM sqlite_master WHERE name='tokens'"
-        assert machine.succeed(f"sqlite3 /var/lib/oauthclientbridge-alpha/sqlite.db {shlex.quote(table_count)}").strip() == "0"
+        assert machine.succeed(f"sqlite3 /var/lib/oauthclientbridge/alpha/sqlite.db {shlex.quote(table_count)}").strip() == "0"
         machine.succeed("test ! -e /tmp/wrong-database")
-        machine.succeed("runuser -u litestream -- test -w /var/lib/oauthclientbridge-alpha")
-        machine.fail("runuser -u nginx -- ls /var/lib/oauthclientbridge-alpha")
+        machine.succeed("runuser -u litestream -- test -w /var/lib/oauthclientbridge/alpha")
+        machine.fail("runuser -u nginx -- ls /var/lib/oauthclientbridge/alpha")
 
     with subtest("explicit initialization and legacy schema upgrade"):
         machine.succeed("systemctl start oauthclientbridge-alpha-initdb")
-        machine.succeed("install -d -m 0700 -o oauthclientbridge-beta -g oauthclientbridge-beta /var/lib/oauthclientbridge-beta")
+        machine.succeed("install -d -m 0700 -o oauthclientbridge-beta -g oauthclientbridge-beta /var/lib/oauthclientbridge/beta")
         legacy = "CREATE TABLE tokens(client_id text primary key, token blob); INSERT INTO tokens VALUES ('legacy', NULL);"
-        machine.succeed(f"runuser -u oauthclientbridge-beta -- sqlite3 /var/lib/oauthclientbridge-beta/sqlite.db {shlex.quote(legacy)}")
+        machine.succeed(f"runuser -u oauthclientbridge-beta -- sqlite3 /var/lib/oauthclientbridge/beta/sqlite.db {shlex.quote(legacy)}")
         machine.succeed("systemctl start oauthclientbridge-beta-upgradedb")
-        columns = machine.succeed("sqlite3 /var/lib/oauthclientbridge-beta/sqlite.db 'PRAGMA table_info(tokens)'")
+        columns = machine.succeed("sqlite3 /var/lib/oauthclientbridge/beta/sqlite.db 'PRAGMA table_info(tokens)'")
         assert "created_at" in columns and "last_updated_at" in columns
-        assert machine.succeed("sqlite3 /var/lib/oauthclientbridge-beta/sqlite.db 'SELECT client_id FROM tokens'").strip() == "legacy"
+        assert machine.succeed("sqlite3 /var/lib/oauthclientbridge/beta/sqlite.db 'SELECT client_id FROM tokens'").strip() == "legacy"
         machine.succeed("systemctl start oauthclientbridge-alpha oauthclientbridge-beta")
         machine.wait_until_succeeds(metrics("alpha"))
         machine.wait_until_succeeds(metrics("beta"))
@@ -160,8 +160,8 @@ pkgs.testers.runNixOSTest {
     with subtest("real OAuth exchange through the packaged app and database"):
         machine.wait_for_unit("nginx.service")
         machine.succeed("${pkgs.python312}/bin/python ${../tests/container_smoke/smoke.py} --runtime asgi /run/nginx/smoke.sock")
-        assert machine.succeed("sqlite3 /var/lib/oauthclientbridge-alpha/sqlite.db 'SELECT count(*) FROM tokens'").strip() == "1"
-        assert machine.succeed("sqlite3 /var/lib/oauthclientbridge-beta/sqlite.db 'SELECT client_id FROM tokens'").strip() == "legacy"
+        assert machine.succeed("sqlite3 /var/lib/oauthclientbridge/alpha/sqlite.db 'SELECT count(*) FROM tokens'").strip() == "1"
+        assert machine.succeed("sqlite3 /var/lib/oauthclientbridge/beta/sqlite.db 'SELECT client_id FROM tokens'").strip() == "legacy"
 
     with subtest("explicit migration stops only its own web instance"):
         machine.succeed("systemctl start oauthclientbridge-alpha-upgradedb")
@@ -171,7 +171,7 @@ pkgs.testers.runNixOSTest {
         machine.fail(metrics("alpha"))
         machine.fail("systemctl is-active oauthclientbridge-alpha")
         machine.succeed("systemctl is-active oauthclientbridge-beta")
-        assert machine.succeed("sqlite3 /var/lib/oauthclientbridge-alpha/sqlite.db 'SELECT count(*) FROM tokens'").strip() == "1"
+        assert machine.succeed("sqlite3 /var/lib/oauthclientbridge/alpha/sqlite.db 'SELECT count(*) FROM tokens'").strip() == "1"
         machine.succeed("systemctl start oauthclientbridge-alpha")
         machine.wait_until_succeeds(metrics("alpha"))
 
@@ -182,11 +182,11 @@ pkgs.testers.runNixOSTest {
         assert alpha_uid != beta_uid and alpha_uid != "0" and beta_uid != "0"
         for name, other in (("alpha", "beta"), ("beta", "alpha")):
             if name == "beta":
-                machine.succeed(f"test $(stat -c %a /var/lib/oauthclientbridge-{name}) = 700")
+                machine.succeed(f"test $(stat -c %a /var/lib/oauthclientbridge/{name}) = 700")
             group = "nginx" if name == "alpha" else f"oauthclientbridge-{name}"
             machine.succeed(f"test $(stat -c '%a:%U:%G' /run/oauthclientbridge-{name}) = 755:root:root")
             machine.succeed(f"test $(stat -c %a /run/oauthclientbridge-{name}/private/web) = 700")
-            machine.fail(f"runuser -u oauthclientbridge-{name} -- cat /var/lib/oauthclientbridge-{other}/sqlite.db")
+            machine.fail(f"runuser -u oauthclientbridge-{name} -- cat /var/lib/oauthclientbridge/{other}/sqlite.db")
             machine.fail(f"runuser -u oauthclientbridge-{name} -- ls /run/oauthclientbridge-{other}/private/web/prom")
             machine.fail(f"runuser -u nginx -- ls /run/oauthclientbridge-{name}/private")
             machine.fail(f"runuser -u litestream -- ls /run/oauthclientbridge-{name}/private")
@@ -199,11 +199,11 @@ pkgs.testers.runNixOSTest {
             machine.succeed(f"install -d -o oauthclientbridge-{name} /srv/{name}")
             machine.succeed(f"runuser -u oauthclientbridge-{name} -- touch /srv/{name}/outside")
             machine.fail(f"nsenter -t {pid} -m -- runuser -u oauthclientbridge-{name} -- touch /srv/{name}/inside")
-            machine.succeed(f"nsenter -t {pid} -m -- runuser -u oauthclientbridge-{name} -- touch /var/lib/oauthclientbridge-{name}/writable")
+            machine.succeed(f"nsenter -t {pid} -m -- runuser -u oauthclientbridge-{name} -- touch /var/lib/oauthclientbridge/{name}/writable")
         machine.succeed("test -n \"$(find /run/oauthclientbridge-alpha/private/web/prom -name '*.db' -print -quit)\"")
         machine.succeed("runuser -u nginx -- " + metrics("alpha"))
         machine.fail("runuser -u nginx -- " + metrics("beta"))
-        machine.fail("runuser -u litestream -- cat /var/lib/oauthclientbridge-beta/sqlite.db")
+        machine.fail("runuser -u litestream -- cat /var/lib/oauthclientbridge/beta/sqlite.db")
 
     with subtest("credentials stay private and are not exported into process environments"):
         for name, other in (("alpha", "beta"), ("beta", "alpha")):
@@ -220,7 +220,7 @@ pkgs.testers.runNixOSTest {
 
     with subtest("cleanup is opt-in and a real timer runs the real command"):
         machine.succeed("systemctl start oauthclientbridge-alpha-cleandb.timer")
-        machine.wait_until_succeeds("journalctl -u oauthclientbridge-alpha-cleandb | grep 'Vacuumed /var/lib/oauthclientbridge-alpha/sqlite.db'")
+        machine.wait_until_succeeds("journalctl -u oauthclientbridge-alpha-cleandb | grep 'Vacuumed /var/lib/oauthclientbridge/alpha/sqlite.db'")
         sqlite_as("litestream", "SELECT count(*) FROM tokens;")
         machine.fail("systemctl cat oauthclientbridge-beta-cleandb.timer")
         machine.fail("systemctl cat oauthclientbridge-beta-cleandb.service")
@@ -236,6 +236,6 @@ pkgs.testers.runNixOSTest {
         machine.fail("systemctl is-active oauthclientbridge-alpha")
         machine.wait_until_succeeds(metrics("alpha"))
         assert machine.succeed("stat -c %i /run/oauthclientbridge-alpha/http.sock").strip() == socket_inode
-        assert machine.succeed("sqlite3 /var/lib/oauthclientbridge-alpha/sqlite.db 'SELECT count(*) FROM tokens'").strip() == "1"
+        assert machine.succeed("sqlite3 /var/lib/oauthclientbridge/alpha/sqlite.db 'SELECT count(*) FROM tokens'").strip() == "1"
   '';
 }

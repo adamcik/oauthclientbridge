@@ -17,7 +17,7 @@
     };
     dbs = [
       {
-        path = "/var/lib/oauthclientbridge-alpha/sqlite.db";
+        path = "/var/lib/oauthclientbridge/alpha/sqlite.db";
         meta-path = "/var/lib/backup-test/metadata";
         restore-if-db-not-exists = false;
         replica = {
@@ -69,14 +69,14 @@ in
         RuntimeDirectory = "backup-test";
         RuntimeDirectoryMode = "0700";
         ProtectSystem = "strict";
-        ReadWritePaths = ["/var/lib/oauthclientbridge-alpha"];
+        ReadWritePaths = ["/var/lib/oauthclientbridge/alpha"];
         ExecStart = "${pkgs.litestream}/bin/litestream replicate -config ${backupConfig}";
       };
     };
     testScript = ''
       import shlex
 
-      state = "/var/lib/oauthclientbridge-alpha"
+      state = "/var/lib/oauthclientbridge/alpha"
       app = "oauthclientbridge-alpha"
 
       def sqlite_as(user, sql):
@@ -92,6 +92,9 @@ in
       machine.succeed(f"systemctl start {app}")
       machine.succeed(f"test ! -e {state}/sqlite.db")
       machine.succeed(f"test $(stat -c '%a:%U:%G' {state}) = 2770:{app}:{app}")
+      machine.succeed("test $(stat -c '%a:%U:%G' /var/lib/oauthclientbridge) = 755:root:root")
+      machine.fail(f"runuser -u {app} -- touch /var/lib/oauthclientbridge/sibling")
+      machine.succeed("test ! -e /var/lib/oauthclientbridge-alpha")
       machine.succeed(f"runuser -u backup -- test -w {state}")
       machine.fail(f"runuser -u proxy -- ls {state}")
 
@@ -150,8 +153,8 @@ in
           machine.succeed(f"runuser -u proxy -- ${pkgs.python312}/bin/python -c {shlex.quote(connect)}")
           machine.wait_for_unit(f"{app}.service")
           assert machine.succeed(f"stat -c %i /run/{app}/http.sock") == inode
-          machine.succeed("test $(stat -c %a /var/lib/oauthclientbridge-beta) = 700")
-          machine.fail("runuser -u backup -- ls /var/lib/oauthclientbridge-beta")
+          machine.succeed("test $(stat -c %a /var/lib/oauthclientbridge/beta) = 700")
+          machine.fail("runuser -u backup -- ls /var/lib/oauthclientbridge/beta")
           machine.fail(f"systemctl cat {app}-database-access")
           machine.fail("systemctl cat oauthclientbridge-beta-database-access")
 

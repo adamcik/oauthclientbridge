@@ -75,7 +75,7 @@
       stateDirectory = mkOption {
         type = types.str;
         readOnly = true;
-        default = "/var/lib/${unitName name}";
+        default = "/var/lib/oauthclientbridge/${name}";
         description = "Private persistent instance data, including sqlite.db.";
       };
       databaseAccessUsers = mkOption {
@@ -108,7 +108,7 @@
           User = unit;
           Group = unit;
           LoadCredential = lib.mapAttrsToList (key: path: "${key}:${path}") instance.credentials;
-          StateDirectory = unit;
+          StateDirectory = "oauthclientbridge/${name}";
           StateDirectoryMode =
             if sharedDatabase
             then "2770"
