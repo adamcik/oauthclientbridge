@@ -142,17 +142,20 @@ in
               unit = f"oauthclientbridge-{name}"
               machine.succeed(f"systemctl reset-failed {unit}.service")
               machine.succeed(f"systemctl start {unit}")
-              machine.succeed(f"test $(stat -c '%a:%U:%G' /run/{unit}) = 755:root:root")
-              machine.succeed(f"test $(stat -c %a /run/{unit}/private/web) = 700")
-              machine.fail(f"runuser -u proxy -- ls /run/{unit}/private")
-              machine.fail(f"runuser -u backup -- ls /run/{unit}/private")
-          connect = "import socket; s = socket.socket(socket.AF_UNIX); s.connect('/run/oauthclientbridge-alpha/http.sock')"
-          inode = machine.succeed(f"stat -c %i /run/{app}/http.sock")
+              machine.succeed(f"test $(stat -c '%a:%U:%G' /run/oauthclientbridge/{name}) = 755:root:root")
+              machine.succeed(f"test $(stat -c %a /run/oauthclientbridge/{name}/private/web) = 700")
+              machine.fail(f"runuser -u proxy -- ls /run/oauthclientbridge/{name}/private")
+              machine.fail(f"runuser -u backup -- ls /run/oauthclientbridge/{name}/private")
+              machine.succeed(f"test ! -e /run/{unit}/http.sock")
+          machine.succeed("test $(stat -c '%a:%U:%G' /run/oauthclientbridge) = 755:root:root")
+          machine.fail(f"runuser -u {app} -- touch /run/oauthclientbridge/sibling")
+          connect = "import socket; s = socket.socket(socket.AF_UNIX); s.connect('/run/oauthclientbridge/alpha/http.sock')"
+          inode = machine.succeed("stat -c %i /run/oauthclientbridge/alpha/http.sock")
           machine.succeed(f"systemctl stop {app}")
           machine.fail(f"systemctl is-active {app}")
           machine.succeed(f"runuser -u proxy -- ${pkgs.python312}/bin/python -c {shlex.quote(connect)}")
           machine.wait_for_unit(f"{app}.service")
-          assert machine.succeed(f"stat -c %i /run/{app}/http.sock") == inode
+          assert machine.succeed("stat -c %i /run/oauthclientbridge/alpha/http.sock") == inode
           machine.succeed("test $(stat -c %a /var/lib/oauthclientbridge/beta) = 700")
           machine.fail("runuser -u backup -- ls /var/lib/oauthclientbridge/beta")
           machine.fail(f"systemctl cat {app}-database-access")

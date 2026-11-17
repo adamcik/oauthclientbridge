@@ -40,7 +40,7 @@
       socketPath = mkOption {
         type = types.str;
         readOnly = true;
-        default = "/run/${unitName name}/http.sock";
+        default = "/run/oauthclientbridge/${name}/http.sock";
         description = "HTTP Unix socket, accessible only to the instance user and socketGroup.";
       };
       socketGroup = mkOption {
@@ -154,7 +154,7 @@
           '';
         serviceConfig = {
           Type = "oneshot";
-          RuntimeDirectory = "${unit}/private/${command}";
+          RuntimeDirectory = "oauthclientbridge/${name}/private/${command}";
         };
       };
   in
@@ -177,7 +177,7 @@
           '';
         serviceConfig = {
           Type = "simple";
-          RuntimeDirectory = "${unit}/private/web";
+          RuntimeDirectory = "oauthclientbridge/${name}/private/web";
           Sockets = ["${unit}.socket"];
           Restart = "on-failure";
           RestartSec = 5;
@@ -197,7 +197,7 @@
           '';
         serviceConfig = {
           Type = "oneshot";
-          RuntimeDirectory = "${unit}/private/cleandb";
+          RuntimeDirectory = "oauthclientbridge/${name}/private/cleandb";
         };
       };
     };
@@ -253,8 +253,8 @@ in {
       })
     instances;
     systemd.tmpfiles.rules = lib.concatLists (lib.mapAttrsToList (name: _: [
-        "d /run/${unitName name} 0755 root root -"
-        "d /run/${unitName name}/private 0700 ${unitName name} ${unitName name} -"
+        "d /run/oauthclientbridge/${name} 0755 root root -"
+        "d /run/oauthclientbridge/${name}/private 0700 ${unitName name} ${unitName name} -"
       ])
       instances);
     systemd.services = lib.foldl' lib.recursiveUpdate {} (lib.mapAttrsToList instanceServices instances);
