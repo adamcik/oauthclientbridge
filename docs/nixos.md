@@ -33,12 +33,12 @@ Assuming the host already imports sops-nix and declares the referenced secrets:
 Instance names are 1–12 lowercase letters, digits, or hyphens, starting with a
 letter. Each gets a dedicated `oauthclientbridge-NAME` user and group, a private
 `/var/lib/oauthclientbridge/NAME` state directory. Each instance listens on the HTTP
-Unix socket `/run/oauthclientbridge-NAME/http.sock`, owned by its dedicated user and
+Unix socket `/run/oauthclientbridge/NAME/http.sock`, owned by its dedicated user and
 `socketGroup` (the instance group by default) with mode `0660`. There is no native TCP listener or port option. systemd
 owns the socket and passes it to Uvicorn; it survives web restarts and can activate
 web on demand. The root-owned runtime parent is mode `0755`; the socket's mode and
 group control HTTP access. Private per-unit runtime directories are under
-`/run/oauthclientbridge-NAME/private/{web,initdb,upgradedb,cleandb}`; the private
+`/run/oauthclientbridge/NAME/private/{web,initdb,upgradedb,cleandb}`; the private
 parent and unit directories remain mode `0700`. Metrics live in each unit's `prom`
 subdirectory. State remains mode `0700` unless database access is explicitly granted.
 `gracefulShutdownTimeout` defaults to 25 seconds; systemd allows 10 more seconds
@@ -49,7 +49,9 @@ Existing native deployments must move their state from
 `/var/lib/oauthclientbridge-NAME` to `/var/lib/oauthclientbridge/NAME` while web,
 socket, maintenance, and backup writers are stopped. The module does not move data,
 create compatibility links, or fall back to the old path. Update external backup
-paths before restarting writers; instance users, groups, and runtime paths stay unchanged.
+paths before restarting writers. Instance users and groups stay unchanged. Runtime
+paths also use `/run/oauthclientbridge/NAME`; update proxy socket paths in the same
+rollout. Runtime files are recreated, not moved or linked from the old layout.
 
 ## Runtime secrets through systemd credentials
 
@@ -166,7 +168,7 @@ services.oauthclientbridge.instances.spotify.socketGroup = "nginx";
 
 This grants socket access, not access to the private state or metrics directories.
 For nginx, an upstream server address is
-`unix:/run/oauthclientbridge-spotify/http.sock`; this is HTTP, not the uWSGI protocol.
+`unix:/run/oauthclientbridge/spotify/http.sock`; this is HTTP, not the uWSGI protocol.
 The host still owns proxy routing and TLS. The proxy must replace forwarded
 headers from untrusted clients and supply the intended scheme, host, port, and
 client address. Socket access is a trust boundary: choose a trusted proxy group.
