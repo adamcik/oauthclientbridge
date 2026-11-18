@@ -59,7 +59,7 @@ test = [
   "pytest",
   "pytest-cov",
   "pytest-freezer",
-  "pytest-sentry-capture~=0.2.0",
+  "pytest-sentry-capture",
   "pytest-xdist",
   "requests_mock",
   { include-group = "sentry" },
@@ -107,3 +107,7 @@ known-local-folder = ["src"]
 
 [tool.uv]
 required-version = ">=0.7.20"
+
+[tool.uv.sources]
+# Review against the new fixture interface; remove after its PyPI release.
+pytest-sentry-capture = { git = "https://github.com/adamcik/pytest-sentry-capture", rev = "8d38ca9602bbcac2c8c3ce602c0ceb43d4a4b8aa" }
