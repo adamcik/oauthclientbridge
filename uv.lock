@@ -485,7 +485,7 @@ dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pytest-freezer" },
-    { name = "pytest-sentry-capture", git = "https://github.com/adamcik/pytest-sentry-capture?rev=8d38ca9602bbcac2c8c3ce602c0ceb43d4a4b8aa" },
+    { name = "pytest-sentry-capture", git = "https://github.com/adamcik/pytest-sentry-capture?rev=e3c2038fcb2e61f49f0604af0295d7723127a2fc" },
     { name = "pytest-xdist" },
     { name = "requests-mock" },
     { name = "ruff", specifier = "==0.17.3" },
@@ -502,7 +502,7 @@ test = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pytest-freezer" },
-    { name = "pytest-sentry-capture", git = "https://github.com/adamcik/pytest-sentry-capture?rev=8d38ca9602bbcac2c8c3ce602c0ceb43d4a4b8aa" },
+    { name = "pytest-sentry-capture", git = "https://github.com/adamcik/pytest-sentry-capture?rev=e3c2038fcb2e61f49f0604af0295d7723127a2fc" },
     { name = "pytest-xdist" },
     { name = "requests-mock" },
     { name = "sentry-sdk", extras = ["opentelemetry"], specifier = "==2.74.0" },
@@ -983,8 +983,8 @@ wheels = [
 
 [[package]]
 name = "pytest-sentry-capture"
-version = "0.2.1.dev6+g8d38ca960"
-source = { git = "https://github.com/adamcik/pytest-sentry-capture?rev=8d38ca9602bbcac2c8c3ce602c0ceb43d4a4b8aa#8d38ca9602bbcac2c8c3ce602c0ceb43d4a4b8aa" }
+version = "0.2.1.dev7+ge3c2038fc"
+source = { git = "https://github.com/adamcik/pytest-sentry-capture?rev=e3c2038fcb2e61f49f0604af0295d7723127a2fc#e3c2038fcb2e61f49f0604af0295d7723127a2fc" }
 dependencies = [
     { name = "pytest" },
     { name = "sentry-sdk" },
