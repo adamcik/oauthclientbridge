@@ -110,4 +110,4 @@ required-version = ">=0.7.20"
 
 [tool.uv.sources]
 # Review against the new fixture interface; remove after its PyPI release.
-pytest-sentry-capture = { git = "https://github.com/adamcik/pytest-sentry-capture", rev = "8d38ca9602bbcac2c8c3ce602c0ceb43d4a4b8aa" }
+pytest-sentry-capture = { git = "https://github.com/adamcik/pytest-sentry-capture", rev = "e3c2038fcb2e61f49f0604af0295d7723127a2fc" }
