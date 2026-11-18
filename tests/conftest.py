@@ -45,20 +45,15 @@ def _isolate_sentry(  # pyright: ignore[reportUnusedFunction] # Used by pytest.
 
 
 @pytest.fixture
-def app_sentry_capture(
+def initialize_sentry(
     sentry_transport: pytest_sentry_capture.FakeTransport,
     sentry_isolation_scope: None,
-) -> Generator[pytest_sentry_capture.SentryCapture, None, None]:
-    """Capture events processed by oauthclientbridge's real Sentry setup.
+) -> None:
+    """Override SDK setup to exercise our integrations, sampling, and privacy settings.
 
-    The library's sentry_capture fixture creates a generic SDK client, bypassing
-    our integrations, sampling, and privacy settings. Run our initializer instead,
-    replacing only its transport so events stay local to the test.
-
-    Bind capture.flush() to that application-created client and close it at
-    teardown: the library's transport and isolation fixtures do not own it.
+    The capture plugin owns successful client cleanup; only failed setup needs
+    local cleanup because its client-ownership fixture has not started yet.
     """
-    client = None
     try:
         telemetry.init_sentry(
             SentrySettings(
@@ -70,12 +65,9 @@ def app_sentry_capture(
             "flask",
             sentry_transport,
         )
-        client = sentry_sdk.get_client()
-        yield pytest_sentry_capture.SentryCapture(
-            sentry_transport.captured_envelopes, client=client
-        )
-    finally:
-        (client if client is not None else sentry_sdk.get_client()).close()
+    except BaseException:
+        sentry_sdk.get_client().close()
+        raise
 
 
 @pytest.fixture(autouse=True)

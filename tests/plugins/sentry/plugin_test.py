@@ -1,7 +1,6 @@
 import importlib
 import logging
 import sys
-from collections.abc import Generator
 from typing import TypeGuard
 from unittest.mock import patch
 
@@ -9,9 +8,9 @@ import pytest
 import sentry_sdk
 from opentelemetry import trace
 from pydantic import SecretStr
-from pytest_sentry_capture import FakeTransport, SentryCapture
+from pytest_sentry_capture import SentryCapture
 
-from oauthclientbridge import logs, telemetry
+from oauthclientbridge import logs
 from oauthclientbridge.settings import LogLevel, LogSettings, SentrySettings
 from oauthclientbridge.telemetry import _sentry
 
@@ -27,21 +26,6 @@ def sentry_settings() -> SentrySettings:
         sample_rate=1.0,
         traces_sample_rate=1.0,
     )
-
-
-@pytest.fixture
-def capsentry(
-    sentry_transport: FakeTransport,
-    sentry_settings: SentrySettings,
-    sentry_isolation_scope: None,
-) -> Generator[SentryCapture, None, None]:
-    client = None
-    try:
-        telemetry.init_sentry(sentry_settings, "flask", sentry_transport)
-        client = sentry_sdk.get_client()
-        yield SentryCapture(sentry_transport.captured_envelopes, client=client)
-    finally:
-        (client if client is not None else sentry_sdk.get_client()).close()
 
 
 def test_init_sentry_disabled() -> None:
@@ -99,7 +83,7 @@ def test_init_sentry_sdk_not_installed(
 # TODO: Test log exception and log error etc in except
 
 
-def test_sentry_captures_user_and_tags(capsentry: SentryCapture) -> None:
+def test_sentry_captures_user_and_tags(sentry_capture: SentryCapture) -> None:
     sentry_sdk.set_user({"id": "user-42", "email": "test@example.com"})
     sentry_sdk.set_tag("transaction_id", "txn-abc-123")
 
@@ -108,17 +92,20 @@ def test_sentry_captures_user_and_tags(capsentry: SentryCapture) -> None:
     except ValueError:
         sentry_sdk.capture_exception()
 
-    capsentry.flush()
-    event = next(capsentry.get_events())
+    sentry_capture.flush()
+    event = next(sentry_capture.get_events())
 
     assert "user" in event
     assert event["user"]["id"] == "user-42"
 
     assert "tags" in event
     assert event["tags"]["transaction_id"] == "txn-abc-123"
+    frames = event["exception"]["values"][0]["stacktrace"]["frames"]
+    assert frames
+    assert all("vars" not in frame for frame in frames)
 
 
-def test_sentry_captures_log_breadcrumbs(capsentry: SentryCapture) -> None:
+def test_sentry_captures_log_breadcrumbs(sentry_capture: SentryCapture) -> None:
     logs.init_logging(LogSettings(level=LogLevel.DEBUG))
 
     logger = logging.getLogger(__name__)
@@ -130,15 +117,15 @@ def test_sentry_captures_log_breadcrumbs(capsentry: SentryCapture) -> None:
     except ValueError:
         sentry_sdk.capture_exception()
 
-    capsentry.flush()
-    info_log = capsentry.find_breadcrumb_by_level("info")
+    sentry_capture.flush()
+    info_log = sentry_capture.find_breadcrumb_by_level("info")
     assert info_log["message"] == "Starting the process."
 
-    warning_log = capsentry.find_breadcrumb_by_level("warning")
+    warning_log = sentry_capture.find_breadcrumb_by_level("warning")
     assert warning_log["message"] == "Something looks suspicious."
 
 
-def test_sentry_captures_chained_exception(capsentry: SentryCapture) -> None:
+def test_sentry_captures_chained_exception(sentry_capture: SentryCapture) -> None:
     try:
         try:
             raise ZeroDivisionError
@@ -147,14 +134,14 @@ def test_sentry_captures_chained_exception(capsentry: SentryCapture) -> None:
     except TypeError:
         sentry_sdk.capture_exception()
 
-    capsentry.flush()
-    assert len(list(capsentry.get_exceptions())) == 2
-    capsentry.find_exception_by_type("ZeroDivisionError")
-    capsentry.find_exception_by_type("TypeError")
+    sentry_capture.flush()
+    assert len(list(sentry_capture.get_exceptions())) == 2
+    sentry_capture.find_exception_by_type("ZeroDivisionError")
+    sentry_capture.find_exception_by_type("TypeError")
 
 
 def test_sentry_captures_otel_span(
-    capsentry: SentryCapture, tracer: trace.Tracer
+    sentry_capture: SentryCapture, tracer: trace.Tracer
 ) -> None:
     try:
         with (
@@ -165,8 +152,8 @@ def test_sentry_captures_otel_span(
     except ValueError:
         sentry_sdk.capture_exception()
 
-    capsentry.flush()
-    trace_context = sentry_trace_context(next(capsentry.get_events()))
+    sentry_capture.flush()
+    trace_context = sentry_trace_context(next(sentry_capture.get_events()))
     assert trace_context.get("trace_id") is not None
     assert trace_context.get("span_id") is not None
 

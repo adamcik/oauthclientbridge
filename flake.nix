@@ -115,6 +115,18 @@
                     SETUPTOOLS_SCM_PRETEND_VERSION = overrideMetadata.version;
                   };
               });
+
+              # Git-source review pin: remove with the temporary uv source override.
+              pytest-sentry-capture = prev.pytest-sentry-capture.overrideAttrs (old: {
+                nativeBuildInputs =
+                  (old.nativeBuildInputs or [])
+                  ++ final.resolveBuildSystem {
+                    hatchling = [];
+                    hatch-vcs = [];
+                    editables = [];
+                  };
+                env = (old.env or {}) // {SETUPTOOLS_SCM_PRETEND_VERSION = old.version;};
+              });
             })
           ]
         )

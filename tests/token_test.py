@@ -907,7 +907,7 @@ def test_token_terminal_refresh_error_ignores_retry_after_header(
 def test_token_unexpected_error_returns_json(
     client: FlaskClient,
     monkeypatch: pytest.MonkeyPatch,
-    app_sentry_capture: SentryCapture,
+    sentry_capture: SentryCapture,
 ):
     async def fail(**_: object) -> None:
         raise RuntimeError("boom")
@@ -921,15 +921,15 @@ def test_token_unexpected_error_returns_json(
     assert response.content_type == "application/json"
     assert response.headers["Cache-Control"] == "no-store"
     assert response.headers["Pragma"] == "no-cache"
-    app_sentry_capture.flush()
-    app_sentry_capture.find_exception_by_type("RuntimeError")
+    sentry_capture.flush()
+    sentry_capture.find_exception_by_type("RuntimeError")
 
 
 def test_expected_token_error_is_not_captured_by_sentry(
-    post: PostClient, app_sentry_capture: SentryCapture
+    post: PostClient, sentry_capture: SentryCapture
 ):
     response = post("/token", {"grant_type": "authorization_code"})
 
     assert response.status == 400
-    app_sentry_capture.flush()
-    assert list(app_sentry_capture.get_exceptions()) == []
+    sentry_capture.flush()
+    assert list(sentry_capture.get_exceptions()) == []
