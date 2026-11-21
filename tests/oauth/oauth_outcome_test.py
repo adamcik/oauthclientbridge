@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from http import HTTPStatus
 
-import flask.ctx
+import flask
 import pytest
 
 from oauthclientbridge import oauth
@@ -12,7 +12,40 @@ from oauthclientbridge.oauth import (
 from oauthclientbridge.oauth._retry import (
     RetryCondition,  # pyright: ignore[reportPrivateUsage] # Direct implementation test.
 )
-from oauthclientbridge.settings import current_settings
+from oauthclientbridge.settings import Settings
+
+
+def test_normalize_error_uses_explicit_provider_mapping() -> None:
+    assert (
+        oauth.normalize_error(
+            "provider_error",
+            allowed_types={OAuthError.INVALID_GRANT},
+            fallback_type=OAuthError.SERVER_ERROR,
+            error_types={"provider_error": OAuthError.INVALID_GRANT},
+        )
+        == OAuthError.INVALID_GRANT
+    )
+    assert (
+        oauth.normalize_error(
+            "provider_error",
+            allowed_types={OAuthError.INVALID_GRANT},
+            fallback_type=OAuthError.SERVER_ERROR,
+            error_types={},
+        )
+        == OAuthError.SERVER_ERROR
+    )
+
+
+def test_normalize_error_filters_mapped_errors_against_allowed_types() -> None:
+    assert (
+        oauth.normalize_error(
+            "provider_error",
+            allowed_types={OAuthError.INVALID_GRANT},
+            fallback_type=OAuthError.SERVER_ERROR,
+            error_types={"provider_error": OAuthError.INVALID_CLIENT},
+        )
+        == OAuthError.SERVER_ERROR
+    )
 
 
 def test_error_handler_returns_503_for_temporarily_unavailable_retry_after(
@@ -47,7 +80,7 @@ def test_error_handler_keeps_invalid_grant_as_400_with_retry_after(
 
 @dataclass(frozen=True)
 class TokenEndpointOutcomeCase:
-    name: str
+    id: str
     status: HTTPStatus | None
     result: oauth_outcome.OAuthResponse
     expected_retryable: bool
@@ -60,7 +93,7 @@ class TokenEndpointOutcomeCase:
     "case",
     [
         TokenEndpointOutcomeCase(
-            name="success token",
+            id="success token",
             status=HTTPStatus.OK,
             result={"access_token": "abc", "token_type": "Bearer"},
             expected_retryable=False,
@@ -69,7 +102,7 @@ class TokenEndpointOutcomeCase:
             expected_retry_condition=None,
         ),
         TokenEndpointOutcomeCase(
-            name="success invalid grant payload",
+            id="success invalid grant payload",
             status=HTTPStatus.OK,
             result={"error": OAuthError.INVALID_GRANT},
             expected_retryable=False,
@@ -78,7 +111,7 @@ class TokenEndpointOutcomeCase:
             expected_retry_condition=None,
         ),
         TokenEndpointOutcomeCase(
-            name="bad request invalid grant",
+            id="bad request invalid grant",
             status=HTTPStatus.BAD_REQUEST,
             result={"error": OAuthError.INVALID_GRANT},
             expected_retryable=False,
@@ -87,7 +120,7 @@ class TokenEndpointOutcomeCase:
             expected_retry_condition=None,
         ),
         TokenEndpointOutcomeCase(
-            name="bad request invalid client",
+            id="bad request invalid client",
             status=HTTPStatus.BAD_REQUEST,
             result={"error": OAuthError.INVALID_CLIENT},
             expected_retryable=False,
@@ -96,7 +129,7 @@ class TokenEndpointOutcomeCase:
             expected_retry_condition=None,
         ),
         TokenEndpointOutcomeCase(
-            name="bad request invalid request",
+            id="bad request invalid request",
             status=HTTPStatus.BAD_REQUEST,
             result={"error": OAuthError.INVALID_REQUEST},
             expected_retryable=False,
@@ -105,7 +138,7 @@ class TokenEndpointOutcomeCase:
             expected_retry_condition=None,
         ),
         TokenEndpointOutcomeCase(
-            name="unauthorized invalid client",
+            id="unauthorized invalid client",
             status=HTTPStatus.UNAUTHORIZED,
             result={"error": OAuthError.INVALID_CLIENT},
             expected_retryable=False,
@@ -114,7 +147,7 @@ class TokenEndpointOutcomeCase:
             expected_retry_condition=None,
         ),
         TokenEndpointOutcomeCase(
-            name="too many requests retryable",
+            id="too many requests retryable",
             status=HTTPStatus.TOO_MANY_REQUESTS,
             result={"error": OAuthError.TEMPORARILY_UNAVAILABLE},
             expected_retryable=True,
@@ -123,7 +156,7 @@ class TokenEndpointOutcomeCase:
             expected_retry_condition=RetryCondition.RESOURCE_EXHAUSTED,
         ),
         TokenEndpointOutcomeCase(
-            name="service unavailable invalid grant",
+            id="service unavailable invalid grant",
             status=HTTPStatus.SERVICE_UNAVAILABLE,
             result={"error": OAuthError.INVALID_GRANT},
             expected_retryable=True,
@@ -132,7 +165,7 @@ class TokenEndpointOutcomeCase:
             expected_retry_condition=RetryCondition.UNAVAILABLE,
         ),
         TokenEndpointOutcomeCase(
-            name="service unavailable invalid client",
+            id="service unavailable invalid client",
             status=HTTPStatus.SERVICE_UNAVAILABLE,
             result={"error": OAuthError.INVALID_CLIENT},
             expected_retryable=True,
@@ -141,7 +174,7 @@ class TokenEndpointOutcomeCase:
             expected_retry_condition=RetryCondition.UNAVAILABLE,
         ),
         TokenEndpointOutcomeCase(
-            name="service unavailable oauth unavailable",
+            id="service unavailable oauth unavailable",
             status=HTTPStatus.SERVICE_UNAVAILABLE,
             result={"error": OAuthError.TEMPORARILY_UNAVAILABLE},
             expected_retryable=True,
@@ -150,7 +183,7 @@ class TokenEndpointOutcomeCase:
             expected_retry_condition=RetryCondition.UNAVAILABLE,
         ),
         TokenEndpointOutcomeCase(
-            name="transport failure",
+            id="transport failure",
             status=None,
             result=OAuthError.SERVER_ERROR.json(),
             expected_retryable=True,
@@ -159,7 +192,7 @@ class TokenEndpointOutcomeCase:
             expected_retry_condition=RetryCondition.UNAVAILABLE,
         ),
         TokenEndpointOutcomeCase(
-            name="service unavailable success payload",
+            id="service unavailable success payload",
             status=HTTPStatus.SERVICE_UNAVAILABLE,
             result={"access_token": "abc", "token_type": "Bearer"},
             expected_retryable=True,
@@ -168,7 +201,7 @@ class TokenEndpointOutcomeCase:
             expected_retry_condition=RetryCondition.UNAVAILABLE,
         ),
         TokenEndpointOutcomeCase(
-            name="success token with refresh token",
+            id="success token with refresh token",
             status=HTTPStatus.OK,
             result={
                 "access_token": "abc",
@@ -181,17 +214,17 @@ class TokenEndpointOutcomeCase:
             expected_retry_condition=None,
         ),
     ],
-    ids=lambda case: case.name,
+    ids=lambda case: case.id,
 )
 def test_token_endpoint_outcome(
-    app_context: flask.ctx.AppContext,
+    settings: Settings,
     case: TokenEndpointOutcomeCase,
 ) -> None:
     actual = oauth.token_endpoint_outcome(
         case.status,
         case.result,
-        retry_status_codes=current_settings.fetch.retry_status_codes,
-        error_types=current_settings.fetch.error_types,
+        retry_status_codes=settings.fetch.retry_status_codes,
+        error_types=settings.fetch.error_types,
     )
 
     assert actual.retryable == case.expected_retryable

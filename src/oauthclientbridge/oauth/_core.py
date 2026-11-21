@@ -179,30 +179,25 @@ def record_fetch_metrics(
 
 
 async def fetch_with_requests(
+    settings: FetchSettings,
+    /,
     uri: str,
     upstream_grant_type: types.UpstreamGrantType,
     auth: str | None = None,
     **data: str | None,
 ) -> OAuthResponse:
-    """Perform an upstream OAuth request without blocking the event loop."""
-    return await _fetch_with_settings(
-        current_settings.fetch.model_copy(deep=True),
+    """Run an upstream request with a per-call snapshot of the fetch policy.
+
+    Bind settings with functools.partial to supply an UpstreamFetcher.
+    """
+    return await execution.run_sync(
+        "oauth.fetch",
+        _fetch_sync,
         uri,
         upstream_grant_type,
         auth,
         data,
-    )
-
-
-async def _fetch_with_settings(
-    settings: FetchSettings,
-    uri: str,
-    endpoint: types.UpstreamGrantType,
-    auth: str | None,
-    data: dict[str, str | None],
-) -> OAuthResponse:
-    return await execution.run_sync(
-        "oauth.fetch", _fetch_sync, uri, endpoint, auth, data, settings
+        settings.model_copy(deep=True),
     )
 
 

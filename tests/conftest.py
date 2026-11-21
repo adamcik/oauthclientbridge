@@ -5,6 +5,7 @@ import sqlite3
 from collections.abc import AsyncIterator, Awaitable, Callable, Generator, Mapping
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from typing import Any, NamedTuple, Protocol
 from uuid import uuid4
@@ -216,7 +217,10 @@ def adapter_client(
             settings: Settings,
             fetch: Callable[..., Awaitable[dict[str, Any]]] | None,
         ) -> AsyncIterator[AdapterRequests]:
-            app = create_app(settings, fetch=fetch or oauth.fetch_with_requests)
+            app = create_app(
+                settings,
+                fetch=fetch or partial(oauth.fetch_with_requests, settings.fetch),
+            )
             app.secret_key = "test-secret-key"
             if fetch is not None:
                 app.extensions["oauth_bridge"] = bridge.Bridge(settings, fetch)
@@ -306,7 +310,7 @@ def settings() -> Settings:
 
 @pytest.fixture
 def app(settings: Settings) -> Flask:
-    app = create_app(settings, fetch=oauth.fetch_with_requests)
+    app = create_app(settings, fetch=partial(oauth.fetch_with_requests, settings.fetch))
     app.secret_key = "test-secret-key"
     return app
 
