@@ -6,18 +6,31 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from flask.ctx import AppContext
 
 from oauthclientbridge import db, types
-from oauthclientbridge.settings import DatabaseSettings, current_settings
+from oauthclientbridge.settings import DatabaseSettings
 
 CLIENT_ID = types.ClientId(uuid.UUID("00000000-0000-0000-0000-000000000001"))
 ENCRYPTED_TOKEN = types.EncryptedToken(b"token")
 
 
+@pytest.fixture
+def database(tmp_path: Path) -> DatabaseSettings:
+    settings = DatabaseSettings(database=str(tmp_path / "tokens.sqlite"))
+    db.initialize(settings)
+    return settings
+
+
+@pytest.fixture
+def cursor(database: DatabaseSettings):
+    with sqlite3.connect(database.database, isolation_level=None) as connection:
+        connection.text_factory = bytes
+        yield connection.cursor()
+
+
 @dataclass(frozen=True)
 class DatabaseConnectCase:
-    name: str
+    id: str
     database: str
     expected: tuple[str, bool]
 
@@ -26,33 +39,34 @@ class DatabaseConnectCase:
     "case",
     [
         DatabaseConnectCase(
-            name="memory database",
+            id="memory-database",
             database=":memory:",
             expected=("file:oauthclientbridge?mode=memory&cache=shared", True),
         ),
         DatabaseConnectCase(
-            name="memory URI",
+            id="memory-uri",
             database="file:isolated?mode=memory&cache=shared",
             expected=("file:isolated?mode=memory&cache=shared", True),
         ),
         DatabaseConnectCase(
-            name="file path",
+            id="file-path",
             database="./sqlite.db",
             expected=("./sqlite.db", False),
         ),
     ],
-    ids=lambda case: case.name,
+    ids=lambda case: case.id,
 )
 def test_database_connect_args_supports_sqlite_uris(
-    app_context: AppContext, case: DatabaseConnectCase
+    case: DatabaseConnectCase,
 ) -> None:
-    current_settings.database.database = case.database
+    assert (
+        db._database_connect_args(DatabaseSettings(database=case.database))
+        == case.expected
+    )  # pyright: ignore[reportPrivateUsage] # Direct connection configuration test.
 
-    assert db._database_connect_args() == case.expected  # pyright: ignore[reportPrivateUsage] # Direct connection configuration test.
 
-
-def test_connect_closes_connection_after_operation(app_context: AppContext) -> None:
-    with db._connect() as connection:  # pyright: ignore[reportPrivateUsage] # Direct connection lifetime test.
+def test_connect_closes_connection_after_operation(database: DatabaseSettings) -> None:
+    with db._connect(database) as connection:  # pyright: ignore[reportPrivateUsage] # Direct connection lifetime test.
         connection.execute("SELECT 1")
 
     with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
@@ -79,7 +93,7 @@ def test_validate_client_id_rejects_malformed_value() -> None:
 
 @dataclass(frozen=True)
 class LookupCase:
-    name: str
+    id: str
     query: str
 
 
@@ -87,38 +101,41 @@ class LookupCase:
     "case",
     [
         LookupCase(
-            name="text token",
+            id="text-token",
             query=(
                 "INSERT INTO tokens (client_id, token) VALUES "
                 "('00000000-0000-0000-0000-000000000001', 'token')"
             ),
         ),
         LookupCase(
-            name="blob token",
+            id="blob-token",
             query=(
                 "INSERT INTO tokens (client_id, token) VALUES "
                 "('00000000-0000-0000-0000-000000000001', X'746F6B656E')"
             ),
         ),
     ],
-    ids=lambda case: case.name,
+    ids=lambda case: case.id,
 )
-def test_lookup(case: LookupCase, cursor: sqlite3.Cursor):
+def test_lookup(case: LookupCase, cursor: sqlite3.Cursor, database: DatabaseSettings):
     cursor.execute(case.query)
-    record = db.lookup(CLIENT_ID)
+    record = db.lookup(CLIENT_ID, database)
     assert ENCRYPTED_TOKEN == record.encrypted_token
 
 
-def test_lookup_missing(cursor: sqlite3.Cursor):
+def test_lookup_missing(database: DatabaseSettings):
     with pytest.raises(LookupError):
-        db.lookup(CLIENT_ID)
+        db.lookup(CLIENT_ID, database)
 
 
-def test_is_initialized_uses_check_tokens_table_operation_name(cursor: sqlite3.Cursor):
+def test_is_initialized_uses_check_tokens_table_operation_name(
+    database: DatabaseSettings,
+):
     with patch.object(db, "cursor", wraps=db.cursor) as mocked_cursor:
-        db.is_initialized()
+        assert db.is_initialized(database)
 
-    mocked_cursor.assert_called_once_with(name="check_tokens_table", connection=None)
+    assert mocked_cursor.call_count == 1
+    assert mocked_cursor.call_args.kwargs["name"] == "check_tokens_table"
 
 
 def test_token_state_counts_uses_explicit_database_outside_flask(
@@ -140,15 +157,15 @@ def test_token_state_counts_uses_explicit_database_outside_flask(
     }
 
 
-def test_lookup_revoked(cursor: sqlite3.Cursor):
+def test_lookup_revoked(cursor: sqlite3.Cursor, database: DatabaseSettings):
     cursor.execute(
         "INSERT INTO tokens (client_id) VALUES ('00000000-0000-0000-0000-000000000001')"
     )
-    record = db.lookup(CLIENT_ID)
+    record = db.lookup(CLIENT_ID, database)
     assert record.encrypted_token is None
 
 
-def test_lookup_includes_timestamps(cursor: sqlite3.Cursor):
+def test_lookup_includes_timestamps(cursor: sqlite3.Cursor, database: DatabaseSettings):
     created_at = datetime(2026, 6, 18, 12, 0, tzinfo=UTC)
     last_updated_at = datetime(2026, 6, 18, 13, 0, tzinfo=UTC)
     cursor.execute(
@@ -164,7 +181,7 @@ def test_lookup_includes_timestamps(cursor: sqlite3.Cursor):
         ),
     )
 
-    assert db.lookup(CLIENT_ID) == db.TokenRecord(
+    assert db.lookup(CLIENT_ID, database) == db.TokenRecord(
         client_id=CLIENT_ID,
         encrypted_token=ENCRYPTED_TOKEN,
         created_at=created_at,
@@ -175,9 +192,9 @@ def test_lookup_includes_timestamps(cursor: sqlite3.Cursor):
 TOKEN_TYPE_QUERY = "SELECT token, typeof(token) FROM tokens WHERE client_id = ?"
 
 
-def test_insert(cursor: sqlite3.Cursor):
+def test_insert(cursor: sqlite3.Cursor, database: DatabaseSettings):
     client_id = types.ClientId(uuid.UUID("00000000-0000-0000-0000-000000000002"))
-    db.insert(client_id, ENCRYPTED_TOKEN)
+    db.insert(client_id, ENCRYPTED_TOKEN, database)
 
     cursor.execute(
         "SELECT token, typeof(token), created_at, last_updated_at FROM tokens WHERE client_id = ?",
@@ -190,13 +207,13 @@ def test_insert(cursor: sqlite3.Cursor):
     assert last_updated_at is not None
 
 
-def test_update(cursor: sqlite3.Cursor):
+def test_update(cursor: sqlite3.Cursor, database: DatabaseSettings):
     cursor.execute(
         "INSERT INTO tokens (client_id, last_updated_at) VALUES "
         "('00000000-0000-0000-0000-000000000001', 1)"
     )
 
-    assert 1 == db.update(CLIENT_ID, ENCRYPTED_TOKEN)
+    assert 1 == db.update(CLIENT_ID, ENCRYPTED_TOKEN, database)
 
     cursor.execute(
         "SELECT token, typeof(token), last_updated_at FROM tokens WHERE client_id = ?",
@@ -208,13 +225,13 @@ def test_update(cursor: sqlite3.Cursor):
     assert last_updated_at != 1
 
 
-def test_update_none(cursor: sqlite3.Cursor):
+def test_update_none(cursor: sqlite3.Cursor, database: DatabaseSettings):
     cursor.execute(
         "INSERT INTO tokens (client_id, token, last_updated_at) VALUES "
         "('00000000-0000-0000-0000-000000000001', 'token', 1)"
     )
 
-    assert 1 == db.update(CLIENT_ID, None)
+    assert 1 == db.update(CLIENT_ID, None, database)
 
     cursor.execute(
         "SELECT token, typeof(token), last_updated_at FROM tokens WHERE client_id = ?",
@@ -226,12 +243,12 @@ def test_update_none(cursor: sqlite3.Cursor):
     assert last_updated_at != 1
 
 
-def test_update_missing(app_context: AppContext):
-    assert 0 == db.update(CLIENT_ID, ENCRYPTED_TOKEN)
+def test_update_missing(database: DatabaseSettings):
+    assert 0 == db.update(CLIENT_ID, ENCRYPTED_TOKEN, database)
 
 
 def test_upgrade_adds_timestamp_columns_without_dropping_rows(
-    app_context: AppContext, cursor: sqlite3.Cursor
+    database: DatabaseSettings, cursor: sqlite3.Cursor
 ):
     cursor.execute("DROP TABLE tokens")
     cursor.execute("CREATE TABLE tokens(client_id text primary key, token blob)")
@@ -240,9 +257,9 @@ def test_upgrade_adds_timestamp_columns_without_dropping_rows(
         "('00000000-0000-0000-0000-000000000001', 'token')"
     )
 
-    db.upgrade()
+    db.upgrade(database)
 
-    assert db.lookup(CLIENT_ID) == db.TokenRecord(
+    assert db.lookup(CLIENT_ID, database) == db.TokenRecord(
         client_id=CLIENT_ID,
         encrypted_token=ENCRYPTED_TOKEN,
         created_at=None,
