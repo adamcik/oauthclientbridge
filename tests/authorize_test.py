@@ -1,88 +1,74 @@
-import unittest.mock
 import urllib.parse
 from dataclasses import dataclass
 from http import HTTPStatus
 
-import flask
 import pytest
-from flask.testing import FlaskClient
 from requests_mock import Mocker
+from starlette.testclient import TestClient
 
-from oauthclientbridge import bridge, crypto, db
+from oauthclientbridge import crypto, db
 from oauthclientbridge.bridge import _template
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import Settings
-from oauthclientbridge.views import (
-    _flask_response,  # pyright: ignore[reportPrivateUsage] # Adapter translation test.
-)
 from tests.conftest import GetClient
 
 
-def test_authorize_redirects(client: FlaskClient):
-    resp = client.get("/")
-    location = urllib.parse.urlsplit(resp.location)
-
-    with client.session_transaction() as session:
-        assert resp.status_code == 302
-        assert location.netloc == "provider.example.com"
-        assert location.path == "/auth"
-        assert "state" in session
+def test_authorize_redirects(asgi_client: TestClient):
+    resp = asgi_client.get("/")
+    location = urllib.parse.urlsplit(resp.headers["location"])
+    assert resp.status_code == 302
+    assert location.netloc == "provider.example.com"
+    assert location.path == "/auth"
+    assert urllib.parse.parse_qs(location.query)["state"][0]
 
 
-def test_authorize_wrong_method(client: FlaskClient):
-    resp = client.post("/")
+def test_authorize_wrong_method(asgi_client: TestClient):
+    resp = asgi_client.post("/")
     assert resp.status_code == 405
 
 
-def test_authorize_redirect_uri(client: FlaskClient, settings: Settings):
+def test_authorize_redirect_uri(asgi_client: TestClient, settings: Settings):
     redirect_uri = settings.oauth.redirect_uri
     url = "/?{}".format(urllib.parse.urlencode({"redirect_uri": redirect_uri}))
-    resp = client.get(url)
+    resp = asgi_client.get(url)
     assert resp.status_code == 302
 
 
-def test_authorize_wrong_redirect_uri(client: FlaskClient):
+def test_authorize_wrong_redirect_uri(asgi_client: TestClient):
     url = "/?{}".format(urllib.parse.urlencode({"redirect_uri": "wrong-value"}))
-    resp = client.get(url)
+    resp = asgi_client.get(url)
     assert resp.status_code == 400
 
 
-def test_authorize_client_state(client: FlaskClient):
-    resp = client.get("/?state=s3cret")
-
-    with client.session_transaction() as session:
-        assert resp.status_code == 302
-        assert session["client_state"] == "s3cret"
-
-
-def test_authorize_replaces_previous_bridge_session(client: FlaskClient):
-    with client.session_transaction() as session:
-        session["unrelated"] = "value"
-
-    _ = client.get("/")
-
-    with client.session_transaction() as session:
-        assert "client_state" not in session
-        assert "state" in session
-        assert "unrelated" not in session
+def test_authorize_client_state(asgi_client: TestClient):
+    authorization = asgi_client.get("/?state=s3cret")
+    state = urllib.parse.parse_qs(
+        urllib.parse.urlsplit(authorization.headers["location"]).query
+    )["state"][0]
+    response = asgi_client.get(
+        "/callback", params={"state": state, "error": "access_denied"}
+    )
+    assert response.json()["state"] == "s3cret"
 
 
-def test_flask_adapter_renders_json_bridge_response(app: flask.Flask):
-    with app.test_request_context():
-        response = _flask_response(
-            bridge.BridgeResponse(
-                status=HTTPStatus.OK,
-                headers={"X-Bridge": "yes"},
-                body={"value": "json"},
-            )
-        )
+def test_authorize_replaces_previous_bridge_session(asgi_client: TestClient):
+    first = asgi_client.get("/", params={"state": "previous-client-state"})
+    previous_state = urllib.parse.parse_qs(
+        urllib.parse.urlsplit(first.headers["location"]).query
+    )["state"][0]
+    second = asgi_client.get("/")
+    state = urllib.parse.parse_qs(
+        urllib.parse.urlsplit(second.headers["location"]).query
+    )["state"][0]
+    assert state != previous_state
+    response = asgi_client.get(
+        "/callback", params={"state": state, "error": "access_denied"}
+    )
+    assert response.json().get("state") is None
 
-    assert response.json == {"value": "json"}
-    assert response.headers["X-Bridge"] == "yes"
 
-
-def test_callback_response_has_security_headers(client: FlaskClient):
-    response = client.get("/callback")
+def test_callback_response_has_security_headers(asgi_client: TestClient):
+    response = asgi_client.get("/callback")
 
     assert response.headers["Referrer-Policy"] == "no-referrer"
     assert response.headers["X-Content-Type-Options"] == "nosniff"
@@ -97,10 +83,10 @@ def test_callback_response_has_security_headers(client: FlaskClient):
     assert response.headers["Pragma"] == "no-cache"
 
 
-def test_callback_csp_can_be_disabled(client: FlaskClient, settings: Settings):
+def test_callback_csp_can_be_disabled(asgi_client: TestClient, settings: Settings):
     settings.callback_content_security_policy = None
 
-    response = client.get("/callback")
+    response = asgi_client.get("/callback")
 
     assert "Content-Security-Policy" not in response.headers
 
@@ -123,10 +109,10 @@ def test_callback_template_adds_security_headers():
 
 
 def test_callback_authorization_client_state(
-    client: FlaskClient,
-    get: GetClient,
-    client_state: str,
-    state: str,
+    asgi_client: TestClient,
+    asgi_get: GetClient,
+    asgi_client_state: str,
+    asgi_state: str,
     requests_mock: Mocker,
     settings: Settings,
 ):
@@ -136,11 +122,13 @@ def test_callback_authorization_client_state(
         json=data,
     )
 
-    resp = get("/callback?code=1234&state=" + state)
+    resp = asgi_get("/callback?code=1234&state=" + asgi_state)
 
-    with client.session_transaction() as session:
-        assert resp.data["state"] == client_state
-        assert "client_state" not in session
+    assert resp.data["state"] == asgi_client_state
+    replay = asgi_client.get("/callback?code=1234&state=" + asgi_state)
+    assert replay.status_code == 400
+    assert replay.json()["error"] == OAuthError.INVALID_STATE
+    assert replay.json().get("state") is None
 
 
 @dataclass(frozen=True)
@@ -249,36 +237,35 @@ class CallbackErrorCase:
 )
 def test_callback_error_handling(
     case: CallbackErrorCase,
-    client_state: str,
-    get: GetClient,
-    state: str,
+    asgi_client_state: str,
+    asgi_get: GetClient,
+    asgi_state: str,
 ):
-    resp = get("/callback" + case.query.format(state=state))
+    resp = asgi_get("/callback" + case.query.format(state=asgi_state))
 
     assert resp.status == case.expected_status
     assert resp.data["error"] == case.expected_error
-    assert resp.data["state"] == client_state
+    assert resp.data["state"] == asgi_client_state
 
 
 def test_callback_preserves_retry_after_for_temporarily_unavailable(
-    client_state: str,
-    get: GetClient,
-    state: str,
-    app: flask.Flask,
+    asgi_client_state: str,
+    asgi_get: GetClient,
+    asgi_state: str,
+    requests_mock: Mocker,
+    settings: Settings,
 ):
-    subject = app.extensions["oauth_bridge"]
-    assert isinstance(subject, bridge.Bridge)
-    with unittest.mock.patch.object(
-        subject,
-        "_fetch",
-        new_callable=unittest.mock.AsyncMock,
-        return_value={"error": "temporarily_unavailable", "retry_after": 10},
-    ):
-        resp = get(f"/callback?state={state}&code=abc")
+    requests_mock.post(
+        settings.oauth.token_uri,
+        status_code=503,
+        headers={"Retry-After": "10"},
+        json={"error": "temporarily_unavailable"},
+    )
+    resp = asgi_get(f"/callback?state={asgi_state}&code=abc")
 
     assert resp.status == 503
     assert resp.data["error"] == OAuthError.TEMPORARILY_UNAVAILABLE
-    assert resp.data["state"] == client_state
+    assert resp.data["state"] == asgi_client_state
     assert resp.headers["Retry-After"] == "10"
 
 
@@ -396,8 +383,8 @@ class AuthorizationCodeErrorCase:
 )
 def test_callback_authorization_code_error_handling(
     case: AuthorizationCodeErrorCase,
-    get: GetClient,
-    state: str,
+    asgi_get: GetClient,
+    asgi_state: str,
     requests_mock: Mocker,
     settings: Settings,
 ):
@@ -406,15 +393,15 @@ def test_callback_authorization_code_error_handling(
         json=case.data,
     )
 
-    resp = get("/callback?code=1234&state=" + state)
+    resp = asgi_get("/callback?code=1234&state=" + asgi_state)
     assert resp.status == case.expected_status
     assert resp.data["error"] == case.expected_error
 
 
 # TODO: Test with more status codes from callback...
 def test_callback_authorization_code_invalid_response(
-    get: GetClient,
-    state: str,
+    asgi_get: GetClient,
+    asgi_state: str,
     requests_mock: Mocker,
     settings: Settings,
 ):
@@ -423,14 +410,14 @@ def test_callback_authorization_code_invalid_response(
         text="Not a JSON value",
     )
 
-    resp = get("/callback?code=1234&state=" + state)
+    resp = asgi_get("/callback?code=1234&state=" + asgi_state)
     assert resp.status == 400
     assert resp.data["error"] == OAuthError.SERVER_ERROR
 
 
 def test_callback_authorization_code_stores_token(
-    get: GetClient,
-    state: str,
+    asgi_get: GetClient,
+    asgi_state: str,
     requests_mock: Mocker,
     settings: Settings,
 ):
@@ -440,17 +427,17 @@ def test_callback_authorization_code_stores_token(
         json=data,
     )
 
-    resp = get("/callback?code=1234&state=" + state)
+    resp = asgi_get("/callback?code=1234&state=" + asgi_state)
 
     # Peek inside internals to check that our token got stored.
-    record = db.lookup(resp.data["client_id"])
+    record = db.lookup(resp.data["client_id"], settings.database)
     assert record.encrypted_token is not None
     assert data == crypto.loads(resp.data["client_secret"], record.encrypted_token)
 
 
 def test_callback_authorization_code_store_refresh_token(
-    get: GetClient,
-    state: str,
+    asgi_get: GetClient,
+    asgi_state: str,
     requests_mock: Mocker,
     settings: Settings,
 ):
@@ -466,19 +453,19 @@ def test_callback_authorization_code_store_refresh_token(
         json=token,
     )
 
-    resp = get("/callback?code=1234&state=" + state)
+    resp = asgi_get("/callback?code=1234&state=" + asgi_state)
 
     expected = {"refresh_token": "abc", "scope": "foo"}
 
     # Peek inside internals to check that our token got stored.
-    record = db.lookup(resp.data["client_id"])
+    record = db.lookup(resp.data["client_id"], settings.database)
     assert record.encrypted_token is not None
     assert expected == crypto.loads(resp.data["client_secret"], record.encrypted_token)
 
 
 def test_callback_authorization_code_store_unknown(
-    get: GetClient,
-    state: str,
+    asgi_get: GetClient,
+    asgi_state: str,
     requests_mock: Mocker,
     settings: Settings,
 ):
@@ -488,16 +475,16 @@ def test_callback_authorization_code_store_unknown(
         json=data,
     )
 
-    resp = get("/callback?code=1234&state=" + state)
+    resp = asgi_get("/callback?code=1234&state=" + asgi_state)
 
     # Peek inside internals to check that our token got stored.
-    record = db.lookup(resp.data["client_id"])
+    record = db.lookup(resp.data["client_id"], settings.database)
     assert record.encrypted_token is not None
     assert data == crypto.loads(resp.data["client_secret"], record.encrypted_token)
 
 
-def test_callback_wrong_method(client: FlaskClient, state: str):
-    resp = client.post("/callback?code=1234&state=" + state)
+def test_callback_wrong_method(asgi_client: TestClient, asgi_state: str):
+    resp = asgi_client.post("/callback?code=1234&state=" + asgi_state)
     assert resp.status_code == 405
 
 

@@ -5,9 +5,9 @@ from typing import Protocol, cast
 
 import pytest
 import requests
-from flask.testing import FlaskClient
 from pytest_sentry_capture import SentryCapture
 from requests_mock import Mocker
+from starlette.testclient import TestClient
 
 from oauthclientbridge import crypto, db
 from oauthclientbridge.errors import OAuthError
@@ -101,7 +101,7 @@ class TokenInputValidationCase:
     ids=lambda case: case.name,
 )
 def test_token_input_validation(
-    post: PostClient,
+    asgi_post: PostClient,
     case: TokenInputValidationCase,
 ):
     initial = {
@@ -116,7 +116,7 @@ def test_token_input_validation(
         else:
             initial[key] = value
 
-    resp: ResponseTuple = post("/token", initial)
+    resp: ResponseTuple = asgi_post("/token", initial)
 
     assert resp.status == case.expected_status
     assert resp.data["error"] == case.expected_error
@@ -124,7 +124,7 @@ def test_token_input_validation(
 
 
 def test_token_invalid_credentials(
-    post: PostClient,
+    asgi_post: PostClient,
     access_token: TokenTuple,
     settings: Settings,
 ):
@@ -134,7 +134,7 @@ def test_token_invalid_credentials(
         "grant_type": "client_credentials",
     }
 
-    resp = post("/token", data)
+    resp = asgi_post("/token", data)
 
     assert resp.status == 401
     assert resp.data["error"] == OAuthError.INVALID_CLIENT
@@ -144,7 +144,7 @@ def test_token_invalid_credentials(
     assert resp.headers["WWW-Authenticate"] == 'Basic realm="oauthclientbridge"'
 
 
-def test_token_multiple_auth_fails(post: PostClient, access_token: TokenTuple):
+def test_token_multiple_auth_fails(asgi_post: PostClient, access_token: TokenTuple):
     auth = (access_token.client_id, access_token.client_secret)
 
     data = {
@@ -153,28 +153,28 @@ def test_token_multiple_auth_fails(post: PostClient, access_token: TokenTuple):
         "grant_type": "client_credentials",
     }
 
-    resp: ResponseTuple = post("/token", data, auth=auth)
+    resp: ResponseTuple = asgi_post("/token", data, auth=auth)
 
     assert resp.status == 400
     assert resp.data["error"] == OAuthError.INVALID_REQUEST
     assert resp.data["error_description"]
 
 
-def test_token(post: PostClient, access_token: TokenTuple):
+def test_token(asgi_post: PostClient, access_token: TokenTuple):
     data = {
         "client_id": access_token.client_id,
         "client_secret": access_token.client_secret,
         "grant_type": "client_credentials",
     }
 
-    resp = post("/token", data)
+    resp = asgi_post("/token", data)
 
     assert resp.status == 200
     assert resp.data == access_token.value
 
 
 def test_token_normalizes_dashless_uuid_client_id(
-    post: PostClient, access_token: TokenTuple
+    asgi_post: PostClient, access_token: TokenTuple
 ):
     data = {
         "client_id": str(access_token.client_id).replace("-", ""),
@@ -182,14 +182,14 @@ def test_token_normalizes_dashless_uuid_client_id(
         "grant_type": "client_credentials",
     }
 
-    resp = post("/token", data)
+    resp = asgi_post("/token", data)
 
     assert resp.status == 200
     assert resp.data == access_token.value
 
 
 def test_token_normalizes_unpadded_client_secret(
-    post: PostClient, access_token: TokenTuple
+    asgi_post: PostClient, access_token: TokenTuple
 ):
     data = {
         "client_id": access_token.client_id,
@@ -197,20 +197,22 @@ def test_token_normalizes_unpadded_client_secret(
         "grant_type": "client_credentials",
     }
 
-    resp = post("/token", data)
+    resp = asgi_post("/token", data)
 
     assert resp.status == 200
     assert resp.data == access_token.value
 
 
-def test_token_rejects_malformed_client_id(post: PostClient, access_token: TokenTuple):
+def test_token_rejects_malformed_client_id(
+    asgi_post: PostClient, access_token: TokenTuple
+):
     data = {
         "client_id": "# SPOTIFY_CLIENT_ID",
         "client_secret": access_token.client_secret,
         "grant_type": "client_credentials",
     }
 
-    resp = post("/token", data)
+    resp = asgi_post("/token", data)
 
     assert resp.status == 401
     assert resp.data == {
@@ -219,11 +221,11 @@ def test_token_rejects_malformed_client_id(post: PostClient, access_token: Token
     }
 
 
-def test_token_basic_auth(post: PostClient, access_token: TokenTuple):
+def test_token_basic_auth(asgi_post: PostClient, access_token: TokenTuple):
     auth = (access_token.client_id, access_token.client_secret)
     data = {"grant_type": "client_credentials"}
 
-    resp = post("/token", data, auth=auth)
+    resp = asgi_post("/token", data, auth=auth)
 
     assert resp.status == 200
     assert resp.data == access_token.value
@@ -251,14 +253,14 @@ class BadBasicAuthCase:
     ids=lambda case: case.name,
 )
 def test_token_bad_basic_auth(
-    post: PostClient,
+    asgi_post: PostClient,
     case: BadBasicAuthCase,
     settings: Settings,
 ):
     headers = {"Authorization": case.header}
     data = {"grant_type": "client_credentials"}
 
-    resp = post("/token", data, headers=headers)
+    resp = asgi_post("/token", data, headers=headers)
 
     assert resp.status == 401
     assert resp.data["error"] == OAuthError.INVALID_CLIENT
@@ -267,21 +269,23 @@ def test_token_bad_basic_auth(
     assert resp.headers["WWW-Authenticate"] == 'Basic realm="oauthclientbridge"'
 
 
-def test_token_wrong_method(client: FlaskClient):
-    resp = client.get("/token")
+def test_token_wrong_method(asgi_client: TestClient):
+    resp = asgi_client.get("/token")
     assert resp.status_code == 405
 
 
-def test_token_revoked(post: PostClient, access_token: TokenTuple):
+def test_token_revoked(
+    asgi_post: PostClient, access_token: TokenTuple, settings: Settings
+):
     data = {
         "client_id": access_token.client_id,
         "client_secret": access_token.client_secret,
         "grant_type": "client_credentials",
     }
 
-    _ = db.update(access_token.client_id, None)  # Revoke directly in the db.
+    _ = db.update(access_token.client_id, None, settings.database)
 
-    resp = post("/token", data)
+    resp = asgi_post("/token", data)
 
     assert resp.status == 400
     assert resp.data["error"] == OAuthError.INVALID_GRANT
@@ -289,7 +293,7 @@ def test_token_revoked(post: PostClient, access_token: TokenTuple):
 
 
 def test_token_revoked_returns_workaround_token_for_matching_user_agent(
-    post: PostClient,
+    asgi_post: PostClient,
     access_token: TokenTuple,
     settings: Settings,
 ):
@@ -305,9 +309,9 @@ def test_token_revoked_returns_workaround_token_for_matching_user_agent(
         "grant_type": "client_credentials",
     }
 
-    _ = db.update(access_token.client_id, None)
+    _ = db.update(access_token.client_id, None, settings.database)
 
-    resp = post(
+    resp = asgi_post(
         "/token",
         data,
         headers={"User-Agent": "Mopidy-Spotify/4.1.1 Mopidy/3.4.2 CPython/3.11.2"},
@@ -322,7 +326,7 @@ def test_token_revoked_returns_workaround_token_for_matching_user_agent(
 
 
 def test_token_revoked_workaround_does_not_apply_for_non_matching_user_agent(
-    post: PostClient,
+    asgi_post: PostClient,
     access_token: TokenTuple,
     settings: Settings,
 ):
@@ -334,9 +338,9 @@ def test_token_revoked_workaround_does_not_apply_for_non_matching_user_agent(
         "grant_type": "client_credentials",
     }
 
-    _ = db.update(access_token.client_id, None)
+    _ = db.update(access_token.client_id, None, settings.database)
 
-    resp = post(
+    resp = asgi_post(
         "/token",
         data,
         headers={"User-Agent": "curl/8.8.0"},
@@ -347,7 +351,7 @@ def test_token_revoked_workaround_does_not_apply_for_non_matching_user_agent(
 
 
 def test_token_wrong_secret_and_not_found_identical(
-    post: PostClient, access_token: TokenTuple
+    asgi_post: PostClient, access_token: TokenTuple
 ):
     data1 = {
         "client_id": access_token.client_id,
@@ -360,15 +364,15 @@ def test_token_wrong_secret_and_not_found_identical(
         "grant_type": "client_credentials",
     }
 
-    resp1 = post("/token", data1)
-    resp2 = post("/token", data2)
+    resp1 = asgi_post("/token", data1)
+    resp2 = asgi_post("/token", data2)
 
     assert resp1.data == resp2.data
     assert resp1.status == resp2.status
 
 
 def test_token_refresh_post_data(
-    post: PostClient,
+    asgi_post: PostClient,
     refresh_token: TokenTuple,
     requests_mock: Mocker,
     settings: Settings,
@@ -404,7 +408,7 @@ def test_token_refresh_post_data(
         "grant_type": "client_credentials",
     }
 
-    _ = post("/token", data)
+    _ = asgi_post("/token", data)
 
 
 @dataclass(frozen=True)
@@ -437,7 +441,7 @@ class ExtraTokenValuesCase:
     ids=lambda case: case.name,
 )
 def test_token_with_extra_values(
-    post: PostClient,
+    asgi_post: PostClient,
     refresh_token: TokenTuple,
     requests_mock: Mocker,
     case: ExtraTokenValuesCase,
@@ -457,13 +461,13 @@ def test_token_with_extra_values(
         "grant_type": "client_credentials",
     }
 
-    _ = post("/token", data)
+    _ = asgi_post("/token", data)
 
     expected = refresh_token.value.copy()
     expected.update(case.updated)
 
     # Check that the token we fetched got stored directly in db.
-    record = db.lookup(refresh_token.client_id)
+    record = db.lookup(refresh_token.client_id, settings.database)
     assert record.encrypted_token is not None
 
     actual = crypto.loads(refresh_token.client_secret, record.encrypted_token)
@@ -471,7 +475,7 @@ def test_token_with_extra_values(
 
 
 def test_token_refresh_token_is_not_returned_from_provider(
-    post: PostClient,
+    asgi_post: PostClient,
     refresh_token: TokenTuple,
     requests_mock: Mocker,
     settings: Settings,
@@ -491,7 +495,7 @@ def test_token_refresh_token_is_not_returned_from_provider(
         "grant_type": "client_credentials",
     }
 
-    resp = post("/token", data)
+    resp = asgi_post("/token", data)
 
     expected = {"access_token": "abc", "token_type": "test"}
 
@@ -500,7 +504,7 @@ def test_token_refresh_token_is_not_returned_from_provider(
 
 
 def test_token_only_returns_values_from_provider(
-    post: PostClient,
+    asgi_post: PostClient,
     refresh_token: TokenTuple,
     requests_mock: Mocker,
     settings: Settings,
@@ -509,7 +513,7 @@ def test_token_only_returns_values_from_provider(
         refresh_token.client_secret,
         {"refresh_token": "abc", "token_type": "test", "private": "foobar"},
     )
-    _ = db.update(refresh_token.client_id, token)
+    _ = db.update(refresh_token.client_id, token, settings.database)
 
     _ = requests_mock.post(
         settings.oauth.token_uri,
@@ -522,7 +526,7 @@ def test_token_only_returns_values_from_provider(
         "grant_type": "client_credentials",
     }
 
-    resp = post("/token", data)
+    resp = asgi_post("/token", data)
 
     expected = {"access_token": "abc", "token_type": "test"}
 
@@ -531,7 +535,7 @@ def test_token_only_returns_values_from_provider(
 
 
 def test_token_cleans_unneeded_data_from_db(
-    post: PostClient,
+    asgi_post: PostClient,
     refresh_token: TokenTuple,
     requests_mock: Mocker,
     settings: Settings,
@@ -545,7 +549,7 @@ def test_token_cleans_unneeded_data_from_db(
             "expires_in": 3600,
         },
     )
-    _ = db.update(refresh_token.client_id, token)
+    _ = db.update(refresh_token.client_id, token, settings.database)
 
     _ = requests_mock.post(
         settings.oauth.token_uri,
@@ -558,12 +562,12 @@ def test_token_cleans_unneeded_data_from_db(
         "grant_type": "client_credentials",
     }
 
-    _ = post("/token", data)
+    _ = asgi_post("/token", data)
 
     expected = {"refresh_token": "abc"}
 
     # Check that the token we fetched got stored directly in db.
-    record = db.lookup(refresh_token.client_id)
+    record = db.lookup(refresh_token.client_id, settings.database)
     assert record.encrypted_token is not None
 
     actual = crypto.loads(refresh_token.client_secret, record.encrypted_token)
@@ -571,7 +575,7 @@ def test_token_cleans_unneeded_data_from_db(
 
 
 def test_token_only_returns_scope_from_db(
-    post: PostClient,
+    asgi_post: PostClient,
     refresh_token: TokenTuple,
     requests_mock: Mocker,
     settings: Settings,
@@ -580,7 +584,7 @@ def test_token_only_returns_scope_from_db(
         refresh_token.client_secret,
         {"refresh_token": "abc", "token_type": "test", "scope": "foobar"},
     )
-    _ = db.update(refresh_token.client_id, token)
+    _ = db.update(refresh_token.client_id, token, settings.database)
 
     _ = requests_mock.post(
         settings.oauth.token_uri,
@@ -593,7 +597,7 @@ def test_token_only_returns_scope_from_db(
         "grant_type": "client_credentials",
     }
 
-    resp = post("/token", data)
+    resp = asgi_post("/token", data)
 
     expected = {"access_token": "abc", "token_type": "test", "scope": "foobar"}
 
@@ -665,7 +669,7 @@ class TokenProviderErrorCase:
     ids=lambda case: case.name,
 )
 def test_token_provider_errors(
-    post: PostClient,
+    asgi_post: PostClient,
     refresh_token: TokenTuple,
     requests_mock: Mocker,
     settings: Settings,
@@ -683,7 +687,7 @@ def test_token_provider_errors(
         "grant_type": "client_credentials",
     }
 
-    resp = post("/token", data)
+    resp = asgi_post("/token", data)
 
     assert resp.status == case.expected_status
     assert resp.data["error"] == case.expected_error
@@ -712,7 +716,7 @@ class InvalidProviderResponseCase:
     ids=lambda case: case.name,
 )
 def test_token_provider_invalid_response(
-    post: PostClient,
+    asgi_post: PostClient,
     refresh_token: TokenTuple,
     requests_mock: Mocker,
     settings: Settings,
@@ -729,7 +733,7 @@ def test_token_provider_invalid_response(
         "grant_type": "client_credentials",
     }
 
-    resp = post("/token", data)
+    resp = asgi_post("/token", data)
 
     assert resp.status == 400
     assert resp.data["error"] == OAuthError.INVALID_REQUEST
@@ -737,7 +741,7 @@ def test_token_provider_invalid_response(
 
 
 def test_token_provider_unavailable(
-    post: PostClient,
+    asgi_post: PostClient,
     refresh_token: TokenTuple,
     requests_mock: Mocker,
     settings: Settings,
@@ -754,7 +758,7 @@ def test_token_provider_unavailable(
         "grant_type": "client_credentials",
     }
 
-    resp = post("/token", data)
+    resp = asgi_post("/token", data)
 
     assert resp.status == 503
     assert resp.data["error"] == OAuthError.TEMPORARILY_UNAVAILABLE
@@ -762,8 +766,8 @@ def test_token_provider_unavailable(
 
 
 def test_token_invalid_grant_revokes_stored_refresh_token(
-    post: PostClient,
-    client: FlaskClient,
+    asgi_post: PostClient,
+    asgi_client: TestClient,
     refresh_token: TokenTuple,
     requests_mock: Mocker,
     settings: Settings,
@@ -780,24 +784,24 @@ def test_token_invalid_grant_revokes_stored_refresh_token(
         "grant_type": "client_credentials",
     }
 
-    first = post("/token", data)
-    second = post("/token", data)
+    first = asgi_post("/token", data)
+    second = asgi_post("/token", data)
 
     assert first.status == 400
     assert first.data["error"] == OAuthError.INVALID_GRANT
     assert second.status == 400
     assert second.data["error"] == OAuthError.INVALID_GRANT
-    record = db.lookup(refresh_token.client_id)
+    record = db.lookup(refresh_token.client_id, settings.database)
     assert record.encrypted_token is None
     assert len(requests_mock.request_history) == 1
 
-    metrics = client.get("/metrics")
-    assert b"oauth_refresh_token_invalidations_total" in metrics.data
-    assert b'reason="invalid_grant"' in metrics.data
+    metrics = asgi_client.get("/metrics")
+    assert b"oauth_refresh_token_invalidations_total" in metrics.content
+    assert b'reason="invalid_grant"' in metrics.content
 
 
 def test_token_retryable_invalid_grant_does_not_revoke_refresh_token(
-    post: PostClient,
+    asgi_post: PostClient,
     refresh_token: TokenTuple,
     requests_mock: Mocker,
     settings: Settings,
@@ -814,16 +818,16 @@ def test_token_retryable_invalid_grant_does_not_revoke_refresh_token(
         "grant_type": "client_credentials",
     }
 
-    resp = post("/token", data)
+    resp = asgi_post("/token", data)
 
     assert resp.status == 503
     assert resp.data["error"] == OAuthError.TEMPORARILY_UNAVAILABLE
-    record = db.lookup(refresh_token.client_id)
+    record = db.lookup(refresh_token.client_id, settings.database)
     assert record.encrypted_token is not None
 
 
 def test_token_retryable_invalid_client_returns_temporarily_unavailable(
-    post: PostClient,
+    asgi_post: PostClient,
     refresh_token: TokenTuple,
     requests_mock: Mocker,
     settings: Settings,
@@ -840,16 +844,16 @@ def test_token_retryable_invalid_client_returns_temporarily_unavailable(
         "grant_type": "client_credentials",
     }
 
-    resp = post("/token", data)
+    resp = asgi_post("/token", data)
 
     assert resp.status == 503
     assert resp.data["error"] == OAuthError.TEMPORARILY_UNAVAILABLE
-    record = db.lookup(refresh_token.client_id)
+    record = db.lookup(refresh_token.client_id, settings.database)
     assert record.encrypted_token is not None
 
 
 def test_token_retryable_refresh_error_returns_retry_after_header(
-    post: PostClient,
+    asgi_post: PostClient,
     refresh_token: TokenTuple,
     requests_mock: Mocker,
     settings: Settings,
@@ -867,7 +871,7 @@ def test_token_retryable_refresh_error_returns_retry_after_header(
         "grant_type": "client_credentials",
     }
 
-    resp = post("/token", data)
+    resp = asgi_post("/token", data)
 
     assert resp.status == 503
     assert resp.data["error"] == OAuthError.TEMPORARILY_UNAVAILABLE
@@ -875,7 +879,7 @@ def test_token_retryable_refresh_error_returns_retry_after_header(
 
 
 def test_token_terminal_refresh_error_ignores_retry_after_header(
-    post: PostClient,
+    asgi_post: PostClient,
     refresh_token: TokenTuple,
     requests_mock: Mocker,
     settings: Settings,
@@ -893,7 +897,7 @@ def test_token_terminal_refresh_error_ignores_retry_after_header(
         "grant_type": "client_credentials",
     }
 
-    resp = post("/token", data)
+    resp = asgi_post("/token", data)
 
     assert resp.status == 400
     assert resp.data["error"] == OAuthError.INVALID_GRANT
@@ -905,20 +909,22 @@ def test_token_terminal_refresh_error_ignores_retry_after_header(
 
 
 def test_token_unexpected_error_returns_json(
-    client: FlaskClient,
-    monkeypatch: pytest.MonkeyPatch,
+    asgi_client: TestClient,
+    refresh_token: TokenTuple,
+    requests_mock: Mocker,
+    settings: Settings,
     sentry_capture: SentryCapture,
 ):
-    async def fail(**_: object) -> None:
-        raise RuntimeError("boom")
-
-    monkeypatch.setattr(client.application.extensions["oauth_bridge"], "_token", fail)
-
-    response = client.post("/token", data={"grant_type": "client_credentials"})
+    requests_mock.post(settings.oauth.token_uri, exc=RuntimeError("boom"))
+    response = asgi_client.post(
+        "/token",
+        data={"grant_type": "client_credentials"},
+        auth=(str(refresh_token.client_id), refresh_token.client_secret),
+    )
 
     assert response.status_code == 500
-    assert response.json == OAuthError.SERVER_ERROR.json()
-    assert response.content_type == "application/json"
+    assert response.json() == OAuthError.SERVER_ERROR.json()
+    assert response.headers["content-type"] == "application/json"
     assert response.headers["Cache-Control"] == "no-store"
     assert response.headers["Pragma"] == "no-cache"
     sentry_capture.flush()
@@ -926,9 +932,9 @@ def test_token_unexpected_error_returns_json(
 
 
 def test_expected_token_error_is_not_captured_by_sentry(
-    post: PostClient, sentry_capture: SentryCapture
+    asgi_post: PostClient, sentry_capture: SentryCapture
 ):
-    response = post("/token", {"grant_type": "authorization_code"})
+    response = asgi_post("/token", {"grant_type": "authorization_code"})
 
     assert response.status == 400
     sentry_capture.flush()
