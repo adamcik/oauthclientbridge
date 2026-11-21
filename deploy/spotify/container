@@ -18,14 +18,15 @@ DropCapability=all
 Tmpfs=/tmp:rw,nosuid,nodev,noexec,size=256m,mode=1777
 Tmpfs=/run/prom:rw,size=64m,mode=0777
 Volume=/var/lib/oauthclientbridge/spotify:/data:Z
-Volume=/run/oauthclientbridge/spotify:/run/uwsgi:Z
+Volume=/run/oauthclientbridge/spotify:/run/asgi:Z
 Volume=/etc/oauthclientbridge/spotify/callback.html:/config/callback.html:ro,Z
 
-Exec=--socket /run/uwsgi/uwsgi.sock --chmod-socket=660 --vacuum
+Exec=--uds /run/asgi/uvicorn.sock
 
 [Service]
 Restart=always
 RestartSec=5
+# Leaves 20 seconds after Uvicorn's 25-second request drain for ASGI cleanup.
 TimeoutStopSec=45
 NoNewPrivileges=yes
 

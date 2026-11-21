@@ -240,8 +240,9 @@
         }
         // lib.optionalAttrs (self.packages.${system} ? image) {
           image-scripts = pkgs.runCommand "oauthclientbridge-image-scripts-check" {} ''
+            test ${self.packages.${system}.image} = ${self.packages.${system}.asgi-image}
             ${pkgs.python312}/bin/python ${./tests/packaging/check_image_scripts.py} \
-              ${self.packages.${system}.image} ${self.packages.${system}.asgi-image}
+              ${self.packages.${system}.image}
             touch "$out"
           '';
         }
@@ -261,30 +262,11 @@
           };
           runtimeVenv = app.runtime;
           depsVenv = app.dependencies;
-          uwsgi = pkgs.uwsgi.override {
-            python3 = projectPython.${system};
-            plugins = ["python3"];
-            withPAM = false;
-            withSystemd = false;
-            withCap = false;
-          };
 
           # Default to a non-root runtime identity; override at run-time when bind-mount
           # ownership needs to match host users (for example: --user 33:33 for www-data).
           uid = "65532";
           gid = "65532";
-
-          runtimeDirs = pkgs.runCommand "oauthclientbridge-runtime-dirs" {} ''
-            mkdir -p $out/data
-            mkdir -p $out/config
-            mkdir -p $out/run/prom
-            mkdir -p $out/run/uwsgi
-            mkdir -p $out/tmp
-
-            chmod 0777 $out/run/prom
-            chmod 0777 $out/run/uwsgi
-            chmod 1777 $out/tmp
-          '';
 
           asgiRuntimeDirs = pkgs.runCommand "oauthclientbridge-asgi-runtime-dirs" {} ''
             mkdir -p $out/data
@@ -296,26 +278,6 @@
             chmod 0777 $out/run/prom
             chmod 0777 $out/run/asgi
             chmod 1777 $out/tmp
-          '';
-
-          entrypoint = pkgs.writeShellScriptBin "entrypoint" ''
-            uwsgi_args=(
-              --plugin python3
-              --module oauthclientbridge.wsgi:app
-              --disable-logging
-              --log-5xx
-              --log-master
-              --virtualenv "${runtimeVenv}"
-              --processes "''${WORKERS:-4}"
-              --threads "''${THREADS:-1}"
-              --master
-              --lazy-app
-              --py-call-uwsgi-fork-hooks
-              --die-on-term
-              --show-config
-              --need-app
-            )
-            exec ${uwsgi}/bin/uwsgi "''${uwsgi_args[@]}" "$@"
           '';
 
           cliEntrypoint = app.management;
@@ -338,8 +300,9 @@
               module = self.nixosModules.default;
             };
           }
-          // lib.optionalAttrs (pkgs.stdenv.isLinux && hasNix2container) {
-            # Expose Docker container in packages
+          // lib.optionalAttrs (pkgs.stdenv.hostPlatform.isLinux && hasNix2container) rec {
+            # Both output names select the same ASGI image; CI publishes tag aliases.
+            asgi-image = image;
             image = nix2containerPkgs.buildImage {
               name = "ghcr.io/adamcik/oauthclientbridge";
               tag = "latest";
@@ -352,88 +315,6 @@
                 entrypoint = ["/bin/entrypoint"];
                 user = "${uid}:${gid}";
 
-                env = [
-                  "DB_DATABASE=/data/sqlite.db"
-                  "BRIDGE_CALLBACK_TEMPLATE_FILE=/config/callback.html"
-                  "PROMETHEUS_MULTIPROC_DIR=/run/prom"
-                  "PYTHONDONTWRITEBYTECODE=1"
-                  "TELEMETRY_VCS_REVISION=${
-                    if buildRevision != null
-                    then buildRevision
-                    else "unknown"
-                  }"
-                ];
-
-                labels = let
-                  created =
-                    if ((overrideMetadata.created or null) != null)
-                    then overrideMetadata.created
-                    else fallbackCreated;
-                in
-                  {
-                    "org.opencontainers.image.created" = created;
-                    "org.opencontainers.image.description" = "Bridge OAuth2 Authorization Code grants to OAuth2 Client Credentials clients.";
-                    "org.opencontainers.image.source" = "https://github.com/adamcik/oauthclientbridge";
-                    "org.opencontainers.image.title" = "oauthclientbridge";
-                  }
-                  // lib.optionalAttrs (buildRevision != null) {
-                    "org.opencontainers.image.revision" = buildRevision;
-                  }
-                  // lib.optionalAttrs ((overrideMetadata.version or null) != null) {
-                    "org.opencontainers.image.version" = overrideMetadata.version;
-                  };
-              };
-
-              layers = let
-                baseLayer = nix2containerPkgs.buildLayer {
-                  deps = [uwsgi];
-                };
-
-                depsLayer = nix2containerPkgs.buildLayer {
-                  deps = [depsVenv];
-                  layers = [baseLayer];
-                };
-
-                appLayer = nix2containerPkgs.buildLayer {
-                  deps = [runtimeVenv];
-                  layers = [
-                    baseLayer
-                    depsLayer
-                  ];
-                };
-
-                metadataLayer = nix2containerPkgs.buildLayer {
-                  copyToRoot = [
-                    entrypoint
-                    cliEntrypoint
-                    runtimeDirs
-                    app.assets
-                  ];
-                  layers = [
-                    baseLayer
-                    depsLayer
-                    appLayer
-                  ];
-                };
-              in [
-                baseLayer
-                depsLayer
-                appLayer
-                metadataLayer
-              ];
-            };
-
-            asgi-image = nix2containerPkgs.buildImage {
-              name = "ghcr.io/adamcik/oauthclientbridge";
-              tag = "asgi";
-              created =
-                if ((overrideMetadata.created or null) != null)
-                then overrideMetadata.created
-                else fallbackCreated;
-
-              config = {
-                entrypoint = ["/bin/entrypoint"];
-                user = "${uid}:${gid}";
                 env = [
                   "DB_DATABASE=/data/sqlite.db"
                   "BRIDGE_CALLBACK_TEMPLATE_FILE=/config/callback.html"

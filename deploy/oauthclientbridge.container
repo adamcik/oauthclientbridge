@@ -19,8 +19,8 @@ EnvironmentFile=/etc/oauthclientbridge/oauthclientbridge/env
 # Existing SQLite data directory on host.
 Volume=/var/lib/oauthclientbridge/data:/data:Z
 
-# UWSGI runtime socket directory for reverse proxy integration.
-Volume=/run/oauthclientbridge:/run/uwsgi:Z
+# HTTP Unix socket directory shared with the reverse proxy.
+Volume=/run/oauthclientbridge:/run/asgi:Z
 
 # Callback template mounted at standardized in-container path.
 Volume=/etc/oauthclientbridge/oauthclientbridge/callback.html:/config/callback.html:ro,Z
@@ -28,9 +28,7 @@ Volume=/etc/oauthclientbridge/oauthclientbridge/callback.html:/config/callback.h
 # Ephemeral multiprocess metrics dir; reset cleanly on service restart.
 Tmpfs=/run/prom:rw,size=64m,mode=0770,uid=33,gid=33
 
-# Serve HTTP over the Unix socket; this keeps Flask/uWSGI in place while Caddy
-# stops speaking the uWSGI protocol.
-Exec=--http-socket /run/uwsgi/oauthclientbridge.sock --chmod-socket=660 --vacuum
+Exec=--uds /run/asgi/oauthclientbridge.sock
 
 [Service]
 # We intentionally use ExecStartPre directory creation instead of
@@ -42,6 +40,8 @@ ExecStartPre=/usr/bin/install -d -o www-data -g www-data -m 0750 /var/lib/oauthc
 ExecStartPre=/usr/bin/install -d -o root -g www-data -m 2775 /run/oauthclientbridge
 Restart=always
 RestartSec=2s
+# Leave time for application cleanup after Uvicorn's 25-second request drain.
+TimeoutStopSec=45
 
 [Install]
 WantedBy=default.target
