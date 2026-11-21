@@ -69,9 +69,6 @@ jobs:
       - name: Build image
         run: nix build .#image --override-input build-overrides "path:${BUILD_OVERRIDES}"
 
-      - name: Build ASGI image
-        run: nix build .#asgi-image --override-input build-overrides "path:${BUILD_OVERRIDES}"
-
       - name: Install Podman
         run: |
           if ! command -v podman >/dev/null || ! command -v newuidmap >/dev/null; then
@@ -87,23 +84,15 @@ jobs:
           test "$(podman info --format '{{.Host.Security.Rootless}}')" = true
           podman unshare true
 
-      - name: Load WSGI image into Podman
+      - name: Load image into Podman
         run: nix run .#image.copyToPodman --override-input build-overrides "path:${BUILD_OVERRIDES}"
 
-      - name: Smoke test WSGI image
-        run: SMOKE_RUNTIME=wsgi nix develop --command deploy/smoke-image.sh
-
-      - name: Load ASGI image into Podman
-        run: nix run .#asgi-image.copyToPodman --override-input build-overrides "path:${BUILD_OVERRIDES}"
-
       - name: Smoke test ASGI image
-        run: SMOKE_RUNTIME=asgi nix develop --command deploy/smoke-image.sh
+        run: nix develop --command deploy/smoke-image.sh
 
       - name: Login to GHCR
         if: |
           (github.event_name == 'push' && github.ref_name == github.event.repository.default_branch) ||
-          (github.event_name == 'pull_request' && github.head_ref == 'asgi' &&
-           github.event.pull_request.head.repo.full_name == github.repository) ||
           github.event_name == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -114,12 +103,9 @@ jobs:
         if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch
         run: nix run .#image.copyToRegistry --override-input build-overrides "path:${BUILD_OVERRIDES}"
 
-      - name: Push ASGI image to GHCR
-        if: |
-          (github.event_name == 'push' && github.ref_name == github.event.repository.default_branch) ||
-          (github.event_name == 'pull_request' && github.head_ref == 'asgi' &&
-           github.event.pull_request.head.repo.full_name == github.repository)
-        run: nix run .#asgi-image.copyToRegistry --override-input build-overrides "path:${BUILD_OVERRIDES}"
+      - name: Push ASGI compatibility tag to GHCR
+        if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch
+        run: nix run .#image.copyTo --override-input build-overrides "path:${BUILD_OVERRIDES}" -- "docker://ghcr.io/adamcik/oauthclientbridge:asgi"
 
       - name: Push release-tagged image to GHCR
         if: github.event_name == 'release'
@@ -127,8 +113,8 @@ jobs:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: nix run .#image.copyTo --override-input build-overrides "path:${BUILD_OVERRIDES}" -- "docker://ghcr.io/adamcik/oauthclientbridge:${RELEASE_TAG}"
 
-      - name: Push release-tagged ASGI image to GHCR
+      - name: Push ASGI release compatibility tag to GHCR
         if: github.event_name == 'release'
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: nix run .#asgi-image.copyTo --override-input build-overrides "path:${BUILD_OVERRIDES}" -- "docker://ghcr.io/adamcik/oauthclientbridge:${RELEASE_TAG}-asgi"
+        run: nix run .#image.copyTo --override-input build-overrides "path:${BUILD_OVERRIDES}" -- "docker://ghcr.io/adamcik/oauthclientbridge:${RELEASE_TAG}-asgi"
