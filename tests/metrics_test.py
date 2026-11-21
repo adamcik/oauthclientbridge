@@ -71,12 +71,10 @@ def test_metrics_requires_configured_bearer_token(settings: Settings):
 
 
 def test_metrics_reuses_multiprocess_registry(
-    client: FlaskClient,
     settings: Settings,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ):
-    _ = client
     settings.prometheus.multiproc_dir = tmp_path
     stats._multiprocess_registries.clear()  # pyright: ignore[reportPrivateUsage] # Direct implementation test.
     collectors: list[object] = []
@@ -88,8 +86,8 @@ def test_metrics_reuses_multiprocess_registry(
         stats.prometheus_client.multiprocess, "MultiProcessCollector", collect
     )
 
-    stats.export_metrics()
-    stats.export_metrics()
+    stats.export_metrics(settings.prometheus)
+    stats.export_metrics(settings.prometheus)
 
     assert len(collectors) == 1
 
