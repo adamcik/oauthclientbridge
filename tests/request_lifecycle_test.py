@@ -1,33 +1,22 @@
-"""Request lifecycle observability shared by the Flask and Starlette adapters."""
+"""ASGI request lifecycle observability contracts."""
 
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from http import HTTPStatus
-from typing import Literal
 
-import anyio
 import httpx
 import pytest
-from flask.testing import FlaskClient
 from prometheus_client.parser import text_string_to_metric_families
 from pytest_otel_capture import OTelMocker
 
-from oauthclientbridge import create_app, logs, oauth
+from oauthclientbridge import logs
 from oauthclientbridge.asgi import create_app as create_asgi_app
 from oauthclientbridge.settings import Settings
 
 
 @asynccontextmanager
-async def _client(
-    adapter: Literal["flask", "starlette"], settings: Settings
-) -> AsyncIterator[httpx.AsyncClient | FlaskClient]:
-    if adapter == "flask":
-        app = create_app(settings, fetch=oauth.fetch_with_requests)
-        app.secret_key = "test-secret-key"
-        yield app.test_client()
-        return
-
+async def _client(settings: Settings) -> AsyncGenerator[httpx.AsyncClient]:
     app = create_asgi_app(settings, initialize_runtime=False)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(
@@ -38,26 +27,18 @@ async def _client(
         yield client
 
 
-async def _get(client: httpx.AsyncClient | FlaskClient, path: str):
-    if isinstance(client, FlaskClient):
-        return await anyio.to_thread.run_sync(lambda: client.get(path))
-    return await client.get(path)
-
-
 @pytest.mark.anyio
 @pytest.mark.usefixtures("instrumented")
-@pytest.mark.parametrize("adapter", ["flask", "starlette"])
 async def test_request_lifecycle_sanitizes_and_clears_context(
-    adapter: Literal["flask", "starlette"],
     settings: Settings,
     capsys: pytest.CaptureFixture[str],
     otel_mock: OTelMocker,
 ) -> None:
     logs.init_logging(settings.log)
 
-    async with _client(adapter, settings) as client:
-        first = await _get(client, "/?state=secret-state")
-        second = await _get(client, "/not-found")
+    async with _client(settings) as client:
+        first = await client.get("/?state=secret-state")
+        second = await client.get("/not-found")
 
     assert first.status_code == HTTPStatus.FOUND
     assert second.status_code == HTTPStatus.NOT_FOUND
@@ -75,31 +56,30 @@ async def test_request_lifecycle_sanitizes_and_clears_context(
     assert "trace_id" in records[0]
     assert "oauth_endpoint" not in records[1]
 
-    if adapter == "starlette":
-        server_span = next(
-            span
-            for span in otel_mock.get_finished_spans()
-            if span.name.startswith("GET")
-            and span.attributes is not None
-            and "url.full" in span.attributes
-        )
-        assert server_span.attributes["url.query"] == "state=<REDACTED>"
-        assert "secret-state" not in server_span.attributes["url.full"]
-        assert server_span.attributes["http.response.header.location"].startswith(
-            "https://provider.example.com/auth?"
-        )
+    server_span = next(
+        span
+        for span in otel_mock.get_finished_spans()
+        if span.name.startswith("GET")
+        and span.attributes is not None
+        and "url.full" in span.attributes
+    )
+    assert server_span.attributes is not None
+    assert server_span.attributes["url.query"] == "state=<REDACTED>"
+    assert "secret-state" not in server_span.attributes["url.full"]
+    location = server_span.attributes["http.response.header.location"]
+    assert isinstance(location, str)
+    assert location.startswith("https://provider.example.com/auth?")
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("adapter", ["flask", "starlette"])
 async def test_request_lifecycle_metrics_use_stable_endpoints(
-    adapter: Literal["flask", "starlette"], settings: Settings
+    settings: Settings,
 ) -> None:
-    async with _client(adapter, settings) as client:
-        _ = await _get(client, "/")
-        not_found = await _get(client, "/not-found")
-        method_not_allowed = await _get(client, "/token")
-        metrics = await _get(client, "/metrics")
+    async with _client(settings) as client:
+        _ = await client.get("/")
+        not_found = await client.get("/not-found")
+        method_not_allowed = await client.get("/token")
+        metrics = await client.get("/metrics")
 
     assert metrics.status_code == HTTPStatus.OK
     assert not_found.status_code == HTTPStatus.NOT_FOUND
