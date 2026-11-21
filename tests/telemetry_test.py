@@ -1,17 +1,21 @@
 import asyncio
+import contextlib
 import os
 import sqlite3
 import sys
 import unittest.mock
 from http import HTTPStatus
 
-import flask
+import httpx
 import pytest
+import pytest_sentry_capture
 import requests
+import sentry_sdk
 import structlog
 from flask.testing import FlaskClient
 from opentelemetry import metrics, trace
 from opentelemetry.sdk.metrics.export import HistogramDataPoint, NumberDataPoint
+from pydantic import SecretStr
 from requests_mock import Mocker
 
 from oauthclientbridge import db, oauth, telemetry, types
@@ -24,16 +28,44 @@ from oauthclientbridge.oauth._outcome import (  # pyright: ignore[reportPrivateU
     UpstreamResult,
 )
 from oauthclientbridge.settings import (
+    DatabaseSettings,
     FetchSettings,
+    SentrySettings,
     Settings,
     TelemetryComponent,
     TelemetrySettings,
-    current_settings,
 )
 from oauthclientbridge.telemetry import _resources as resource_labels
 
 from .conftest import GetClient, PostClient, TokenTuple
 from .plugins import otel
+
+
+@pytest.fixture
+def database() -> DatabaseSettings:
+    return DatabaseSettings(database=":memory:")
+
+
+@pytest.fixture
+def initialize_sentry(
+    sentry_transport: pytest_sentry_capture.FakeTransport,
+    sentry_isolation_scope: None,
+) -> None:
+    # The capture plugin owns cleanup after successful initialization.
+    try:
+        telemetry.init_sentry(
+            SentrySettings(
+                enabled=True,
+                dsn=SecretStr("https://key@example.invalid/1"),
+                sample_rate=1.0,
+                traces_sample_rate=1.0,
+            ),
+            "starlette",
+            sentry_transport,
+        )
+    except BaseException:
+        sentry_sdk.get_client().close()
+        raise
 
 
 def run_fetch(settings: FetchSettings, *args: str, **data: str | None) -> OAuthResponse:
@@ -278,9 +310,9 @@ def test_sqlite3_creates_spans(
 
 def test_endpoint_propagates_traceparent(
     otel_mock: otel.OTelMocker,
-    client: FlaskClient,
+    asgi_client: httpx.Client,
 ) -> None:
-    client.get("/", headers={"traceparent": HEADER})
+    asgi_client.get("/", headers={"traceparent": HEADER})
 
     spans = otel_mock.get_finished_spans()
     request_span = otel.get_span(spans, "GET /")
@@ -290,12 +322,13 @@ def test_endpoint_propagates_traceparent(
 
 def test_local_invalid_grant_records_handled_trace_error(
     otel_mock: otel.OTelMocker,
-    post: PostClient,
+    asgi_post: PostClient,
     access_token: TokenTuple,
+    settings: Settings,
 ) -> None:
-    _ = db.update(access_token.client_id, None)
+    _ = db.update(access_token.client_id, None, settings.database)
 
-    response = post(
+    response = asgi_post(
         "/token",
         {
             "client_id": access_token.client_id,
@@ -334,11 +367,11 @@ def test_oauth_server_error_marks_span_error(
 
 def test_malformed_client_id_records_rejected_value(
     otel_mock: otel.OTelMocker,
-    post: PostClient,
+    asgi_post: PostClient,
 ) -> None:
     malformed_client_id = "# SPOTIFY_CLIENT_ID"
 
-    response = post(
+    response = asgi_post(
         "/token",
         {
             "client_id": malformed_client_id,
@@ -362,9 +395,9 @@ def test_malformed_client_id_records_rejected_value(
 
 def test_callback_missing_state_records_trace_error_message(
     otel_mock: otel.OTelMocker,
-    get: GetClient,
+    asgi_get: GetClient,
 ) -> None:
-    response = get("/callback?code=1234")
+    response = asgi_get("/callback?code=1234")
 
     assert response.status == 400
     assert response.data["error"] == OAuthError.INVALID_STATE
@@ -383,28 +416,30 @@ def test_callback_missing_state_records_trace_error_message(
 
 def test_callback_trace_redacts_query_values(
     otel_mock: otel.OTelMocker,
-    get: GetClient,
+    sentry_capture: pytest_sentry_capture.SentryCapture,
+    asgi_get: GetClient,
 ) -> None:
-    get("/callback?code=secret-code&state=secret-state")
+    asgi_get("/callback?code=secret-code&state=secret-state")
 
     spans = otel_mock.get_finished_spans()
     request_span = otel.get_span(spans, "GET /callback")
     assert request_span is not None
     assert request_span.attributes is not None
     assert request_span.attributes["http.url"] == (
-        "http://localhost/callback?code=<REDACTED>&state=<REDACTED>"
+        "https://bridge.example.com/callback?code=<REDACTED>&state=<REDACTED>"
     )
     assert request_span.attributes["url.full"] == (
-        "http://localhost/callback?code=<REDACTED>&state=<REDACTED>"
+        "https://bridge.example.com/callback?code=<REDACTED>&state=<REDACTED>"
     )
     assert request_span.attributes["url.query"] == "code=<REDACTED>&state=<REDACTED>"
 
 
 def test_authorize_trace_redacts_redirect_location(
     otel_mock: otel.OTelMocker,
-    client: FlaskClient,
+    sentry_capture: pytest_sentry_capture.SentryCapture,
+    asgi_client: httpx.Client,
 ) -> None:
-    response = client.get("/")
+    response = asgi_client.get("/")
 
     assert response.status_code == HTTPStatus.FOUND
     spans = otel_mock.get_finished_spans()
@@ -422,6 +457,7 @@ def test_unhandled_server_error_marks_span_unhandled(
     otel_mock: otel.OTelMocker,
     client: FlaskClient,
 ) -> None:
+    # ASGI custom-route failures lack error.unhandled; retain this contract until parity.
     app = client.application
 
     def boom() -> str:
@@ -444,11 +480,11 @@ def test_unhandled_server_error_marks_span_unhandled(
 
 def test_endpoint_sets_traceresponse_from_parent(
     otel_mock: otel.OTelMocker,
-    client: FlaskClient,
+    asgi_client: httpx.Client,
     instrumented: None,
 ) -> None:
     # TODO: test without parent set?
-    response = client.get("/", headers={"traceparent": HEADER})
+    response = asgi_client.get("/", headers={"traceparent": HEADER})
 
     assert "traceresponse" in response.headers
     otel.assert_trace_header(response.headers["traceresponse"], TRACE_ID)
@@ -457,16 +493,18 @@ def test_endpoint_sets_traceresponse_from_parent(
 def test_endpoint_creates_requests_spans(
     requests_mock: Mocker,
     otel_mock: otel.OTelMocker,
-    post: PostClient,
+    instrumented: None,
+    asgi_post: PostClient,
     refresh_token: TokenTuple,
+    settings: Settings,
 ) -> None:
     requests_mock.post(
-        current_settings.oauth.token_uri,
+        settings.oauth.token_uri,
         json={"access_token": "mock_token", "token_type": "Bearer"},
         status_code=200,
     )
 
-    post(
+    asgi_post(
         "/token",
         {
             "client_id": refresh_token.client_id,
@@ -477,7 +515,11 @@ def test_endpoint_creates_requests_spans(
     )
 
     spans = otel_mock.get_finished_spans()
-    outgoing_request_spans = [s for s in spans if s.name.startswith("POST")]
+    outgoing_request_spans = [
+        s
+        for s in spans
+        if s.name == "POST" and s.readable_span.kind == trace.SpanKind.CLIENT
+    ]
     assert len(outgoing_request_spans) == 1
     outgoing_request_span = outgoing_request_spans[0]
     otel.assert_trace_id(outgoing_request_span, TRACE_ID)
@@ -516,11 +558,12 @@ def test_endpoint_creates_sqlite3_spans(
     requests_mock: Mocker,
     otel_mock: otel.OTelMocker,
     instrumented: None,
-    post: PostClient,
+    asgi_post: PostClient,
     refresh_token: TokenTuple,
+    settings: Settings,
 ) -> None:
     requests_mock.post(
-        current_settings.oauth.token_uri,
+        settings.oauth.token_uri,
         json={"access_token": "mock_token", "token_type": "Bearer"},
         status_code=200,
     )
@@ -531,7 +574,7 @@ def test_endpoint_creates_sqlite3_spans(
         "grant_type": "client_credentials",
     }
 
-    post("/token", data)
+    asgi_post("/token", data)
 
     spans = otel_mock.get_finished_spans()
     assert any(
@@ -543,11 +586,12 @@ def test_token_update_records_changed_fields(
     requests_mock: Mocker,
     otel_mock: otel.OTelMocker,
     instrumented: None,
-    post: PostClient,
+    asgi_post: PostClient,
     refresh_token: TokenTuple,
+    settings: Settings,
 ) -> None:
     requests_mock.post(
-        current_settings.oauth.token_uri,
+        settings.oauth.token_uri,
         json={
             "access_token": "mock_token",
             "token_type": "Bearer",
@@ -556,7 +600,7 @@ def test_token_update_records_changed_fields(
         status_code=200,
     )
 
-    post(
+    asgi_post(
         "/token",
         {
             "client_id": refresh_token.client_id,
@@ -578,11 +622,12 @@ def test_token_insert_records_fields(
     requests_mock: Mocker,
     otel_mock: otel.OTelMocker,
     instrumented: None,
-    get: GetClient,
-    state: str,
+    asgi_get: GetClient,
+    asgi_state: str,
+    settings: Settings,
 ) -> None:
     requests_mock.post(
-        current_settings.oauth.token_uri,
+        settings.oauth.token_uri,
         json={
             "access_token": "mock_token",
             "refresh_token": "refresh_token",
@@ -591,7 +636,7 @@ def test_token_insert_records_fields(
         status_code=200,
     )
 
-    get("/callback?code=1234&state=" + state)
+    asgi_get("/callback?code=1234&state=" + asgi_state)
 
     spans = otel_mock.get_finished_spans()
     request_span = otel.get_span(spans, "GET /callback")
@@ -604,15 +649,15 @@ def test_token_insert_records_fields(
 
 def test_revoked_grant_workaround_adds_span_event(
     otel_mock: otel.OTelMocker,
-    post: PostClient,
+    asgi_post: PostClient,
     access_token: TokenTuple,
     settings: Settings,
 ) -> None:
     settings.revoked_grant_workaround_user_agents = r"^Mopidy-Spotify/4\.1\.1\b"
 
-    _ = db.update(access_token.client_id, None)
+    _ = db.update(access_token.client_id, None, settings.database)
 
-    post(
+    asgi_post(
         "/token",
         {
             "client_id": access_token.client_id,
@@ -634,16 +679,17 @@ def test_revoked_grant_workaround_adds_span_event(
 def test_endpoint_propagates_outgoing_traceparent(
     requests_mock: Mocker,
     instrumented: None,
-    post: PostClient,
+    asgi_post: PostClient,
     refresh_token: TokenTuple,
+    settings: Settings,
 ) -> None:
     requests_mock.post(
-        current_settings.oauth.token_uri,
+        settings.oauth.token_uri,
         json={"access_token": "mock_token", "token_type": "Bearer"},
         status_code=200,
     )
 
-    post(
+    asgi_post(
         "/token",
         {
             "client_id": refresh_token.client_id,
@@ -659,11 +705,11 @@ def test_endpoint_propagates_outgoing_traceparent(
     otel.assert_trace_header(history[0].headers["traceparent"], TRACE_ID)
 
 
-def test_flask_metrics(
+def test_asgi_metrics(
     otel_mock: otel.OTelMocker,
-    client: FlaskClient,
+    asgi_client: httpx.Client,
 ) -> None:
-    client.get("/")
+    asgi_client.get("/")
 
     metrics = otel_mock.get_metrics_data()
     assert otel.get_metric(metrics, "http.server.duration") is not None
@@ -686,10 +732,18 @@ def test_requests_metrics(
 # NOTE: As of 2025-08-01 the sqlite3 otel auto instrumentation does not
 # support metrics. So we've added our own...
 def test_db_cursor_duration_metric(
-    app_context: flask.ctx.AppContext,
+    database: DatabaseSettings,
     otel_mock: otel.OTelMocker,
 ):
-    with db.cursor(types.DatabaseOperation.INSERT_TOKEN, transaction=True) as c:
+    with (
+        contextlib.closing(sqlite3.connect(database.database)) as connection,
+        db.cursor(
+            types.DatabaseOperation.INSERT_TOKEN,
+            transaction=True,
+            connection=connection,
+            database_name=database.database,
+        ) as c,
+    ):
         # Perform some dummy DB operations using the provided cursor 'c'
         c.execute("CREATE TABLE IF NOT EXISTS test_table (id INTEGER PRIMARY KEY)")
         c.execute("INSERT INTO test_table (id) VALUES (1)")
@@ -710,10 +764,18 @@ def test_db_cursor_duration_metric(
 
 
 def test_db_cursor_count_metric_success(
-    app_context: flask.ctx.AppContext,
+    database: DatabaseSettings,
     otel_mock: otel.OTelMocker,
 ):
-    with db.cursor(types.DatabaseOperation.INSERT_TOKEN, transaction=True) as c:
+    with (
+        contextlib.closing(sqlite3.connect(database.database)) as connection,
+        db.cursor(
+            types.DatabaseOperation.INSERT_TOKEN,
+            transaction=True,
+            connection=connection,
+            database_name=database.database,
+        ) as c,
+    ):
         c.execute("CREATE TABLE IF NOT EXISTS test_table (id INTEGER PRIMARY KEY)")
         c.execute("INSERT INTO test_table (id) VALUES (1)")
 
@@ -730,18 +792,23 @@ def test_db_cursor_count_metric_success(
     assert data.attributes["db.operation"] == "insert_token"
     assert data.attributes["transaction"] is True
     assert data.attributes["db.system"] == "sqlite"
-    assert data.attributes["db.name"] == current_settings.database.database
+    assert data.attributes["db.name"] == database.database
     assert "error.type" not in data.attributes
     assert data.value == 1
 
 
 def test_db_cursor_duration_metric_error(
-    app_context: flask.ctx.AppContext,
+    database: DatabaseSettings,
     otel_mock: otel.OTelMocker,
 ):
     with (
+        contextlib.closing(sqlite3.connect(database.database)) as connection,
         pytest.raises(sqlite3.Error),
-        db.cursor(types.DatabaseOperation.LOOKUP_TOKEN) as c,
+        db.cursor(
+            types.DatabaseOperation.LOOKUP_TOKEN,
+            connection=connection,
+            database_name=database.database,
+        ) as c,
     ):
         c.execute("INVALID SQL QUERY")
 
@@ -761,12 +828,17 @@ def test_db_cursor_duration_metric_error(
 
 
 def test_db_cursor_count_metric_error(
-    app_context: flask.ctx.AppContext,
+    database: DatabaseSettings,
     otel_mock: otel.OTelMocker,
 ):
     with (
+        contextlib.closing(sqlite3.connect(database.database)) as connection,
         pytest.raises(sqlite3.Error),
-        db.cursor(types.DatabaseOperation.LOOKUP_TOKEN) as c,
+        db.cursor(
+            types.DatabaseOperation.LOOKUP_TOKEN,
+            connection=connection,
+            database_name=database.database,
+        ) as c,
     ):
         c.execute("INVALID SQL QUERY")
 
@@ -783,7 +855,7 @@ def test_db_cursor_count_metric_error(
     assert data.attributes["db.operation"] == "lookup_token"
     assert data.attributes["transaction"] is False
     assert data.attributes["db.system"] == "sqlite"
-    assert data.attributes["db.name"] == current_settings.database.database
+    assert data.attributes["db.name"] == database.database
     assert data.attributes["error.type"] == "OperationalError"
     assert data.value == 1
 
@@ -791,16 +863,17 @@ def test_db_cursor_count_metric_error(
 def test_oauth_client_duration_metric_success(
     requests_mock: Mocker,
     otel_mock: otel.OTelMocker,
-    get: GetClient,
-    state: str,
+    asgi_get: GetClient,
+    asgi_state: str,
+    settings: Settings,
 ):
     requests_mock.post(
-        current_settings.oauth.token_uri,
+        settings.oauth.token_uri,
         json={"access_token": "mock_token", "token_type": "Bearer"},
         status_code=200,
     )
 
-    get("/callback?code=1234&state=" + state)
+    asgi_get("/callback?code=1234&state=" + asgi_state)
 
     duration_data = otel.latest_metric_data(
         otel_mock.get_metrics_data(),
@@ -818,16 +891,17 @@ def test_oauth_client_duration_metric_success(
 def test_oauth_client_retries_metric_success(
     requests_mock: Mocker,
     otel_mock: otel.OTelMocker,
-    get: GetClient,
-    state: str,
+    asgi_get: GetClient,
+    asgi_state: str,
+    settings: Settings,
 ):
     requests_mock.post(
-        current_settings.oauth.token_uri,
+        settings.oauth.token_uri,
         json={"access_token": "mock_token", "token_type": "Bearer"},
         status_code=200,
     )
 
-    get("/callback?code=1234&state=" + state)
+    asgi_get("/callback?code=1234&state=" + asgi_state)
 
     retries_data = otel.latest_metric_data(
         otel_mock.get_metrics_data(),
@@ -846,11 +920,12 @@ def test_oauth_client_retries_metric_success(
 def test_oauth_client_retries_metric_records_completed_retry_count(
     requests_mock: Mocker,
     otel_mock: otel.OTelMocker,
-    get: GetClient,
-    state: str,
+    asgi_get: GetClient,
+    asgi_state: str,
+    settings: Settings,
 ):
     requests_mock.post(
-        current_settings.oauth.token_uri,
+        settings.oauth.token_uri,
         [
             {"status_code": 503, "json": {"error": "temporarily_unavailable"}},
             {
@@ -860,7 +935,7 @@ def test_oauth_client_retries_metric_records_completed_retry_count(
         ],
     )
 
-    get("/callback?code=1234&state=" + state)
+    asgi_get("/callback?code=1234&state=" + asgi_state)
 
     retries_data = otel.latest_metric_data(
         otel_mock.get_metrics_data(),
@@ -904,11 +979,12 @@ def test_oauth_client_retries_metric_prometheus_uses_final_status(
 
 def test_oauth_client_retry_metrics_record_attempts_and_reasons(
     requests_mock: Mocker,
-    client: FlaskClient,
-    state: str,
+    asgi_client: httpx.Client,
+    asgi_state: str,
+    settings: Settings,
 ):
     requests_mock.post(
-        current_settings.oauth.token_uri,
+        settings.oauth.token_uri,
         [
             {"status_code": 503, "json": {"error": "temporarily_unavailable"}},
             {
@@ -922,17 +998,17 @@ def test_oauth_client_retry_metrics_record_attempts_and_reasons(
         unittest.mock.patch("random.uniform", return_value=1.0),
         unittest.mock.patch("time.sleep"),
     ):
-        client.get("/callback?code=1234&state=" + state)
+        asgi_client.get("/callback?code=1234&state=" + asgi_state)
 
-    metrics_resp = client.get("/metrics")
+    metrics_resp = asgi_client.get("/metrics")
 
-    assert b"oauth_client_attempts_total" in metrics_resp.data
-    assert b'endpoint="authorization_code"' in metrics_resp.data
-    assert b'kind="initial"' in metrics_resp.data
-    assert b'kind="retry"' in metrics_resp.data
-    assert b"oauth_client_retry_decisions_total" in metrics_resp.data
-    assert b'decision="retry"' in metrics_resp.data
-    assert b'reason="unavailable"' in metrics_resp.data
+    assert b"oauth_client_attempts_total" in metrics_resp.content
+    assert b'endpoint="authorization_code"' in metrics_resp.content
+    assert b'kind="initial"' in metrics_resp.content
+    assert b'kind="retry"' in metrics_resp.content
+    assert b"oauth_client_retry_decisions_total" in metrics_resp.content
+    assert b'decision="retry"' in metrics_resp.content
+    assert b'reason="unavailable"' in metrics_resp.content
 
 
 def test_oauth_client_retry_metrics_bucket_429_as_resource_exhausted(
@@ -1066,16 +1142,17 @@ def test_oauth_client_retry_metrics_record_attempt_limit_skip(
 def test_oauth_client_metrics_failure(
     requests_mock: Mocker,
     otel_mock: otel.OTelMocker,
-    get: GetClient,
-    state: str,
+    asgi_get: GetClient,
+    asgi_state: str,
+    settings: Settings,
 ):
     requests_mock.post(
-        current_settings.oauth.token_uri,
+        settings.oauth.token_uri,
         json={"error": "invalid_grant"},
         status_code=400,
     )
 
-    get("/callback?code=1234&state=" + state)
+    asgi_get("/callback?code=1234&state=" + asgi_state)
 
     duration_data = otel.latest_metric_data(
         otel_mock.get_metrics_data(),
@@ -1093,16 +1170,17 @@ def test_oauth_client_metrics_failure(
 def test_oauth_client_total_metric_success(
     requests_mock: Mocker,
     otel_mock: otel.OTelMocker,
-    get: GetClient,
-    state: str,
+    asgi_get: GetClient,
+    asgi_state: str,
+    settings: Settings,
 ):
     requests_mock.post(
-        current_settings.oauth.token_uri,
+        settings.oauth.token_uri,
         json={"access_token": "mock_token", "token_type": "Bearer"},
         status_code=200,
     )
 
-    get("/callback?code=1234&state=" + state)
+    asgi_get("/callback?code=1234&state=" + asgi_state)
 
     total_data = otel.latest_metric_data(
         otel_mock.get_metrics_data(),
@@ -1120,16 +1198,17 @@ def test_oauth_client_total_metric_success(
 def test_oauth_client_total_metric_failure(
     requests_mock: Mocker,
     otel_mock: otel.OTelMocker,
-    get: GetClient,
-    state: str,
+    asgi_get: GetClient,
+    asgi_state: str,
+    settings: Settings,
 ):
     requests_mock.post(
-        current_settings.oauth.token_uri,
+        settings.oauth.token_uri,
         json={"error": "invalid_grant"},
         status_code=400,
     )
 
-    get("/callback?code=1234&state=" + state)
+    asgi_get("/callback?code=1234&state=" + asgi_state)
 
     total_data = otel.latest_metric_data(
         otel_mock.get_metrics_data(),
