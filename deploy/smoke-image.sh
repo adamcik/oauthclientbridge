@@ -1,26 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-runtime="${SMOKE_RUNTIME:-asgi}"
-case "$runtime" in
-  asgi)
-    default_image="ghcr.io/adamcik/oauthclientbridge:asgi"
-    socket_dir="/run/asgi"
-    runtime_args=(--uds "$socket_dir/server.sock")
-    ;;
-  wsgi)
-    default_image="ghcr.io/adamcik/oauthclientbridge:latest"
-    socket_dir="/run/uwsgi"
-    runtime_args=(--http-socket "$socket_dir/server.sock" --chmod-socket=660 --vacuum)
-    ;;
-  *)
-    echo "SMOKE_RUNTIME must be 'asgi' or 'wsgi'" >&2
-    exit 2
-    ;;
-esac
-
-image="${SMOKE_IMAGE:-$default_image}"
-container="oauthclientbridge-${runtime}-smoke-${RANDOM}"
+image="${SMOKE_IMAGE:-ghcr.io/adamcik/oauthclientbridge:latest}"
+socket_dir="/run/asgi"
+container="oauthclientbridge-asgi-smoke-${RANDOM}"
 
 if [ "$(uname -s)" != Linux ]; then
   echo "The image smoke test requires Podman host networking on Linux" >&2
@@ -114,9 +97,8 @@ podman run --detach \
   --env SENTRY_ENABLED=false \
   --env TELEMETRY_COMPONENTS='[]' \
   --env WORKERS=1 \
-  --env THREADS=1 \
   "$image" \
-  "${runtime_args[@]}" >/dev/null
+  --uds "$socket_dir/server.sock" >/dev/null
 
 for _ in $(seq 1 200); do
   if [ -S "$workspace/run/server.sock" ]; then
@@ -124,36 +106,30 @@ for _ in $(seq 1 200); do
   fi
   if ! podman container inspect --format '{{.State.Running}}' "$container" \
     | grep --quiet true; then
-    echo "$runtime container exited during startup" >&2
+    echo "ASGI container exited during startup" >&2
     exit 1
   fi
   sleep 0.05
 done
 test -S "$workspace/run/server.sock"
 
-python tests/container_smoke/smoke.py --runtime "$runtime" "$workspace/run/server.sock"
+python tests/container_smoke/smoke.py --runtime asgi "$workspace/run/server.sock"
 
-if [ "$runtime" = asgi ]; then
-  timeout 45 podman stop --time 35 "$container" >/dev/null
-  exit_code="$(podman container inspect --format '{{.State.ExitCode}}' "$container")"
-  if [ "$exit_code" != 0 ] && [ "$exit_code" != 143 ]; then
-    echo "$runtime container exited with status $exit_code" >&2
-    exit 1
-  fi
-  # Drain the log stream: grep -q can give Podman SIGPIPE under pipefail.
-  if ! podman logs "$container" 2>&1 \
-    | grep --fixed-strings "Application shutdown complete" >/dev/null; then
-    echo "ASGI container did not complete graceful application shutdown" >&2
-    exit 1
-  fi
-else
-  # The legacy uWSGI runtime retains background services during shutdown and is
-  # only a behavioral baseline here. ASGI owns the graceful-shutdown contract.
-  podman kill "$container" >/dev/null
+timeout 45 podman stop --time 35 "$container" >/dev/null
+exit_code="$(podman container inspect --format '{{.State.ExitCode}}' "$container")"
+if [ "$exit_code" != 0 ] && [ "$exit_code" != 143 ]; then
+  echo "ASGI container exited with status $exit_code" >&2
+  exit 1
+fi
+# Drain the log stream: grep -q can give Podman SIGPIPE under pipefail.
+if ! podman logs "$container" 2>&1 \
+  | grep --fixed-strings "Application shutdown complete" >/dev/null; then
+  echo "ASGI container did not complete graceful application shutdown" >&2
+  exit 1
 fi
 
 if podman logs "$container" 2>&1 | grep --extended-regexp \
   'Traceback \(most recent call last\)|Application startup failed|ERROR:'; then
-  echo "$runtime container logged an unexpected runtime error" >&2
+  echo "ASGI container logged an unexpected runtime error" >&2
   exit 1
 fi

@@ -29,9 +29,7 @@ setting is prefixed based on its category (e.g., `OAUTH_`, `DB_`, `BRIDGE_`,
 for all available options and their prefixes. A minimal setup should define the
 following environment variables (see `.env.example`):
 
--   `BRIDGE_SESSION_SECRET`: Secret key used for signing session cookies in the
-    ASGI runtime. Flask temporarily also accepts `FLASK_SECRET_KEY` for a
-    non-ASGI deployment.
+-   `BRIDGE_SESSION_SECRET`: Secret key used for signing session cookies.
 -   `DB_DATABASE`: SQLite3 database path.
 -   `OAUTH_CLIENT_ID`: Client ID from your OAuth provider.
 -   `OAUTH_CLIENT_SECRET`: Client secret from your OAuth provider.
@@ -89,10 +87,9 @@ flake's own runtime package set for cache compatibility.
 -   Session cookies are secure by default. Set `BRIDGE_SESSION_COOKIE_SECURE` to
     `false` only for local HTTP development.
 -   Ensure the deployment passes the correct request scheme, host, and client
-    address to the application. The bridge does not reinterpret forwarded
-    headers. Deployments that do not provide these values directly may need to
-    wrap `app.wsgi_app` with a topology-appropriate
-    `werkzeug.middleware.proxy_fix.ProxyFix` in their WSGI entrypoint.
+    address to the application. The ASGI middleware trusts one reverse-proxy
+    hop; sanitize forwarded headers at the proxy. See the Caddy example in the
+    [deployment instructions](deploy/README.md).
 -   `OAUTH_SCOPES` is used when the authorization request omits `scope`.
     Set `OAUTH_ALLOWED_SCOPES` to restrict requested scopes to that allowlist.
     Leaving it unset permits dynamic scopes for compatibility and should only be
@@ -117,9 +114,6 @@ flake's own runtime package set for cache compatibility.
     Metrics expose
     operational information; additionally restrict the route to internal
     networks at Caddy or another edge proxy.
-
-For further details on deploying Flask applications see the [upstream
-documentation][].
 
 The following code snippet can be used to create a popup pointed at the
 oauth server, and the poll the it for the results:
@@ -153,8 +147,6 @@ template which will listen for the `postMessage` and then respond with
 the results.:
 
         BRIDGE_CALLBACK_TEMPLATE
-
-[upstream documentation]: http://flask.pocoo.org/docs/latest/deploying/
 
 ## Refresh token metrics
 
