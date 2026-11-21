@@ -4,87 +4,13 @@
     "github>adamcik/renovate-config:application",
     "github>adamcik/renovate-config:automerge"
   ],
-  "nix": {
-    "enabled": true
-  },
-  "labels": ["dependencies"],
   "ignorePaths": ["deploy/**"],
-  "lockFileMaintenance": {
-    "enabled": true,
-    "schedule": ["before 06:00 on the first day of the month"]
-  },
   "packageRules": [
     {
-      "matchManagers": ["uv", "pep621"],
-      "matchUpdateTypes": ["lockFileMaintenance"],
-      "overrideDepName": "uv lock file maintenance",
-      "groupName": "uv lock file maintenance",
-      "commitMessageTopic": "uv"
-    },
-    {
-      "matchManagers": ["nix"],
-      "matchUpdateTypes": ["lockFileMaintenance"],
-      "overrideDepName": "flake lock file maintenance",
-      "groupName": "flake lock file maintenance",
-      "commitMessageTopic": "flake"
-    },
-    {
-      "matchManagers": ["github-actions", "nix"],
-      "matchUpdateTypes": ["digest", "pin", "patch", "minor"],
-      "automerge": true,
-      "automergeType": "pr",
-      "minimumReleaseAge": "3 days"
-    },
-    {
-      "matchManagers": ["github-actions"],
-      "groupName": "github actions"
-    },
-    {
-      "matchManagers": ["nix"],
-      "groupName": "nix flake inputs"
-    },
-    {
-      "matchManagers": ["uv", "pep621"],
-      "groupName": "opentelemetry",
-      "matchPackageNames": [
-        "/^opentelemetry-/"
-      ]
-    },
-    {
-      "matchManagers": ["uv", "pep621"],
-      "matchPackageNames": [
-        "/^opentelemetry-instrumentation-/"
-      ],
-      "ignoreUnstable": false
-    },
-    {
-      "matchManagers": ["uv", "pep621"],
-      "matchPackageNames": ["pydantic", "pydantic-settings"],
-      "groupName": "pydantic"
-    },
-    {
-      "matchManagers": ["uv", "pep621"],
+      "matchDatasources": ["pypi"],
       "matchPackageNames": ["flask", "werkzeug", "jinja2", "itsdangerous"],
-      "groupName": "flask stack"
-    },
-    {
-      "matchManagers": ["uv", "pep621"],
-      "matchUpdateTypes": ["patch"],
-      "groupName": "python patch updates",
-      "automerge": true,
-      "automergeType": "pr",
-      "minimumReleaseAge": "5 days",
-      "schedule": ["before 06:00 on Saturday"]
-    },
-    {
-      "matchManagers": ["uv", "pep621"],
-      "rangeStrategy": "pin",
-      "minimumReleaseAge": "3 days"
-    },
-    {
-      "matchManagers": ["pep621"],
-      "matchDepNames": ["python"],
-      "enabled": false
+      "groupName": "Flask stack",
+      "groupSlug": null
     }
   ]
 }
