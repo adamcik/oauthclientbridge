@@ -209,7 +209,7 @@ def test_metrics_failure_is_safe_and_not_an_oauth_outcome(
     otel_mock: OTelMocker,
     sentry_capture: SentryCapture,
 ) -> None:
-    def fail() -> NoReturn:
+    def fail(*_: object) -> NoReturn:
         raise RuntimeError("internal detail")
 
     monkeypatch.setattr(telemetry, "export_metrics", fail)
