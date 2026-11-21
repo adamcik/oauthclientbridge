@@ -487,7 +487,7 @@ dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pytest-freezer" },
-    { name = "pytest-otel-capture", git = "https://github.com/adamcik/pytest-otel-capture?branch=main" },
+    { name = "pytest-otel-capture", specifier = "==0.2.0" },
     { name = "pytest-sentry-capture" },
     { name = "pytest-xdist" },
     { name = "requests-mock" },
@@ -505,7 +505,7 @@ test = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pytest-freezer" },
-    { name = "pytest-otel-capture", git = "https://github.com/adamcik/pytest-otel-capture?branch=main" },
+    { name = "pytest-otel-capture", specifier = "==0.2.0" },
     { name = "pytest-sentry-capture" },
     { name = "pytest-xdist" },
     { name = "requests-mock" },
@@ -987,11 +987,15 @@ wheels = [
 
 [[package]]
 name = "pytest-otel-capture"
-version = "0.1.2.dev2+g81bbf5fe2"
-source = { git = "https://github.com/adamcik/pytest-otel-capture?branch=main#81bbf5fe201a411f0e20b9ed8f9374d6a26c9ad1" }
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "opentelemetry-api" },
     { name = "opentelemetry-sdk" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/84/c4/4ee02f6f48140d7a02caf4d570405390de26ee42726226572841b4aacaa8/pytest_otel_capture-0.2.0.tar.gz", hash = "sha256:675d3b207a6a016e231e70c3f44a62bfa3acfdbe309267525cbddad7c6c6aa3b", size = 75647, upload-time = "2026-11-20T09:55:00.553Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fd/b1/c1c249da1b105c5e50d747d1fa76a3e2459c63c7a4a6ed93441b61f9eeca/pytest_otel_capture-0.2.0-py3-none-any.whl", hash = "sha256:b065c17c7461859edd9f2ae0b73c4380c0015a28e166ef9ffcfe91ed5ef622ff", size = 15016, upload-time = "2026-11-20T09:54:59.506Z" },
 ]
 
 [[package]]
