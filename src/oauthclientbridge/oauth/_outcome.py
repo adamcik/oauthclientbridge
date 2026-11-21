@@ -7,7 +7,6 @@ from typing import Any
 import structlog
 
 from oauthclientbridge.errors import OAuthError
-from oauthclientbridge.settings import current_settings
 
 from ._retry import RetryCondition, retry_condition_for_status
 
@@ -77,15 +76,11 @@ def normalize_error(
     error_code: str,
     allowed_types: set[OAuthError],
     fallback_type: OAuthError,
-    error_types: Mapping[str, OAuthError] | None = None,
+    error_types: Mapping[str, OAuthError],
 ) -> OAuthError:
     """Translate any "bad" error types to something more usable."""
-    resolved_error_types = (
-        current_settings.fetch.error_types if error_types is None else error_types
-    )
-
-    if error_code in resolved_error_types:
-        error = resolved_error_types[error_code]
+    if error_code in error_types:
+        error = error_types[error_code]
     elif error_code in OAuthError:
         error = OAuthError(error_code)
     else:

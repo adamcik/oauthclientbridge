@@ -24,6 +24,7 @@ from oauthclientbridge.oauth._outcome import (  # pyright: ignore[reportPrivateU
     UpstreamResult,
 )
 from oauthclientbridge.settings import (
+    FetchSettings,
     Settings,
     TelemetryComponent,
     TelemetrySettings,
@@ -35,8 +36,8 @@ from .conftest import GetClient, PostClient, TokenTuple
 from .plugins import otel
 
 
-def run_fetch(*args: str, **data: str | None) -> OAuthResponse:
-    return asyncio.run(oauth.fetch_with_requests(*args, **data))
+def run_fetch(settings: FetchSettings, *args: str, **data: str | None) -> OAuthResponse:
+    return asyncio.run(oauth.fetch_with_requests(settings, *args, **data))
 
 
 logger: structlog.BoundLogger = structlog.get_logger()
@@ -485,18 +486,18 @@ def test_endpoint_creates_requests_spans(
 def test_outgoing_request_span_records_retry_after_header(
     requests_mock: Mocker,
     otel_mock: otel.OTelMocker,
-    app_context: flask.ctx.AppContext,
+    settings: Settings,
     instrumented: None,
 ) -> None:
-    current_settings.fetch.total_attempts = 2
+    settings.fetch.total_attempts = 2
     requests_mock.post(
-        current_settings.oauth.token_uri,
+        settings.oauth.token_uri,
         status_code=429,
         headers={"Content-Type": "application/json", "Retry-After": "10"},
         json={"error": "temporarily_unavailable"},
     )
 
-    run_fetch(current_settings.oauth.token_uri, "test_endpoint")
+    run_fetch(settings.fetch, settings.oauth.token_uri, "test_endpoint")
 
     spans = otel_mock.get_finished_spans()
     outgoing_request_spans = otel.find_spans(spans, "POST")
@@ -876,10 +877,10 @@ def test_oauth_client_retries_metric_records_completed_retry_count(
 
 def test_oauth_client_retries_metric_prometheus_uses_final_status(
     requests_mock: Mocker,
-    client: FlaskClient,
+    settings: Settings,
 ):
     requests_mock.post(
-        current_settings.oauth.token_uri,
+        settings.oauth.token_uri,
         [
             {"status_code": 503, "json": {"error": "temporarily_unavailable"}},
             {
@@ -890,10 +891,9 @@ def test_oauth_client_retries_metric_prometheus_uses_final_status(
     )
 
     with unittest.mock.patch("time.sleep"):
-        run_fetch(current_settings.oauth.token_uri, "retry-metric-test")
+        run_fetch(settings.fetch, settings.oauth.token_uri, "retry-metric-test")
 
-    metrics_resp = client.get("/metrics")
-    body = metrics_resp.data.decode()
+    body = telemetry.export_metrics(settings.prometheus).decode()
 
     assert body.count('oauth_client_retries_count{endpoint="retry-metric-test"') == 1
     assert (
@@ -937,11 +937,11 @@ def test_oauth_client_retry_metrics_record_attempts_and_reasons(
 
 def test_oauth_client_retry_metrics_bucket_429_as_resource_exhausted(
     requests_mock: Mocker,
-    client: FlaskClient,
+    settings: Settings,
 ):
     endpoint = "rate-limit-reason-test"
     requests_mock.post(
-        current_settings.oauth.token_uri,
+        settings.oauth.token_uri,
         [
             {"status_code": 429, "json": {"error": "temporarily_unavailable"}},
             {
@@ -955,46 +955,46 @@ def test_oauth_client_retry_metrics_bucket_429_as_resource_exhausted(
         unittest.mock.patch("random.uniform", return_value=1.0),
         unittest.mock.patch("time.sleep"),
     ):
-        run_fetch(current_settings.oauth.token_uri, endpoint)
+        run_fetch(settings.fetch, settings.oauth.token_uri, endpoint)
 
-    metrics_resp = client.get("/metrics")
-    assert b"oauth_client_retry_decisions_total" in metrics_resp.data
-    assert b'decision="retry"' in metrics_resp.data
-    assert b'reason="resource_exhausted"' in metrics_resp.data
+    body = telemetry.export_metrics(settings.prometheus)
+    assert b"oauth_client_retry_decisions_total" in body
+    assert b'decision="retry"' in body
+    assert b'reason="resource_exhausted"' in body
 
 
 def test_oauth_client_error_metric_uses_normalized_retryable_invalid_grant(
     requests_mock: Mocker,
-    client: FlaskClient,
+    settings: Settings,
 ):
     endpoint = "retryable-invalid-grant-metric-test"
     requests_mock.post(
-        current_settings.oauth.token_uri,
+        settings.oauth.token_uri,
         status_code=503,
         json={"error": OAuthError.INVALID_GRANT},
     )
 
-    run_fetch(current_settings.oauth.token_uri, endpoint)
+    run_fetch(settings.fetch, settings.oauth.token_uri, endpoint)
 
-    metrics_resp = client.get("/metrics")
+    body = telemetry.export_metrics(settings.prometheus)
 
     assert (
         f'oauth_client_error_total{{endpoint="{endpoint}",error="temporarily_unavailable",status="http_service_unavailable"}}'.encode()
-        in metrics_resp.data
+        in body
     )
     assert (
         f'oauth_client_error_total{{endpoint="{endpoint}",error="invalid_grant",status="http_service_unavailable"}}'.encode()
-        not in metrics_resp.data
+        not in body
     )
 
 
 def test_oauth_client_retry_metrics_record_deadline_skip(
-    client: FlaskClient,
     monkeypatch: pytest.MonkeyPatch,
+    settings: Settings,
 ):
-    current_settings.fetch.total_timeout = 1.0
-    current_settings.fetch.total_attempts = 3
-    current_settings.fetch.backoff_factor = 0.8
+    settings.fetch.total_timeout = 1.0
+    settings.fetch.total_attempts = 3
+    settings.fetch.backoff_factor = 0.8
 
     fake_time = [0.0]
 
@@ -1032,35 +1032,35 @@ def test_oauth_client_retry_metrics_record_deadline_skip(
     monkeypatch.setattr(oauth_core.random, "uniform", lambda _low, _high: 1.25)
     monkeypatch.setattr(oauth_core, "_fetch", fetch_side_effect)
 
-    run_fetch(current_settings.oauth.token_uri, "test_endpoint")
+    run_fetch(settings.fetch, settings.oauth.token_uri, "test_endpoint")
 
-    metrics_resp = client.get("/metrics")
+    body = telemetry.export_metrics(settings.prometheus)
 
-    assert b"oauth_client_retry_decisions_total" in metrics_resp.data
-    assert b'decision="skip"' in metrics_resp.data
-    assert b'reason="deadline_exceeded"' in metrics_resp.data
+    assert b"oauth_client_retry_decisions_total" in body
+    assert b'decision="skip"' in body
+    assert b'reason="deadline_exceeded"' in body
 
 
 def test_oauth_client_retry_metrics_record_attempt_limit_skip(
     requests_mock: Mocker,
-    client: FlaskClient,
+    settings: Settings,
 ):
-    current_settings.fetch.total_attempts = 2
+    settings.fetch.total_attempts = 2
     endpoint = "attempt-limit-reason-test"
     requests_mock.post(
-        current_settings.oauth.token_uri,
+        settings.oauth.token_uri,
         json={"error": "temporarily_unavailable"},
         status_code=503,
     )
 
     with unittest.mock.patch("time.sleep"):
-        run_fetch(current_settings.oauth.token_uri, endpoint)
+        run_fetch(settings.fetch, settings.oauth.token_uri, endpoint)
 
-    metrics_resp = client.get("/metrics")
+    body = telemetry.export_metrics(settings.prometheus)
 
-    assert b"oauth_client_retry_decisions_total" in metrics_resp.data
-    assert b'decision="skip"' in metrics_resp.data
-    assert b'reason="unavailable"' in metrics_resp.data
+    assert b"oauth_client_retry_decisions_total" in body
+    assert b'decision="skip"' in body
+    assert b'reason="unavailable"' in body
 
 
 def test_oauth_client_metrics_failure(
