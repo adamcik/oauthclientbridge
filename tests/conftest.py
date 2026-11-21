@@ -2,6 +2,7 @@ import base64
 import json
 import logging
 import sqlite3
+import urllib.parse
 from collections.abc import AsyncIterator, Awaitable, Callable, Generator, Mapping
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field
@@ -20,7 +21,7 @@ from flask import Flask
 from flask.ctx import AppContext
 from flask.testing import FlaskClient
 from pydantic import SecretStr
-from werkzeug.datastructures import Headers
+from starlette.testclient import TestClient
 
 from oauthclientbridge import bridge, create_app, crypto, db, oauth, telemetry, types
 from oauthclientbridge.asgi import create_app as create_asgi_app
@@ -98,7 +99,7 @@ def oauth_server() -> Generator[OAuthServer, None, None]:
 class ResponseTuple(NamedTuple):
     data: dict[str, Any]
     status: int
-    headers: Headers
+    headers: Mapping[str, str]
 
 
 class TokenTuple(NamedTuple):
@@ -411,17 +412,91 @@ def client_state(client: FlaskClient) -> str:
     return "s3cret"
 
 
-def _test_token(**data: str | int) -> TokenTuple:
+@pytest.fixture
+def asgi_client(settings: Settings, app_context: AppContext) -> Generator[TestClient]:
+    # The legacy context keeps the shared in-memory database alive, not HTTP state.
+    _ = app_context
+    app = create_asgi_app(
+        settings,
+        fetch=partial(oauth.fetch_with_requests, settings.fetch),
+        initialize_runtime=False,
+    )
+    client = TestClient(
+        app,
+        base_url="https://bridge.example.com",
+        follow_redirects=False,
+        raise_server_exceptions=False,
+    )
+    try:
+        yield client
+    finally:
+        client.close()
+
+
+@pytest.fixture
+def asgi_get(asgi_client: TestClient) -> GetClient:
+    def get(path: str, headers: dict[str, str] | None = None) -> ResponseTuple:
+        response = asgi_client.get(path, headers=headers)
+        return ResponseTuple(response.json(), response.status_code, response.headers)
+
+    return get
+
+
+@pytest.fixture
+def asgi_post(asgi_client: TestClient) -> PostClient:
+    def post(
+        path: str,
+        data: dict[str, Any],
+        auth: tuple[types.ClientId, types.ClientSecret] | None = None,
+        headers: Mapping[str, str | bytes] | None = None,
+    ) -> ResponseTuple:
+        response = asgi_client.post(
+            path,
+            data={key: str(value) for key, value in data.items()},
+            auth=(str(auth[0]), auth[1]) if auth else None,
+            headers={
+                key: value.decode("ascii") if isinstance(value, bytes) else value
+                for key, value in (headers or {}).items()
+            },
+        )
+        return ResponseTuple(response.json(), response.status_code, response.headers)
+
+    return post
+
+
+@pytest.fixture
+def asgi_authorization(asgi_client: TestClient) -> tuple[str, str]:
+    client_state = "s3cret"
+    response = asgi_client.get("/", params={"state": client_state})
+    assert response.status_code == 302
+    query = urllib.parse.parse_qs(
+        urllib.parse.urlsplit(response.headers["location"]).query
+    )
+    return query["state"][0], client_state
+
+
+@pytest.fixture
+def asgi_state(asgi_authorization: tuple[str, str]) -> str:
+    return asgi_authorization[0]
+
+
+@pytest.fixture
+def asgi_client_state(asgi_authorization: tuple[str, str]) -> str:
+    return asgi_authorization[1]
+
+
+def _test_token(database: DatabaseSettings, **data: str | int) -> TokenTuple:
     client_secret = crypto.generate_key()
     token = crypto.dumps(client_secret, data)
     client_id = db.generate_id()
-    db.insert(client_id, token)
+    db.insert(client_id, token, database)
     return TokenTuple(client_id, client_secret, data)
 
 
 @pytest.fixture
-def access_token() -> TokenTuple:
+def access_token(settings: Settings) -> TokenTuple:
     return _test_token(
+        settings.database,
         token_type="test",
         access_token="123",
         expires_in=3600,
@@ -429,5 +504,5 @@ def access_token() -> TokenTuple:
 
 
 @pytest.fixture
-def refresh_token() -> TokenTuple:
-    return _test_token(refresh_token="abc")
+def refresh_token(settings: Settings) -> TokenTuple:
+    return _test_token(settings.database, refresh_token="abc")
