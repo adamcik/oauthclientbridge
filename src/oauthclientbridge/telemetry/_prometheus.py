@@ -9,7 +9,6 @@ import prometheus_client.multiprocess
 from oauthclientbridge.settings import (
     PrometheusSettings,
     TelemetrySettings,
-    current_settings,
 )
 from oauthclientbridge.utils import time as time_utils
 
@@ -181,9 +180,9 @@ def status(code: HTTPStatus) -> str:
     return HTTP_STATUS_LABELS[code]
 
 
-def export_metrics(settings: PrometheusSettings | None = None) -> bytes:
+def export_metrics(settings: PrometheusSettings) -> bytes:
     metrics_registry = registry
-    multiproc_dir = (settings or current_settings.prometheus).multiproc_dir
+    multiproc_dir = settings.multiproc_dir
     if multiproc_dir:
         metrics_registry = _multiprocess_registries.get(multiproc_dir)
         if metrics_registry is None:
