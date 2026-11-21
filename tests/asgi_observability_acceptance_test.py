@@ -81,6 +81,7 @@ async def _assert_oauth_error_metric(
     endpoint: str,
     error: OAuthError,
     status: HTTPStatus,
+    before: float,
 ) -> None:
     response = await client.get("/metrics")
     assert (
@@ -93,7 +94,7 @@ async def _assert_oauth_error_metric(
                 "status": f"http_{status.name.lower()}",
             },
         )
-        == 1
+        == before + 1
     )
 
 
@@ -155,6 +156,15 @@ async def test_expected_oauth_failures_have_safe_observability(
     settings: Settings,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    before = sample_value(
+        telemetry.export_metrics(settings.prometheus),
+        "oauth_server_error_total",
+        {
+            "endpoint": case.endpoint,
+            "error": case.error.value,
+            "status": "http_bad_request",
+        },
+    )
     logs.init_logging(settings.log)
     if case.allowed_scopes is not None:
         settings.oauth = settings.oauth.model_copy(
@@ -169,6 +179,7 @@ async def test_expected_oauth_failures_have_safe_observability(
         endpoint=case.endpoint,
         error=case.error,
         status=HTTPStatus.BAD_REQUEST,
+        before=before,
     )
     outcome_spans = [
         span
@@ -195,7 +206,17 @@ async def test_unexpected_token_failure_has_safe_response_and_error_observabilit
     monkeypatch: pytest.MonkeyPatch,
     otel_mock: OTelMocker,
     sentry_capture: SentryCapture,
+    settings: Settings,
 ) -> None:
+    before = sample_value(
+        telemetry.export_metrics(settings.prometheus),
+        "oauth_server_error_total",
+        {
+            "endpoint": "token",
+            "error": OAuthError.SERVER_ERROR.value,
+            "status": "http_internal_server_error",
+        },
+    )
     def fail(*_args: object) -> NoReturn:
         secret = crypto.generate_key()
         _ = secret
@@ -221,6 +242,7 @@ async def test_unexpected_token_failure_has_safe_response_and_error_observabilit
         endpoint="token",
         error=OAuthError.SERVER_ERROR,
         status=HTTPStatus.INTERNAL_SERVER_ERROR,
+        before=before,
     )
     outcome_spans = [
         span
