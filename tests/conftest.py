@@ -3,15 +3,14 @@ import json
 import logging
 import sqlite3
 import urllib.parse
-from collections.abc import AsyncIterator, Awaitable, Callable, Generator, Mapping
+from collections.abc import AsyncGenerator, Callable, Generator, Mapping
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
-from typing import Any, NamedTuple, Protocol
+from typing import Any, NamedTuple, Protocol, cast
 from uuid import uuid4
 
-import anyio
 import httpx
 import pytest
 import pytest_sentry_capture
@@ -22,6 +21,7 @@ from flask.ctx import AppContext
 from flask.testing import FlaskClient
 from pydantic import SecretStr
 from starlette.testclient import TestClient
+from werkzeug.datastructures import Headers
 
 from oauthclientbridge import bridge, create_app, crypto, db, oauth, telemetry, types
 from oauthclientbridge.asgi import create_app as create_asgi_app
@@ -99,7 +99,7 @@ def oauth_server() -> Generator[OAuthServer, None, None]:
 class ResponseTuple(NamedTuple):
     data: dict[str, Any]
     status: int
-    headers: Mapping[str, str]
+    headers: httpx.Headers | Headers
 
 
 class TokenTuple(NamedTuple):
@@ -116,9 +116,15 @@ class ScriptedOAuth:
     calls: list[tuple[str, str, dict[str, str | None]]] = field(default_factory=list)
 
     async def fetch(
-        self, uri: str, endpoint: str, **data: str | None
+        self,
+        uri: str,
+        upstream_grant_type: types.UpstreamGrantType,
+        auth: str | None = None,
+        **data: str | None,
     ) -> dict[str, Any]:
-        self.calls.append((uri, endpoint, data))
+        if auth is not None:
+            data["auth"] = auth
+        self.calls.append((uri, upstream_grant_type, data))
         if not self.results:
             raise AssertionError("scripted OAuth received an unexpected request")
         return self.results.pop(0)
@@ -131,138 +137,30 @@ class BridgeHarness:
     database: sqlite3.Connection
 
 
-@dataclass(frozen=True)
-class AdapterResponse:
-    status_code: int
-    headers: Mapping[str, str]
-    content: bytes
-
-    def json(self) -> dict[str, Any]:
-        return json.loads(self.content)
-
-
-class AdapterRequests(Protocol):
-    async def get(
-        self, path: str, *, params: Mapping[str, str] | None = None
-    ) -> AdapterResponse: ...
-
-    async def post(
-        self,
-        path: str,
-        *,
-        data: Mapping[str, str],
-        auth: tuple[str, str],
-        headers: Mapping[str, str],
-    ) -> AdapterResponse: ...
-
-
 type AdapterClient = Callable[
-    [Settings, Callable[..., Awaitable[dict[str, Any]]] | None],
-    AbstractAsyncContextManager[AdapterRequests],
+    [Settings, oauth.UpstreamFetcher | None],
+    AbstractAsyncContextManager[httpx.AsyncClient],
 ]
 
 
-def _adapter_response(response: httpx.Response) -> AdapterResponse:
-    return AdapterResponse(response.status_code, response.headers, response.content)
-
-
 @pytest.fixture
-def adapter_client(
-    request: pytest.FixtureRequest, bridge_harness: BridgeHarness
-) -> AdapterClient:
+def adapter_client(bridge_harness: BridgeHarness) -> AdapterClient:
     _ = bridge_harness  # Keep the shared in-memory database alive for adapter requests.
 
-    if request.param == "starlette":
+    @asynccontextmanager
+    async def asgi_client(
+        settings: Settings, fetch: oauth.UpstreamFetcher | None
+    ) -> AsyncGenerator[httpx.AsyncClient]:
+        app = create_asgi_app(settings, fetch=fetch, initialize_runtime=False)
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="https://bridge.example.com",
+            follow_redirects=False,
+        ) as client:
+            yield client
 
-        @asynccontextmanager
-        async def starlette_client(
-            settings: Settings,
-            fetch: Callable[..., Awaitable[dict[str, Any]]] | None,
-        ) -> AsyncIterator[AdapterRequests]:
-            app = create_asgi_app(settings, fetch=fetch, initialize_runtime=False)
-            transport = httpx.ASGITransport(app=app)
-            async with httpx.AsyncClient(
-                transport=transport,
-                base_url="https://bridge.example.com",
-                follow_redirects=False,
-            ) as client:
-
-                class Requests:
-                    async def get(
-                        self, path: str, *, params: Mapping[str, str] | None = None
-                    ) -> AdapterResponse:
-                        return _adapter_response(await client.get(path, params=params))
-
-                    async def post(
-                        self,
-                        path: str,
-                        *,
-                        data: Mapping[str, str],
-                        auth: tuple[str, str],
-                        headers: Mapping[str, str],
-                    ) -> AdapterResponse:
-                        return _adapter_response(
-                            await client.post(
-                                path, data=data, auth=auth, headers=headers
-                            )
-                        )
-
-                yield Requests()
-
-        return starlette_client
-
-    if request.param == "flask":
-
-        @asynccontextmanager
-        async def flask_client(
-            settings: Settings,
-            fetch: Callable[..., Awaitable[dict[str, Any]]] | None,
-        ) -> AsyncIterator[AdapterRequests]:
-            app = create_app(
-                settings,
-                fetch=fetch or partial(oauth.fetch_with_requests, settings.fetch),
-            )
-            app.secret_key = "test-secret-key"
-            if fetch is not None:
-                app.extensions["oauth_bridge"] = bridge.Bridge(settings, fetch)
-            client = app.test_client()
-
-            class Requests:
-                async def get(
-                    self, path: str, *, params: Mapping[str, str] | None = None
-                ) -> AdapterResponse:
-                    response = await anyio.to_thread.run_sync(
-                        lambda: client.get(path, query_string=params)
-                    )
-                    return AdapterResponse(
-                        response.status_code, response.headers, response.data
-                    )
-
-                async def post(
-                    self,
-                    path: str,
-                    *,
-                    data: Mapping[str, str],
-                    auth: tuple[str, str],
-                    headers: Mapping[str, str],
-                ) -> AdapterResponse:
-                    request_headers = dict(headers)
-                    encoded = base64.b64encode(":".join(auth).encode("ascii"))
-                    request_headers["Authorization"] = "Basic {}".format(
-                        encoded.decode("ascii")
-                    )
-                    response = await anyio.to_thread.run_sync(
-                        lambda: client.post(path, data=data, headers=request_headers)
-                    )
-                    return AdapterResponse(
-                        response.status_code, response.headers, response.data
-                    )
-
-            yield Requests()
-
-        return flask_client
-
-    raise ValueError(f"unknown adapter: {request.param}")
+    return asgi_client
 
 
 @pytest.fixture
@@ -413,7 +311,7 @@ def client_state(client: FlaskClient) -> str:
 
 
 @pytest.fixture
-def asgi_client(settings: Settings, app_context: AppContext) -> Generator[TestClient]:
+def asgi_client(settings: Settings, app_context: AppContext) -> Generator[httpx.Client]:
     # The legacy context keeps the shared in-memory database alive, not HTTP state.
     _ = app_context
     app = create_asgi_app(
@@ -421,11 +319,15 @@ def asgi_client(settings: Settings, app_context: AppContext) -> Generator[TestCl
         fetch=partial(oauth.fetch_with_requests, settings.fetch),
         initialize_runtime=False,
     )
-    client = TestClient(
-        app,
-        base_url="https://bridge.example.com",
-        follow_redirects=False,
-        raise_server_exceptions=False,
+    # Starlette dynamically selects its client base; this suite uses HTTPX, not HTTPX2.
+    client = cast(
+        httpx.Client,
+        TestClient(
+            app,
+            base_url="https://bridge.example.com",
+            follow_redirects=False,
+            raise_server_exceptions=False,
+        ),
     )
     try:
         yield client
@@ -434,7 +336,7 @@ def asgi_client(settings: Settings, app_context: AppContext) -> Generator[TestCl
 
 
 @pytest.fixture
-def asgi_get(asgi_client: TestClient) -> GetClient:
+def asgi_get(asgi_client: httpx.Client) -> GetClient:
     def get(path: str, headers: dict[str, str] | None = None) -> ResponseTuple:
         response = asgi_client.get(path, headers=headers)
         return ResponseTuple(response.json(), response.status_code, response.headers)
@@ -443,7 +345,7 @@ def asgi_get(asgi_client: TestClient) -> GetClient:
 
 
 @pytest.fixture
-def asgi_post(asgi_client: TestClient) -> PostClient:
+def asgi_post(asgi_client: httpx.Client) -> PostClient:
     def post(
         path: str,
         data: dict[str, Any],
@@ -453,7 +355,7 @@ def asgi_post(asgi_client: TestClient) -> PostClient:
         response = asgi_client.post(
             path,
             data={key: str(value) for key, value in data.items()},
-            auth=(str(auth[0]), auth[1]) if auth else None,
+            auth=(str(auth[0]), auth[1]) if auth else httpx.USE_CLIENT_DEFAULT,
             headers={
                 key: value.decode("ascii") if isinstance(value, bytes) else value
                 for key, value in (headers or {}).items()
@@ -465,7 +367,7 @@ def asgi_post(asgi_client: TestClient) -> PostClient:
 
 
 @pytest.fixture
-def asgi_authorization(asgi_client: TestClient) -> tuple[str, str]:
+def asgi_authorization(asgi_client: httpx.Client) -> tuple[str, str]:
     client_state = "s3cret"
     response = asgi_client.get("/", params={"state": client_state})
     assert response.status_code == 302

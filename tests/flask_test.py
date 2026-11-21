@@ -1,3 +1,4 @@
+from functools import partial
 from http import HTTPStatus
 
 import flask
@@ -37,6 +38,6 @@ def test_flask_accepts_legacy_session_secret(
     settings.session_secret = None
     monkeypatch.setenv("FLASK_SECRET_KEY", "legacy-secret")
 
-    app = create_app(settings, fetch=oauth.fetch_with_requests)
+    app = create_app(settings, fetch=partial(oauth.fetch_with_requests, settings.fetch))
 
     assert app.secret_key == "legacy-secret"

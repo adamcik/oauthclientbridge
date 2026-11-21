@@ -1,19 +1,20 @@
-"""HTTP conformance scenarios shared by the Flask and Starlette adapters."""
+"""Public ASGI HTTP contracts for bridge responses and session handling."""
 
 import urllib.parse
 from dataclasses import dataclass
+from functools import partial
 from http import HTTPStatus
 
 import pytest
+from requests_mock import Mocker
 
-from oauthclientbridge import crypto, db
+from oauthclientbridge import crypto, db, oauth
 from oauthclientbridge.settings import Settings
 from tests.conftest import AdapterClient, BridgeHarness
 
 pytestmark = pytest.mark.anyio
 
 
-@pytest.mark.parametrize("adapter_client", ["flask", "starlette"], indirect=True)
 async def test_adapter_translates_authorization_redirect(
     settings: Settings, adapter_client: AdapterClient
 ) -> None:
@@ -41,7 +42,6 @@ class BrowserErrorScenario:
     allowed_scopes: set[str] | None = None
 
 
-@pytest.mark.parametrize("adapter_client", ["flask", "starlette"], indirect=True)
 @pytest.mark.parametrize(
     "scenario",
     [
@@ -83,7 +83,6 @@ async def test_adapter_preserves_safe_browser_oauth_errors(
     )
 
 
-@pytest.mark.parametrize("adapter_client", ["flask", "starlette"], indirect=True)
 async def test_adapter_preserves_callback_nonce(
     settings: Settings, adapter_client: AdapterClient
 ) -> None:
@@ -99,7 +98,6 @@ async def test_adapter_preserves_callback_nonce(
     assert response.headers["cache-control"] == "no-store"
 
 
-@pytest.mark.parametrize("adapter_client", ["flask", "starlette"], indirect=True)
 async def test_adapter_consumes_callback_session(
     settings: Settings,
     bridge_harness: BridgeHarness,
@@ -129,7 +127,6 @@ async def test_adapter_consumes_callback_session(
     assert b'"error": "invalid_state"' in replay.content
 
 
-@pytest.mark.parametrize("adapter_client", ["flask", "starlette"], indirect=True)
 async def test_adapter_translates_token_form_and_basic_auth(
     settings: Settings,
     bridge_harness: BridgeHarness,
@@ -159,7 +156,6 @@ async def test_adapter_translates_token_form_and_basic_auth(
     assert response.headers["cache-control"] == "no-store"
 
 
-@pytest.mark.parametrize("adapter_client", ["flask", "starlette"], indirect=True)
 async def test_adapter_preserves_token_error_headers(
     settings: Settings, adapter_client: AdapterClient
 ) -> None:
@@ -177,7 +173,6 @@ async def test_adapter_preserves_token_error_headers(
     assert response.headers["pragma"] == "no-cache"
 
 
-@pytest.mark.parametrize("adapter_client", ["flask", "starlette"], indirect=True)
 async def test_adapter_keeps_native_routing_responses_framework_owned(
     settings: Settings, adapter_client: AdapterClient
 ) -> None:
@@ -189,18 +184,19 @@ async def test_adapter_keeps_native_routing_responses_framework_owned(
     assert method_not_allowed.status_code == HTTPStatus.METHOD_NOT_ALLOWED
 
 
-@pytest.mark.parametrize("adapter_client", ["flask"], indirect=True)
-async def test_flask_adapter_uses_requests_backed_upstream_fetch(
+async def test_asgi_adapter_supports_requests_backed_upstream_fetch(
     settings: Settings,
     adapter_client: AdapterClient,
-    requests_mock: object,
+    requests_mock: Mocker,
 ) -> None:
-    requests_mock.post(  # type: ignore[union-attr] # Pytest fixture protocol is external.
+    requests_mock.post(
         settings.oauth.token_uri,
         json={"token_type": "Bearer", "access_token": "provider-token"},
     )
 
-    async with adapter_client(settings, None) as client:
+    async with adapter_client(
+        settings, partial(oauth.fetch_with_requests, settings.fetch)
+    ) as client:
         authorization = await client.get("/")
         state = urllib.parse.parse_qs(
             urllib.parse.urlsplit(authorization.headers["location"]).query

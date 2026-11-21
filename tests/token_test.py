@@ -3,11 +3,11 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol, cast
 
+import httpx
 import pytest
 import requests
 from pytest_sentry_capture import SentryCapture
 from requests_mock import Mocker
-from starlette.testclient import TestClient
 
 from oauthclientbridge import crypto, db
 from oauthclientbridge.errors import OAuthError
@@ -269,7 +269,7 @@ def test_token_bad_basic_auth(
     assert resp.headers["WWW-Authenticate"] == 'Basic realm="oauthclientbridge"'
 
 
-def test_token_wrong_method(asgi_client: TestClient):
+def test_token_wrong_method(asgi_client: httpx.Client):
     resp = asgi_client.get("/token")
     assert resp.status_code == 405
 
@@ -767,7 +767,7 @@ def test_token_provider_unavailable(
 
 def test_token_invalid_grant_revokes_stored_refresh_token(
     asgi_post: PostClient,
-    asgi_client: TestClient,
+    asgi_client: httpx.Client,
     refresh_token: TokenTuple,
     requests_mock: Mocker,
     settings: Settings,
@@ -909,7 +909,7 @@ def test_token_terminal_refresh_error_ignores_retry_after_header(
 
 
 def test_token_unexpected_error_returns_json(
-    asgi_client: TestClient,
+    asgi_client: httpx.Client,
     refresh_token: TokenTuple,
     requests_mock: Mocker,
     settings: Settings,
