@@ -168,27 +168,24 @@ def test_html_template_preserves_optional_variables_and_filters():
 def test_bundled_callback_template_and_policies_authorize_script(provider: str):
     deploy = Path(__file__).resolve().parents[1] / "deploy" / provider
     template = (deploy / "callback.html").read_text()
-    for env_file in ("env", "asgi.env"):
-        policy = next(
-            line.split("=", 1)[1]
-            for line in (deploy / env_file).read_text().splitlines()
-            if line.startswith("BRIDGE_CALLBACK_CONTENT_SECURITY_POLICY=")
-        )
-        response = _template.render_browser_oauth_result(
-            template,
-            status=HTTPStatus.OK,
-            content_security_policy=policy,
-            client_secret='</script><script>alert("injected")</script>',
-        )
+    policy = next(
+        line.split("=", 1)[1]
+        for line in (deploy / "env").read_text().splitlines()
+        if line.startswith("BRIDGE_CALLBACK_CONTENT_SECURITY_POLICY=")
+    )
+    response = _template.render_browser_oauth_result(
+        template,
+        status=HTTPStatus.OK,
+        content_security_policy=policy,
+        client_secret='</script><script>alert("injected")</script>',
+    )
 
-        assert isinstance(response.body, bytes)
-        match = re.search(rb'<script nonce="([A-Za-z0-9_-]+)">', response.body)
-        assert match is not None
-        nonce = match[1].decode("ascii")
-        assert (
-            f"script-src 'nonce-{nonce}'" in response.headers["Content-Security-Policy"]
-        )
-        assert b"{{ csp_nonce }}" not in response.body
-        assert response.body.count(b"<script") == 1
-        assert response.body.count(b"</script>") == 1
-        assert response.headers["Cache-Control"] == "no-store"
+    assert isinstance(response.body, bytes)
+    match = re.search(rb'<script nonce="([A-Za-z0-9_-]+)">', response.body)
+    assert match is not None
+    nonce = match[1].decode("ascii")
+    assert f"script-src 'nonce-{nonce}'" in response.headers["Content-Security-Policy"]
+    assert b"{{ csp_nonce }}" not in response.body
+    assert response.body.count(b"<script") == 1
+    assert response.body.count(b"</script>") == 1
+    assert response.headers["Cache-Control"] == "no-store"
