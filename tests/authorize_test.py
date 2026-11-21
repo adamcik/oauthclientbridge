@@ -2,18 +2,20 @@ import urllib.parse
 from dataclasses import dataclass
 from http import HTTPStatus
 
+import httpx
 import pytest
 from requests_mock import Mocker
-from starlette.testclient import TestClient
 
 from oauthclientbridge import crypto, db
-from oauthclientbridge.bridge import _template
+from oauthclientbridge.bridge import (
+    _template,  # pyright: ignore[reportPrivateUsage] # Direct template contract test.
+)
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import Settings
 from tests.conftest import GetClient
 
 
-def test_authorize_redirects(asgi_client: TestClient):
+def test_authorize_redirects(asgi_client: httpx.Client):
     resp = asgi_client.get("/")
     location = urllib.parse.urlsplit(resp.headers["location"])
     assert resp.status_code == 302
@@ -22,25 +24,25 @@ def test_authorize_redirects(asgi_client: TestClient):
     assert urllib.parse.parse_qs(location.query)["state"][0]
 
 
-def test_authorize_wrong_method(asgi_client: TestClient):
+def test_authorize_wrong_method(asgi_client: httpx.Client):
     resp = asgi_client.post("/")
     assert resp.status_code == 405
 
 
-def test_authorize_redirect_uri(asgi_client: TestClient, settings: Settings):
+def test_authorize_redirect_uri(asgi_client: httpx.Client, settings: Settings):
     redirect_uri = settings.oauth.redirect_uri
     url = "/?{}".format(urllib.parse.urlencode({"redirect_uri": redirect_uri}))
     resp = asgi_client.get(url)
     assert resp.status_code == 302
 
 
-def test_authorize_wrong_redirect_uri(asgi_client: TestClient):
+def test_authorize_wrong_redirect_uri(asgi_client: httpx.Client):
     url = "/?{}".format(urllib.parse.urlencode({"redirect_uri": "wrong-value"}))
     resp = asgi_client.get(url)
     assert resp.status_code == 400
 
 
-def test_authorize_client_state(asgi_client: TestClient):
+def test_authorize_client_state(asgi_client: httpx.Client):
     authorization = asgi_client.get("/?state=s3cret")
     state = urllib.parse.parse_qs(
         urllib.parse.urlsplit(authorization.headers["location"]).query
@@ -51,7 +53,7 @@ def test_authorize_client_state(asgi_client: TestClient):
     assert response.json()["state"] == "s3cret"
 
 
-def test_authorize_replaces_previous_bridge_session(asgi_client: TestClient):
+def test_authorize_replaces_previous_bridge_session(asgi_client: httpx.Client):
     first = asgi_client.get("/", params={"state": "previous-client-state"})
     previous_state = urllib.parse.parse_qs(
         urllib.parse.urlsplit(first.headers["location"]).query
@@ -67,7 +69,7 @@ def test_authorize_replaces_previous_bridge_session(asgi_client: TestClient):
     assert response.json().get("state") is None
 
 
-def test_callback_response_has_security_headers(asgi_client: TestClient):
+def test_callback_response_has_security_headers(asgi_client: httpx.Client):
     response = asgi_client.get("/callback")
 
     assert response.headers["Referrer-Policy"] == "no-referrer"
@@ -83,7 +85,7 @@ def test_callback_response_has_security_headers(asgi_client: TestClient):
     assert response.headers["Pragma"] == "no-cache"
 
 
-def test_callback_csp_can_be_disabled(asgi_client: TestClient, settings: Settings):
+def test_callback_csp_can_be_disabled(asgi_client: httpx.Client, settings: Settings):
     settings.callback_content_security_policy = None
 
     response = asgi_client.get("/callback")
@@ -109,7 +111,7 @@ def test_callback_template_adds_security_headers():
 
 
 def test_callback_authorization_client_state(
-    asgi_client: TestClient,
+    asgi_client: httpx.Client,
     asgi_get: GetClient,
     asgi_client_state: str,
     asgi_state: str,
@@ -483,7 +485,7 @@ def test_callback_authorization_code_store_unknown(
     assert data == crypto.loads(resp.data["client_secret"], record.encrypted_token)
 
 
-def test_callback_wrong_method(asgi_client: TestClient, asgi_state: str):
+def test_callback_wrong_method(asgi_client: httpx.Client, asgi_state: str):
     resp = asgi_client.post("/callback?code=1234&state=" + asgi_state)
     assert resp.status_code == 405
 
