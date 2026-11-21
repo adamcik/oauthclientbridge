@@ -1,29 +1,25 @@
 import sqlite3
 import uuid
+from collections.abc import Generator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from pathlib import Path
+from typing import cast
 
+import anyio
+import httpx
 import pytest
-from flask import Flask
-from flask.testing import FlaskClient
 from prometheus_client import parser
 from pydantic import SecretStr
 from requests_mock import Mocker
+from starlette.testclient import TestClient
 
-from oauthclientbridge import (
-    create_app,
-    crypto,
-    db,
-    oauth,
-    start_runtime_services,
-    stop_runtime_services,
-    telemetry,
-    types,
-)
-from oauthclientbridge.settings import Settings, TelemetrySettings
+from oauthclientbridge import crypto, db, oauth, telemetry, types
+from oauthclientbridge.asgi import create_app
+from oauthclientbridge.asgi_context import TokenStateRefresher
+from oauthclientbridge.settings import DatabaseSettings, Settings, TelemetrySettings
 from oauthclientbridge.telemetry import _prometheus as stats
-from oauthclientbridge.telemetry import _refresh
 
 from .conftest import PostClient, TokenTuple
 
@@ -33,35 +29,61 @@ MISSING_CLIENT_ID = types.ClientId(uuid.UUID("00000000-0000-0000-0000-0000000000
 ENCRYPTED_TOKEN = types.EncryptedToken(b"placeholder")
 
 
-def test_metrics(client: FlaskClient):
-    resp = client.get("/metrics")
+@pytest.fixture
+def metrics_database(
+    settings: Settings, tmp_path: Path
+) -> Generator[sqlite3.Connection]:
+    settings.database = DatabaseSettings(database=str(tmp_path / "metrics.sqlite"))
+    db.initialize(settings.database)
+    connection = sqlite3.connect(settings.database.database, isolation_level=None)
+    try:
+        yield connection
+    finally:
+        connection.close()
+
+
+@pytest.fixture
+def asgi_client(
+    settings: Settings, metrics_database: sqlite3.Connection
+) -> Generator[httpx.Client]:
+    _ = metrics_database
+    app = create_app(
+        settings,
+        fetch=partial(oauth.fetch_with_requests, settings.fetch),
+        initialize_runtime=False,
+    )
+    client = cast(
+        httpx.Client,
+        TestClient(app, base_url="https://bridge.example.com", follow_redirects=False),
+    )
+    try:
+        yield client
+    finally:
+        client.close()
+
+
+def test_metrics(asgi_client: httpx.Client):
+    resp = asgi_client.get("/metrics")
 
     assert 200 == resp.status_code
-    assert b"auth_server_error_total" in resp.data
+    assert b"oauth_server_error_total" in resp.content
 
 
-def test_metrics_can_be_disabled(settings: Settings):
-    app = create_app(
-        settings.model_copy(update={"metrics_enabled": False}),
-        fetch=oauth.fetch_with_requests,
-    )
+def test_metrics_can_be_disabled(settings: Settings, asgi_client: httpx.Client):
+    settings.metrics_enabled = False
 
-    response = app.test_client().get("/metrics")
+    response = asgi_client.get("/metrics")
 
     assert response.status_code == 404
 
 
-def test_metrics_requires_configured_bearer_token(settings: Settings):
-    app = create_app(
-        settings.model_copy(
-            update={"metrics_token": SecretStr("metrics-secret")},
-        ),
-        fetch=oauth.fetch_with_requests,
-    )
-    client = app.test_client()
+def test_metrics_requires_configured_bearer_token(
+    settings: Settings, asgi_client: httpx.Client
+):
+    settings.metrics_token = SecretStr("metrics-secret")
 
-    unauthorized = client.get("/metrics")
-    authorized = client.get(
+    unauthorized = asgi_client.get("/metrics")
+    authorized = asgi_client.get(
         "/metrics", headers={"Authorization": "Bearer metrics-secret"}
     )
 
@@ -86,13 +108,13 @@ def test_metrics_reuses_multiprocess_registry(
         stats.prometheus_client.multiprocess, "MultiProcessCollector", collect
     )
 
-    stats.export_metrics(settings.prometheus)
-    stats.export_metrics(settings.prometheus)
+    telemetry.export_metrics(settings.prometheus)
+    telemetry.export_metrics(settings.prometheus)
 
     assert len(collectors) == 1
 
 
-def test_metrics_exposes_build_info(settings: Settings):
+def test_metrics_exposes_build_info(settings: Settings, asgi_client: httpx.Client):
     settings.otel = TelemetrySettings(
         service_name="oauthclientbridge",
         service_namespace="oauthclientbridge",
@@ -103,123 +125,186 @@ def test_metrics_exposes_build_info(settings: Settings):
         vcs_revision="abc1234",
     )
 
-    app = create_app(settings, fetch=oauth.fetch_with_requests)
-    app.secret_key = "test-secret-key"
+    telemetry.set_build_info_metric(settings.otel)
+    resp = asgi_client.get("/metrics")
 
-    with app.app_context():
-        db.initialize()
-        client = app.test_client()
-        resp = client.get("/metrics")
-
-        assert 200 == resp.status_code
-        assert (
-            b'oauth_build_info{deployment_environment="testing",oauth_provider="spotify",'
-            + b'service_instance_id="oauthclientbridge-spotify-testing",'
-            + b'service_name="oauthclientbridge",service_namespace="oauthclientbridge",'
-            + b'service_version="1.2.3",vcs_revision="abc1234"} 1.0'
-        ) in resp.data
+    assert 200 == resp.status_code
+    assert (
+        b'oauth_build_info{deployment_environment="testing",oauth_provider="spotify",'
+        + b'service_instance_id="oauthclientbridge-spotify-testing",'
+        + b'service_name="oauthclientbridge",service_namespace="oauthclientbridge",'
+        + b'service_version="1.2.3",vcs_revision="abc1234"} 1.0'
+    ) in resp.content
 
 
 def test_metrics_uses_max_aggregation_for_build_info():
     assert stats.BuildInfoGauge._multiprocess_mode == "max"  # pyright: ignore[reportPrivateUsage] # Direct implementation test.
 
 
-def test_metrics_exposes_token_state_counts(client: FlaskClient):
-    _ = db.insert(PRESENT_CLIENT_ID, ENCRYPTED_TOKEN)
-    _ = db.insert(REVOKED_CLIENT_ID, ENCRYPTED_TOKEN)
-    _ = db.update(REVOKED_CLIENT_ID, None)
-    _refresh.refresh_once(client.application)
+@pytest.mark.anyio
+async def test_metrics_exposes_token_state_counts(
+    asgi_client: httpx.Client, settings: Settings
+):
+    db.insert(PRESENT_CLIENT_ID, ENCRYPTED_TOKEN, settings.database)
+    db.insert(REVOKED_CLIENT_ID, ENCRYPTED_TOKEN, settings.database)
+    db.update(REVOKED_CLIENT_ID, None, settings.database)
+    refresher = TokenStateRefresher(settings.database)
+    async with anyio.create_task_group() as group:
+        await refresher.start(group)
 
-    resp = client.get("/metrics")
+    resp = asgi_client.get("/metrics")
 
     assert resp.status_code == 200
-    assert b'oauth_token_records{state="present"} 1.0' in resp.data
-    assert b'oauth_token_records{state="revoked"} 1.0' in resp.data
+    assert b'oauth_token_records{state="present"} 1.0' in resp.content
+    assert b'oauth_token_records{state="revoked"} 1.0' in resp.content
 
 
 def test_metrics_uses_mostrecent_aggregation_for_token_state_counts():
     assert stats.TokenStateGauge._multiprocess_mode == "mostrecent"  # pyright: ignore[reportPrivateUsage] # Direct implementation test.
 
 
-def test_metrics_refreshes_token_states_when_run(
-    client: FlaskClient,
+@pytest.mark.anyio
+async def test_metrics_refreshes_token_states_when_requested(
+    asgi_client: httpx.Client,
+    settings: Settings,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    called = False
+    refreshed = anyio.Event()
+    set_counts = telemetry.set_token_state_counts_metric
 
-    def counts() -> dict[str, int]:
-        nonlocal called
-        called = True
-        return {"present": 1, "revoked": 0}
+    def record_counts(counts: dict[str, int]) -> None:
+        set_counts(counts)
+        refreshed.set()
 
-    monkeypatch.setattr(db, "token_state_counts", counts)
-    _refresh.refresh_once(client.application)
+    monkeypatch.setattr(telemetry, "set_token_state_counts_metric", record_counts)
+    refresher = TokenStateRefresher(settings.database)
+    with anyio.fail_after(5):
+        async with anyio.create_task_group() as group:
+            await refresher.start(group)
+            await refreshed.wait()
 
-    resp = client.get("/metrics")
+            db.insert(PRESENT_CLIENT_ID, ENCRYPTED_TOKEN, settings.database)
+            refreshed = anyio.Event()
+            await refresher.request()
+            await refreshed.wait()
+            assert (
+                b'oauth_token_records{state="present"} 1.0'
+                in asgi_client.get("/metrics").content
+            )
 
-    assert resp.status_code == 200
-    assert called is True
+            db.update(PRESENT_CLIENT_ID, None, settings.database)
+            assert db.update(MISSING_CLIENT_ID, None, settings.database) == 0
+            refreshed = anyio.Event()
+            await refresher.request()
+            await refreshed.wait()
+
+    response = asgi_client.get("/metrics")
+    assert b'oauth_token_records{state="present"} 0.0' in response.content
+    assert b'oauth_token_records{state="revoked"} 1.0' in response.content
 
 
-def test_metrics_write_paths_request_background_refresh(
-    client: FlaskClient, monkeypatch: pytest.MonkeyPatch
+def test_metrics_token_endpoint_requests_background_refresh(
+    asgi_client: httpx.Client,
+    asgi_post: PostClient,
+    refresh_token: TokenTuple,
+    settings: Settings,
+    requests_mock: Mocker,
+    monkeypatch: pytest.MonkeyPatch,
 ):
     requested = 0
 
-    def request(app: Flask | None = None) -> None:
+    async def request(self: TokenStateRefresher) -> None:
         nonlocal requested
         requested += 1
 
-    monkeypatch.setattr(telemetry, "request_refresh", request)
+    monkeypatch.setattr(TokenStateRefresher, "request", request)
+    requests_mock.post(settings.oauth.token_uri, json={"error": "invalid_grant"})
 
-    db.insert(PRESENT_CLIENT_ID, ENCRYPTED_TOKEN)
-    db.update(PRESENT_CLIENT_ID, None)
-    db.update(MISSING_CLIENT_ID, None)
+    response = asgi_post(
+        "/token",
+        {
+            "client_id": refresh_token.client_id,
+            "client_secret": refresh_token.client_secret,
+            "grant_type": "client_credentials",
+        },
+    )
+    assert response.status == 400
+    assert db.lookup(refresh_token.client_id, settings.database).encrypted_token is None
+    assert requested == 1
 
-    assert requested == 2
 
-
-def test_stop_runtime_services_stops_background_worker(
-    app: Flask, monkeypatch: pytest.MonkeyPatch
+def test_metrics_callback_requests_background_refresh(
+    asgi_client: httpx.Client,
+    asgi_state: str,
+    settings: Settings,
+    requests_mock: Mocker,
+    monkeypatch: pytest.MonkeyPatch,
 ):
-    stopped = False
+    requested = 0
 
-    class Worker:
-        def stop(self, timeout: float | None = None) -> None:
-            nonlocal stopped
-            stopped = True
+    async def request(self: TokenStateRefresher) -> None:
+        nonlocal requested
+        requested += 1
 
-    app.extensions["oauth_runtime_services_started"] = True
-    app.extensions["oauth_metrics_refresh_worker"] = Worker()
+    monkeypatch.setattr(TokenStateRefresher, "request", request)
+    requests_mock.post(
+        settings.oauth.token_uri,
+        json={"access_token": "new-access", "token_type": "Bearer"},
+    )
 
-    stop_runtime_services(app)
+    response = asgi_client.get(
+        "/callback", params={"state": asgi_state, "code": "authorization-code"}
+    )
 
-    assert stopped is True
-    assert "oauth_runtime_services_started" not in app.extensions
-    assert "oauth_metrics_refresh_worker" not in app.extensions
-
-
-def test_start_runtime_services_requires_initialized_database(app: Flask):
-    with pytest.raises(RuntimeError, match="Database must be initialized"):
-        start_runtime_services(app)
+    assert response.status_code == 200
+    assert db.token_state_counts(settings.database) == {"present": 1, "revoked": 0}
+    assert requested == 1
 
 
-def test_create_app_does_not_start_runtime_services(app: Flask):
-    assert "oauth_runtime_services_started" not in app.extensions
-    assert "oauth_metrics_refresh_worker" not in app.extensions
+@pytest.mark.anyio
+async def test_asgi_shutdown_stops_background_refresh(
+    settings: Settings,
+    metrics_database: sqlite3.Connection,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _ = metrics_database
+    started = anyio.Event()
+    stopped = anyio.Event()
+    start_calls = 0
+
+    async def refresh() -> None:
+        started.set()
+        try:
+            await anyio.sleep_forever()
+        finally:
+            stopped.set()
+
+    async def start(self: TokenStateRefresher, group: anyio.abc.TaskGroup) -> None:
+        nonlocal start_calls
+        start_calls += 1
+        group.start_soon(refresh)
+
+    monkeypatch.setattr(TokenStateRefresher, "start", start)
+    app = create_app(settings, initialize_runtime=False)
+    assert start_calls == 0
+    with anyio.fail_after(5):
+        async with app.router.lifespan_context(app):
+            await started.wait()
+            assert start_calls == 1
+        assert stopped.is_set()
 
 
 def test_metrics_exposes_workaround_counter(
-    client: FlaskClient,
-    post: PostClient,
+    asgi_client: httpx.Client,
+    asgi_post: PostClient,
     access_token: TokenTuple,
     settings: Settings,
 ):
     settings.revoked_grant_workaround_user_agents = r"^Mopidy-Spotify/4\.1\.1\b"
 
-    _ = db.update(access_token.client_id, None)
+    _ = db.update(access_token.client_id, None, settings.database)
 
-    _ = post(
+    _ = asgi_post(
         "/token",
         {
             "client_id": access_token.client_id,
@@ -229,15 +314,15 @@ def test_metrics_exposes_workaround_counter(
         headers={"User-Agent": "Mopidy-Spotify/4.1.1 Mopidy/3.4.2 CPython/3.11.2"},
     )
 
-    resp = client.get("/metrics")
+    resp = asgi_client.get("/metrics")
 
     assert resp.status_code == 200
-    assert b'oauth_workarounds_total{workaround="revoked_grant"}' in resp.data
+    assert b'oauth_workarounds_total{workaround="revoked_grant"}' in resp.content
 
 
 @dataclass(frozen=True)
 class RefreshTokenResponseCase:
-    name: str
+    id: str
     response: dict[str, str | int]
     expected_update: str | None
     expected_status: int = 200
@@ -247,12 +332,12 @@ class RefreshTokenResponseCase:
     "case",
     [
         RefreshTokenResponseCase(
-            name="absent",
+            id="absent",
             response={"access_token": "new-access", "token_type": "Bearer"},
             expected_update="absent",
         ),
         RefreshTokenResponseCase(
-            name="unchanged",
+            id="unchanged",
             response={
                 "access_token": "new-access",
                 "token_type": "Bearer",
@@ -261,7 +346,7 @@ class RefreshTokenResponseCase:
             expected_update="unchanged",
         ),
         RefreshTokenResponseCase(
-            name="changed",
+            id="changed",
             response={
                 "access_token": "new-access",
                 "token_type": "Bearer",
@@ -270,32 +355,32 @@ class RefreshTokenResponseCase:
             expected_update="changed",
         ),
         RefreshTokenResponseCase(
-            name="invalid response excluded",
+            id="invalid-response-excluded",
             response={"access_token": "new-access", "refresh_token": "new-refresh"},
             expected_update=None,
             expected_status=400,
         ),
         RefreshTokenResponseCase(
-            name="oauth error excluded",
+            id="oauth-error-excluded",
             response={"error": "invalid_grant"},
             expected_update=None,
             expected_status=400,
         ),
     ],
-    ids=lambda case: case.name,
+    ids=lambda case: case.id,
 )
 def test_metrics_classifies_refresh_token_responses(
-    client: FlaskClient,
-    post: PostClient,
+    asgi_client: httpx.Client,
+    asgi_post: PostClient,
     refresh_token: TokenTuple,
     requests_mock: Mocker,
     settings: Settings,
     case: RefreshTokenResponseCase,
 ):
     requests_mock.post(settings.oauth.token_uri, json=case.response)
-    before = _refresh_token_response_counts(client)
+    before = _refresh_token_response_counts(asgi_client)
 
-    response = post(
+    response = asgi_post(
         "/token",
         {
             "client_id": refresh_token.client_id,
@@ -309,21 +394,21 @@ def test_metrics_classifies_refresh_token_responses(
     if case.expected_update is not None:
         expected[case.expected_update] = expected.get(case.expected_update, 0) + 1
         assert "refresh_token" not in response.data
-        record = db.lookup(refresh_token.client_id)
+        record = db.lookup(refresh_token.client_id, settings.database)
         assert record.encrypted_token is not None
         stored = crypto.loads(refresh_token.client_secret, record.encrypted_token)
         assert stored["refresh_token"] == case.response.get(
             "refresh_token", refresh_token.value["refresh_token"]
         )
-    assert _refresh_token_response_counts(client) == expected
+    assert _refresh_token_response_counts(asgi_client) == expected
 
 
 def test_metrics_excludes_stored_access_token_from_refresh_responses(
-    client: FlaskClient, post: PostClient, access_token: TokenTuple
+    asgi_client: httpx.Client, asgi_post: PostClient, access_token: TokenTuple
 ):
-    before = _refresh_token_response_counts(client)
+    before = _refresh_token_response_counts(asgi_client)
 
-    response = post(
+    response = asgi_post(
         "/token",
         {
             "client_id": access_token.client_id,
@@ -333,17 +418,17 @@ def test_metrics_excludes_stored_access_token_from_refresh_responses(
     )
 
     assert response.status == 200
-    assert _refresh_token_response_counts(client) == before
+    assert _refresh_token_response_counts(asgi_client) == before
 
 
 def test_metrics_exposes_token_grant_age_histogram_for_successful_token_use(
-    cursor: sqlite3.Cursor,
+    metrics_database: sqlite3.Connection,
     monkeypatch: pytest.MonkeyPatch,
-    post: PostClient,
+    asgi_post: PostClient,
     access_token: TokenTuple,
 ):
     created_at = int((datetime.now(UTC) - timedelta(days=200)).timestamp())
-    _ = cursor.execute(
+    _ = metrics_database.execute(
         "UPDATE tokens SET created_at = ? WHERE client_id = ?",
         (created_at, str(access_token.client_id)),
     )
@@ -355,7 +440,7 @@ def test_metrics_exposes_token_grant_age_histogram_for_successful_token_use(
 
     monkeypatch.setattr(stats.TokenGrantAgeHistogram, "observe", capture)
 
-    resp = post(
+    resp = asgi_post(
         "/token",
         {
             "client_id": access_token.client_id,
@@ -370,12 +455,12 @@ def test_metrics_exposes_token_grant_age_histogram_for_successful_token_use(
 
 
 def test_metrics_skips_token_grant_age_histogram_for_unknown_age(
-    cursor: sqlite3.Cursor,
+    metrics_database: sqlite3.Connection,
     monkeypatch: pytest.MonkeyPatch,
-    post: PostClient,
+    asgi_post: PostClient,
     access_token: TokenTuple,
 ):
-    _ = cursor.execute(
+    _ = metrics_database.execute(
         "UPDATE tokens SET created_at = NULL WHERE client_id = ?",
         (str(access_token.client_id),),
     )
@@ -387,7 +472,7 @@ def test_metrics_skips_token_grant_age_histogram_for_unknown_age(
 
     monkeypatch.setattr(stats.TokenGrantAgeHistogram, "observe", capture)
 
-    resp = post(
+    resp = asgi_post(
         "/token",
         {
             "client_id": access_token.client_id,
@@ -400,7 +485,7 @@ def test_metrics_skips_token_grant_age_histogram_for_unknown_age(
     assert observed == []
 
 
-def _refresh_token_response_counts(client: FlaskClient) -> dict[str, float]:
+def _refresh_token_response_counts(client: httpx.Client) -> dict[str, float]:
     response = client.get("/metrics")
     assert response.status_code == 200
     counts: dict[str, float] = {}
