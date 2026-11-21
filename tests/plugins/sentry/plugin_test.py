@@ -5,16 +5,39 @@ from typing import TypeGuard
 from unittest.mock import patch
 
 import pytest
+import pytest_sentry_capture
 import sentry_sdk
 from opentelemetry import trace
 from pydantic import SecretStr
 from pytest_sentry_capture import SentryCapture
 
-from oauthclientbridge import logs
+from oauthclientbridge import logs, telemetry
 from oauthclientbridge.settings import LogLevel, LogSettings, SentrySettings
 from oauthclientbridge.telemetry import _sentry
 
 type SentryEvent = dict[str, object]
+
+
+@pytest.fixture
+def initialize_sentry(
+    sentry_transport: pytest_sentry_capture.FakeTransport,
+    sentry_isolation_scope: None,
+) -> None:
+    # The capture plugin owns cleanup after successful initialization.
+    try:
+        telemetry.init_sentry(
+            SentrySettings(
+                enabled=True,
+                dsn=SecretStr("https://key@example.invalid/1"),
+                sample_rate=1.0,
+                traces_sample_rate=1.0,
+            ),
+            "starlette",
+            sentry_transport,
+        )
+    except BaseException:
+        sentry_sdk.get_client().close()
+        raise
 
 
 @pytest.fixture
@@ -31,7 +54,7 @@ def sentry_settings() -> SentrySettings:
 def test_init_sentry_disabled() -> None:
     """If sentry is disabled, we don't initialize."""
     with patch("sentry_sdk.init") as mock_init:
-        _sentry.init(SentrySettings(enabled=False), "flask")
+        _sentry.init(SentrySettings(enabled=False), "starlette")
         mock_init.assert_not_called()
 
 
@@ -40,7 +63,7 @@ def test_init_sentry_sdk_installed(sentry_settings: SentrySettings) -> None:
     assert sentry_settings.dsn is not None
 
     with patch("sentry_sdk.init") as mock_init:
-        _sentry.init(sentry_settings, "flask")
+        _sentry.init(sentry_settings, "starlette")
 
         mock_init.assert_called_once()
         call_kwargs = mock_init.call_args[1]
@@ -62,6 +85,7 @@ def test_trace_sampler_uses_path_overrides(sentry_settings: SentrySettings) -> N
     assert flask_sample({"wsgi_environ": {"PATH_INFO": "/metrics"}}) == 0.1
     assert starlette_sample({"asgi_scope": {"path": "/metrics"}}) == 0.1
     assert flask_sample({"wsgi_environ": {"PATH_INFO": "/authorize"}}) == 1.0
+    assert starlette_sample({"asgi_scope": {"path": "/authorize"}}) == 1.0
 
 
 def test_init_sentry_sdk_not_installed(
@@ -71,7 +95,7 @@ def test_init_sentry_sdk_not_installed(
     try:
         with patch.dict(sys.modules, {"sentry_sdk": None}):
             _ = importlib.reload(_sentry)
-            _sentry.init(sentry_settings, "flask")
+            _sentry.init(sentry_settings, "starlette")
             assert (
                 "Sentry is enabled, but 'sentry-sdk' is not installed." in caplog.text
             )
