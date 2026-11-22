@@ -32,8 +32,6 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    nix2container.url = "github:nlewo/nix2container";
-
     build-overrides = {
       url = "path:./.build-overrides";
       flake = false;
@@ -47,7 +45,6 @@
     pyproject-nix,
     pyproject-build-systems,
     treefmt-nix,
-    nix2container,
     build-overrides,
     ...
   }: let
@@ -55,17 +52,6 @@
     forAllSystems = lib.genAttrs lib.systems.flakeExposed;
 
     overrideMetadata = builtins.fromJSON (builtins.readFile build-overrides);
-    buildRevision =
-      if ((overrideMetadata.revision or null) != null)
-      then overrideMetadata.revision
-      else (self.rev or null);
-
-    fallbackCreated = let
-      d = self.lastModifiedDate or "";
-    in
-      if d == "" || builtins.stringLength d < 14
-      then "0001-01-01T00:00:00Z"
-      else "${builtins.substring 0 4 d}-${builtins.substring 4 2 d}-${builtins.substring 6 2 d}T${builtins.substring 8 2 d}:${builtins.substring 10 2 d}:${builtins.substring 12 2 d}Z";
 
     workspace = uv2nix.lib.workspace.loadWorkspace {workspaceRoot = ./.;};
 
@@ -245,14 +231,6 @@
             module = self.nixosModules.default;
           };
         }
-        // lib.optionalAttrs (self.packages.${system} ? image) {
-          image-scripts = pkgs.runCommand "oauthclientbridge-image-scripts-check" {} ''
-            test ${self.packages.${system}.image} = ${self.packages.${system}.asgi-image}
-            ${pkgs.python312}/bin/python ${./tests/packaging/check_image_scripts.py} \
-              ${self.packages.${system}.image}
-            touch "$out"
-          '';
-        }
     );
 
     packages =
@@ -260,40 +238,10 @@
       (
         system: let
           pkgs = nixpkgs.legacyPackages.${system};
-          hasNix2container = builtins.hasAttr system nix2container.packages;
-          nix2containerPkgs = nix2container.packages.${system}.nix2container;
-
           pythonSet = pythonSets.${system};
           app = import ./nix/packages.nix {
             inherit pkgs pythonSet;
           };
-          runtimeVenv = app.runtime;
-          depsVenv = app.dependencies;
-
-          # Default to a non-root runtime identity; override at run-time when bind-mount
-          # ownership needs to match host users (for example: --user 33:33 for www-data).
-          uid = "65532";
-          gid = "65532";
-
-          asgiRuntimeDirs = pkgs.runCommand "oauthclientbridge-asgi-runtime-dirs" {} ''
-            mkdir -p $out/data
-            mkdir -p $out/config
-            mkdir -p $out/run/prom
-            mkdir -p $out/run/asgi
-            mkdir -p $out/tmp
-
-            chmod 0777 $out/run/prom
-            chmod 0777 $out/run/asgi
-            chmod 1777 $out/tmp
-          '';
-
-          cliEntrypoint = app.management;
-
-          asgiEntrypoint = pkgs.writeShellScriptBin "entrypoint" ''
-            # Caddy connects through the host directory's www-data group.
-            umask 0007
-            exec ${app.web}/bin/oauthclientbridge-web "$@"
-          '';
         in
           {
             inherit (app) web management assets;
@@ -305,82 +253,6 @@
               inherit pkgs;
               appPackages = self.packages.${system};
               module = self.nixosModules.default;
-            };
-          }
-          // lib.optionalAttrs (pkgs.stdenv.hostPlatform.isLinux && hasNix2container) rec {
-            # Both output names select the same ASGI image; CI publishes tag aliases.
-            asgi-image = image;
-            image = nix2containerPkgs.buildImage {
-              name = "ghcr.io/adamcik/oauthclientbridge";
-              tag = "latest";
-              created =
-                if ((overrideMetadata.created or null) != null)
-                then overrideMetadata.created
-                else fallbackCreated;
-
-              config = {
-                entrypoint = ["/bin/entrypoint"];
-                user = "${uid}:${gid}";
-
-                env = [
-                  "DB_DATABASE=/data/sqlite.db"
-                  "BRIDGE_CALLBACK_TEMPLATE_FILE=/config/callback.html"
-                  "PROMETHEUS_MULTIPROC_DIR=/run/prom"
-                  "PYTHONDONTWRITEBYTECODE=1"
-                  "TELEMETRY_VCS_REVISION=${
-                    if buildRevision != null
-                    then buildRevision
-                    else "unknown"
-                  }"
-                ];
-
-                labels = let
-                  created =
-                    if ((overrideMetadata.created or null) != null)
-                    then overrideMetadata.created
-                    else fallbackCreated;
-                in
-                  {
-                    "org.opencontainers.image.created" = created;
-                    "org.opencontainers.image.description" = "Bridge OAuth2 Authorization Code grants to OAuth2 Client Credentials clients.";
-                    "org.opencontainers.image.source" = "https://github.com/adamcik/oauthclientbridge";
-                    "org.opencontainers.image.title" = "oauthclientbridge";
-                  }
-                  // lib.optionalAttrs (buildRevision != null) {
-                    "org.opencontainers.image.revision" = buildRevision;
-                  }
-                  // lib.optionalAttrs ((overrideMetadata.version or null) != null) {
-                    "org.opencontainers.image.version" = overrideMetadata.version;
-                  };
-              };
-
-              layers = let
-                depsLayer = nix2containerPkgs.buildLayer {
-                  deps = [depsVenv];
-                };
-
-                appLayer = nix2containerPkgs.buildLayer {
-                  deps = [runtimeVenv];
-                  layers = [depsLayer];
-                };
-
-                metadataLayer = nix2containerPkgs.buildLayer {
-                  copyToRoot = [
-                    asgiEntrypoint
-                    cliEntrypoint
-                    asgiRuntimeDirs
-                    app.assets
-                  ];
-                  layers = [
-                    depsLayer
-                    appLayer
-                  ];
-                };
-              in [
-                depsLayer
-                appLayer
-                metadataLayer
-              ];
             };
           }
       );
