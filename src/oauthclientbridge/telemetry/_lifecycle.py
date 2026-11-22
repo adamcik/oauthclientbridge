@@ -6,6 +6,7 @@ from http import HTTPStatus
 from typing import Any
 
 import structlog
+from opentelemetry import trace
 from opentelemetry.semconv.attributes.http_attributes import (
     HTTP_RESPONSE_HEADER_TEMPLATE,
     HTTP_RESPONSE_STATUS_CODE,
@@ -165,7 +166,16 @@ class RequestLifecycleMiddleware:
                     )
             await send(message)
 
-        await self.app(scope, observe_receive, observe_send)
+        try:
+            await self.app(scope, observe_receive, observe_send)
+        except Exception:
+            # Starlette's outer error handler runs after the OTel span has ended.
+            # Tag escaping faults here; OTel records the exception and the fallback
+            # observer retains ownership of Sentry capture and the safe response.
+            span = trace.get_current_span()
+            span.set_attribute("error.unhandled", True)
+            span.set_attribute("oauth.endpoint", _asgi_endpoint(scope, 500).value)
+            raise
 
 
 def _asgi_request(scope: Scope) -> observer.RequestLifecycleRequest:
