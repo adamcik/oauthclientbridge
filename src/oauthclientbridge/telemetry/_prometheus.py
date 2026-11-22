@@ -109,6 +109,19 @@ ClientGenerationDrainHistogram = prometheus_client.Histogram(
     registry=registry,
 )
 
+ClientTransportRequestCounter = prometheus_client.Counter(
+    "oauth_client_transport_requests",
+    "Instrumented async HTTPX transport requests, including retries.",
+    registry=registry,
+)
+
+ClientConnectionEventCounter = prometheus_client.Counter(
+    "oauth_client_connection_events",
+    "Async HTTPX socket setup and TLS handshake events; not a count of open connections.",
+    ["phase", "event"],
+    registry=registry,
+)
+
 ClientLatencyHistogram = prometheus_client.Histogram(
     "oauth_client_latency_seconds",
     "Overall request latency.",

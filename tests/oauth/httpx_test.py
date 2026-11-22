@@ -691,7 +691,9 @@ async def test_httpx_fetcher_reuses_http11_connection(
 @pytest.mark.anyio
 async def test_httpx_fetcher_rotates_connection_for_admitted_gateway_retry(
     oauth_server: OAuthServer,
+    instrumented: None,
 ) -> None:
+    before = telemetry.export_metrics(PrometheusSettings())
     oauth_server.expect("/token").respond(status=HTTPStatus.SERVICE_UNAVAILABLE)
     oauth_server.expect("/token").respond(
         {"access_token": "provider-token", "token_type": "Bearer"}
@@ -709,6 +711,16 @@ async def test_httpx_fetcher_rotates_connection_for_admitted_gateway_retry(
 
     assert result == {"access_token": "provider-token", "token_type": "Bearer"}
     assert len({request.client_address for request in oauth_server.requests}) == 2
+
+    after = telemetry.export_metrics(PrometheusSettings())
+    assert sample_value(after, "oauth_client_transport_requests_total") == (
+        sample_value(before, "oauth_client_transport_requests_total") + 2
+    )
+    for event in ("started", "complete"):
+        labels = {"phase": "tcp", "event": event}
+        assert sample_value(after, "oauth_client_connection_events_total", labels) == (
+            sample_value(before, "oauth_client_connection_events_total", labels) + 2
+        )
 
 
 @pytest.mark.anyio

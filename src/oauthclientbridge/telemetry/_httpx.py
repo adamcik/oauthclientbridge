@@ -1,9 +1,14 @@
-"""Expose HTTPcore phases inside async HTTPX spans without capturing wire data.
+"""Expose HTTPcore phase traces and setup counters without capturing wire data.
 
 ``httpx.connection.setup`` means this attempt observed socket setup, not that it
 successfully connected. Its absence of setup is not proof of reuse for custom
 transports. TCP setup includes DNS resolution; response-header waits include
 network time as well as provider processing.
+
+Connection-event counters run independently of trace sampling. TCP completion
+counts connected sockets, not successful TLS handshakes or currently open
+connections. Compare TCP starts with transport requests to measure setup churn,
+not an exact reuse ratio: failed attempts can open multiple sockets per request.
 """
 
 from collections.abc import Awaitable, Callable
@@ -14,8 +19,11 @@ from opentelemetry.instrumentation import (
     httpx,  # pyright: ignore[reportMissingModuleSource]
 )
 
+from . import _prometheus
+
 
 async def request_hook(span: trace.Span, request: httpx.RequestInfo) -> None:
+    _prometheus.ClientTransportRequestCounter.inc()
     extensions = request.extensions
     if extensions is None:
         return
@@ -31,7 +39,7 @@ async def request_hook(span: trace.Span, request: httpx.RequestInfo) -> None:
 
     if span.is_recording():
         span.set_attribute("httpx.connection.setup", False)
-        extensions["trace"] = _TransportTrace(span, previous)
+    extensions["trace"] = _TransportTrace(span, previous)
 
 
 type _TraceCallback = Callable[[str, dict[str, Any]], Awaitable[None]]
@@ -54,6 +62,11 @@ _PHASES = frozenset(
 _CONNECT_PHASES = frozenset(
     {"connection.connect_tcp", "connection.connect_unix_socket"}
 )
+_CONNECTION_PHASES = {
+    "connection.connect_tcp": "tcp",
+    "connection.connect_unix_socket": "unix",
+    "connection.start_tls": "tls",
+}
 
 
 class _TransportTrace:
@@ -70,7 +83,15 @@ class _TransportTrace:
 
     def _record(self, name: str, info: dict[str, Any]) -> None:
         phase, _, event = name.rpartition(".")
-        if phase not in _PHASES:
+        if phase not in _PHASES or event not in {"started", "complete", "failed"}:
+            return
+
+        if phase in _CONNECTION_PHASES:
+            _prometheus.ClientConnectionEventCounter.labels(
+                phase=_CONNECTION_PHASES[phase], event=event
+            ).inc()
+
+        if not self._parent.is_recording():
             return
 
         if event == "started":
