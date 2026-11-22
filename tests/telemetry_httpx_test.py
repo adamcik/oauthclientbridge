@@ -15,7 +15,10 @@ from cryptography.x509.oid import NameOID
 from opentelemetry import trace
 from pytest_otel_capture import OTelMocker
 
+from oauthclientbridge import telemetry
+from oauthclientbridge.settings import PrometheusSettings
 from tests.oauth_server import OAuthServer
+from tests.prometheus import sample_value
 
 
 @pytest.fixture
@@ -71,6 +74,7 @@ async def test_httpx_traces_tls_setup_only_for_new_connections(
     otel_mock: OTelMocker,
     instrumented: None,
 ) -> None:
+    before = telemetry.export_metrics(PrometheusSettings())
     for _ in range(2):
         tls_server.expect("/token").respond({"access_token": "response-secret"})
 
@@ -99,6 +103,20 @@ async def test_httpx_traces_tls_setup_only_for_new_connections(
             assert not span.events
             assert span.readable_span.end_time >= span.readable_span.start_time
 
+    after = telemetry.export_metrics(PrometheusSettings())
+    assert sample_value(after, "oauth_client_transport_requests_total") == (
+        sample_value(before, "oauth_client_transport_requests_total") + 2
+    )
+    for phase in ("tcp", "tls"):
+        for event, count in (("started", 1), ("complete", 1), ("failed", 0)):
+            labels = {"phase": phase, "event": event}
+            assert sample_value(
+                after, "oauth_client_connection_events_total", labels
+            ) == (
+                sample_value(before, "oauth_client_connection_events_total", labels)
+                + count
+            )
+
 
 @pytest.mark.anyio
 async def test_httpx_traces_failed_tls_without_exception_details(
@@ -106,6 +124,7 @@ async def test_httpx_traces_failed_tls_without_exception_details(
     otel_mock: OTelMocker,
     instrumented: None,
 ) -> None:
+    before = telemetry.export_metrics(PrometheusSettings())
     # No trusted roots: fail the real handshake without disabling verification.
     async with httpx.AsyncClient(
         verify=ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT), trust_env=False
@@ -123,6 +142,50 @@ async def test_httpx_traces_failed_tls_without_exception_details(
     assert handshakes[0].attributes == {"error.type": "ConnectError"}
     assert handshakes[0].status.description is None
     assert not handshakes[0].events
+
+    after = telemetry.export_metrics(PrometheusSettings())
+    for event, count in (("started", 1), ("complete", 0), ("failed", 1)):
+        labels = {"phase": "tls", "event": event}
+        assert sample_value(after, "oauth_client_connection_events_total", labels) == (
+            sample_value(before, "oauth_client_connection_events_total", labels) + count
+        )
+
+
+@pytest.mark.anyio
+async def test_httpx_connection_metrics_do_not_depend_on_trace_sampling(
+    oauth_server: OAuthServer,
+    otel_mock: OTelMocker,
+    instrumented: None,
+) -> None:
+    before = telemetry.export_metrics(PrometheusSettings())
+    for _ in range(2):
+        oauth_server.expect("/token").respond({"access_token": "token"})
+    unsampled_parent = trace.NonRecordingSpan(
+        trace.SpanContext(
+            trace_id=1,
+            span_id=1,
+            is_remote=True,
+            trace_flags=trace.TraceFlags(0),
+        )
+    )
+
+    with trace.use_span(unsampled_parent):
+        async with httpx.AsyncClient(trust_env=False) as client:
+            for _ in range(2):
+                response = await client.post(oauth_server.url_for("/token"))
+                assert response.status_code == 200
+
+    assert not otel_mock.get_finished_spans()
+    assert len({request.client_address for request in oauth_server.requests}) == 1
+    after = telemetry.export_metrics(PrometheusSettings())
+    assert sample_value(after, "oauth_client_transport_requests_total") == (
+        sample_value(before, "oauth_client_transport_requests_total") + 2
+    )
+    for event, count in (("started", 1), ("complete", 1), ("failed", 0)):
+        labels = {"phase": "tcp", "event": event}
+        assert sample_value(after, "oauth_client_connection_events_total", labels) == (
+            sample_value(before, "oauth_client_connection_events_total", labels) + count
+        )
 
 
 @pytest.mark.anyio
