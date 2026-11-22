@@ -3,11 +3,9 @@ from collections.abc import Mapping
 from http import HTTPStatus
 from typing import Any, assert_never
 from urllib.parse import urlsplit
-from wsgiref.util import request_uri
 
 import requests
 import structlog
-from flask import Flask
 from opentelemetry import trace
 from opentelemetry.baggage.propagation import W3CBaggagePropagator
 from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
@@ -15,7 +13,6 @@ from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExport
 from opentelemetry.instrumentation.asgi import (  # pyright: ignore[reportMissingTypeStubs]
     OpenTelemetryMiddleware,
 )
-from opentelemetry.instrumentation.flask import FlaskInstrumentor
 from opentelemetry.instrumentation.httpx import (  # pyright: ignore[reportMissingModuleSource]
     HTTPXClientInstrumentor,
 )
@@ -155,17 +152,6 @@ def _requests_response_hook(
         )
 
 
-def _flask_response_hook(
-    span: trace.Span,
-    status: str,
-    headers: Mapping[str, str] | list[tuple[str, str]],
-) -> None:
-    if not span or not span.is_recording():
-        return
-
-    _record_response_headers(span, CaseInsensitiveDict[str](headers))
-
-
 def _record_response_headers(span: trace.Span, headers: Mapping[str, str]) -> None:
     location = headers.get("Location")
     if location is not None:
@@ -201,20 +187,6 @@ def _asgi_response_headers(headers: Mapping[str, str]) -> None:
     )
 
 
-def _flask_request_hook(span: trace.Span, environ: dict[str, Any]) -> None:
-    if not span or not span.is_recording():
-        return
-
-    sanitized_url = uri.sanitize_url(request_uri(environ))
-    sanitized_url_parts = urlsplit(sanitized_url) if sanitized_url else None
-    if sanitized_url is not None:
-        # Flask instrumentation records this legacy attribute before invoking hooks.
-        span.set_attribute("http.url", sanitized_url)
-        span.set_attribute("url.full", sanitized_url)
-    if sanitized_url_parts is not None:
-        span.set_attribute("url.query", sanitized_url_parts.query)
-
-
 def _logging_log_hook(span: trace.Span, record: object) -> None:
     if not span or not span.is_recording():
         return
@@ -243,16 +215,6 @@ def uninstrument() -> None:
     _sqlite_instrumentor.uninstrument()
     _requests_instrumentor.uninstrument()
     _httpx_instrumentor.uninstrument()
-
-
-def instrument_app(app: Flask) -> None:
-    # TODO: See if we can do this with global flask instrument without breaking
-    # server or tests.
-    FlaskInstrumentor().instrument_app(
-        app,
-        request_hook=_flask_request_hook,
-        response_hook=_flask_response_hook,
-    )
 
 
 def instrument_asgi_app(
