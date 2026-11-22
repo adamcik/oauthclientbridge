@@ -8,7 +8,6 @@ from importlib.metadata import PackageNotFoundError, metadata, version
 from pathlib import Path
 from typing import Self, cast
 
-from flask import current_app
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import (
     BaseSettings,
@@ -16,7 +15,6 @@ from pydantic_settings import (
     SecretsSettingsSource,
     SettingsConfigDict,
 )
-from werkzeug.local import LocalProxy
 
 from oauthclientbridge import types
 from oauthclientbridge.errors import OAuthError
@@ -471,11 +469,6 @@ class Settings(_CredentialSettings):
         if self.callback_template_file:
             self.callback_template = self.callback_template_file.read_text()
         return self
-
-
-current_settings: LocalProxy[Settings] = LocalProxy(
-    lambda: cast(Settings, current_app.config["SETTINGS"])
-)
 
 
 def _current_package_version() -> str:

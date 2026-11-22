@@ -7,11 +7,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from importlib import resources
 
-from flask import g, has_app_context
 from opentelemetry import metrics, trace
 
 from oauthclientbridge import telemetry, types
-from oauthclientbridge.settings import DatabaseSettings, current_settings
+from oauthclientbridge.settings import DatabaseSettings
 from oauthclientbridge.utils import time as time_utils
 
 Error = sqlite3.Error
@@ -59,14 +58,14 @@ class TokenRecord:
     last_updated_at: datetime | None
 
 
-def initialize(database: DatabaseSettings | None = None) -> None:
+def initialize(database: DatabaseSettings) -> None:
     schema = resources.files("oauthclientbridge").joinpath("schema.sql").read_text()
-    with get() if database is None else _connect(database) as c:
+    with _connect(database) as c:
         c.executescript(schema)
 
 
-def upgrade(database: DatabaseSettings | None = None) -> None:
-    with get() if database is None else _connect(database) as c:
+def upgrade(database: DatabaseSettings) -> None:
+    with _connect(database) as c:
         columns = {
             row[1].decode("ascii") if isinstance(row[1], bytes) else row[1]
             for row in c.execute("PRAGMA table_info(tokens)").fetchall()
@@ -77,17 +76,8 @@ def upgrade(database: DatabaseSettings | None = None) -> None:
             c.execute("ALTER TABLE tokens ADD COLUMN last_updated_at INTEGER")
 
 
-def is_initialized(database: DatabaseSettings | None = None) -> bool:
+def is_initialized(database: DatabaseSettings) -> bool:
     """Return whether the configured database has the bridge schema."""
-    if database is None:
-        with cursor(
-            name=types.DatabaseOperation.CHECK_TOKENS_TABLE, connection=None
-        ) as c:
-            c.execute(
-                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'tokens'"
-            )
-            return c.fetchone() is not None
-
     with (
         _connect(database) as connection,
         cursor(
@@ -106,18 +96,15 @@ def is_initialized(database: DatabaseSettings | None = None) -> bool:
 # https://github.com/open-telemetry/opentelemetry-python-contrib/issues/3082
 # is the driver for this idea, as connection.execute() is not instrumented.
 def _database_connect_args(
-    settings: DatabaseSettings | None = None,
+    settings: DatabaseSettings,
 ) -> tuple[str, bool]:
-    database = (settings or current_settings.database).database
+    database = settings.database
     if database == ":memory:":
         return ("file:oauthclientbridge?mode=memory&cache=shared", True)
     return (database, database.startswith("file:"))
 
 
-def _open_connection(settings: DatabaseSettings | None = None) -> sqlite3.Connection:
-    if settings is None:
-        settings = current_settings.database
-    assert settings is not None
+def _open_connection(settings: DatabaseSettings) -> sqlite3.Connection:
     database, uri = _database_connect_args(settings)
     connection = sqlite3.connect(
         database,
@@ -133,7 +120,7 @@ def _open_connection(settings: DatabaseSettings | None = None) -> sqlite3.Connec
 
 @contextlib.contextmanager
 def _connect(
-    settings: DatabaseSettings | None = None,
+    settings: DatabaseSettings,
 ) -> Generator[sqlite3.Connection, None, None]:
     """Open a connection that is closed when its operation finishes."""
 
@@ -145,25 +132,18 @@ def _bytes_text_factory(value: bytes) -> bytes:
     return value
 
 
-def get() -> sqlite3.Connection:
-    """Get singleton SQLite database connection."""
-    if getattr(g, "_oauth_database", None) is None:
-        g._oauth_database = _open_connection()
-
-    return g._oauth_database
-
-
-def vacuum(database: DatabaseSettings | None = None) -> None:
-    with get() if database is None else _connect(database) as c:
+def vacuum(database: DatabaseSettings) -> None:
+    with _connect(database) as c:
         c.execute("VACUUM")
 
 
 @contextlib.contextmanager
 def cursor(
     name: types.DatabaseOperation,
+    *,
+    connection: sqlite3.Connection,
+    database_name: str,
     transaction: bool = False,
-    connection: sqlite3.Connection | None = None,
-    database_name: str | None = None,
 ) -> Generator[sqlite3.Cursor, None, None]:
     """Get SQLite cursor with automatic commit if no exceptions are raised."""
     start_time = time.monotonic()
@@ -171,14 +151,13 @@ def cursor(
         "db.operation": name,
         "transaction": transaction,
         "db.system": "sqlite",
-        "db.name": database_name or current_settings.database.database,
+        "db.name": database_name,
     }
     with tracer.start_as_current_span(
         f"DB {name}", attributes={"transaction": transaction}
     ) as span:
         try:
-            source = get() if connection is None else connection
-            with source as active_connection:
+            with connection as active_connection:
                 c = active_connection.cursor()
                 with (
                     contextlib.closing(c),
@@ -240,7 +219,7 @@ def _parse_datetime(value: object) -> datetime | None:
 def insert(
     client_id: types.ClientId,
     token: types.EncryptedToken,
-    database: DatabaseSettings | None = None,
+    database: DatabaseSettings,
     inserted_fields: tuple[str, ...] | None = None,
     span: trace.Span | None = None,
 ) -> None:
@@ -253,7 +232,7 @@ def insert(
             name=types.DatabaseOperation.INSERT_TOKEN,
             transaction=True,
             connection=connection,
-            database_name=database.database if database else None,
+            database_name=database.database,
         ) as c,
     ):
         c.execute(
@@ -273,13 +252,8 @@ def insert(
                 "Inserting token", {"inserted_fields": inserted_fields}
             )
 
-    if has_app_context():
-        telemetry.request_refresh()
 
-
-def lookup(
-    client_id: types.ClientId, database: DatabaseSettings | None = None
-) -> TokenRecord:
+def lookup(client_id: types.ClientId, database: DatabaseSettings) -> TokenRecord:
     """Lookup a client_id and return encrypted token plus metadata.
 
     Raises a LookupError if client_id is not found.
@@ -290,7 +264,7 @@ def lookup(
         cursor(
             name=types.DatabaseOperation.LOOKUP_TOKEN,
             connection=connection,
-            database_name=database.database if database else None,
+            database_name=database.database,
         ) as c,
     ):
         c.execute(
@@ -316,7 +290,7 @@ def lookup(
 def update(
     client_id: types.ClientId,
     token: types.EncryptedToken | None,
-    database: DatabaseSettings | None = None,
+    database: DatabaseSettings,
 ) -> int:
     """Update a client_id with a new encrypted token."""
 
@@ -327,7 +301,7 @@ def update(
             name=types.DatabaseOperation.UPDATE_TOKEN,
             transaction=True,
             connection=connection,
-            database_name=database.database if database else None,
+            database_name=database.database,
         ) as c,
     ):
         c.execute(
@@ -337,27 +311,23 @@ def update(
         trace.get_current_span().add_event("Update result", {"rows": c.rowcount})
         rowcount = int(c.rowcount)
 
-    if rowcount and has_app_context():
-        # TODO: Decouple refresh notification from Flask context for worker-thread writes.
-        telemetry.request_refresh()
-
     return rowcount
 
 
-def token_state_counts(database: DatabaseSettings | None = None) -> dict[str, int]:
+def token_state_counts(database: DatabaseSettings) -> dict[str, int]:
     """Count stored token records by coarse database state."""
 
     with _connect(database) as connection:
         return _token_state_counts(
             connection,
-            database_name=database.database if database is not None else None,
+            database_name=database.database,
         )
 
 
 def _token_state_counts(
-    connection: sqlite3.Connection | None = None,
+    connection: sqlite3.Connection,
     *,
-    database_name: str | None = None,
+    database_name: str,
 ) -> dict[str, int]:
     try:
         with cursor(
@@ -382,11 +352,3 @@ def _token_state_counts(
     present = int(row[0] or 0) if row is not None else 0
     revoked = int(row[1] or 0) if row is not None else 0
     return {"present": present, "revoked": revoked}
-
-
-def close(exception: BaseException | None) -> None:
-    """Ensure that connection gets closed when app teardown happens."""
-    if getattr(g, "_oauth_database", None) is None:
-        return
-    connection, g._oauth_database = g._oauth_database, None
-    connection.close()
