@@ -2,7 +2,6 @@ import asyncio
 import contextlib
 import os
 import sqlite3
-import sys
 import unittest.mock
 from http import HTTPStatus
 
@@ -193,11 +192,10 @@ def test_init_metrics_sets_resource_attributes() -> None:
     assert attrs["process.pid"] == os.getpid()
 
 
-def test_init_metrics_derives_default_instance_id_outside_uwsgi(
+def test_init_metrics_derives_default_instance_id(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(resource_labels.socket, "gethostname", lambda: "delta")
-    monkeypatch.setattr(resource_labels, "_uwsgi_worker_id", lambda: None)
     settings = TelemetrySettings(
         components={TelemetryComponent.METRICS},
         deployment_environment="testing",
@@ -214,19 +212,14 @@ def test_init_metrics_derives_default_instance_id_outside_uwsgi(
     assert attrs["service.instance.id"] == "delta-spotify-testing"
 
 
-def test_init_metrics_uses_uwsgi_worker_id_for_default_instance_id(
+def test_init_metrics_derives_instance_id_without_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(resource_labels.socket, "gethostname", lambda: "delta")
-    monkeypatch.setitem(
-        sys.modules,
-        "uwsgi",
-        unittest.mock.Mock(worker_id=unittest.mock.Mock(return_value=3)),
-    )
     settings = TelemetrySettings(
         components={TelemetryComponent.METRICS},
         deployment_environment="testing",
-        oauth_provider="spotify",
+        oauth_provider=None,
     )
 
     with unittest.mock.patch(
@@ -236,7 +229,7 @@ def test_init_metrics_uses_uwsgi_worker_id_for_default_instance_id(
 
     provider = mock_set_meter_provider.call_args.args[0]
     attrs = provider._sdk_config.resource.attributes
-    assert attrs["service.instance.id"] == "delta-spotify-testing-3"
+    assert attrs["service.instance.id"] == "delta-testing"
 
 
 def test_log_attributes_preserves_numeric_process_id() -> None:
