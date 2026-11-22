@@ -7,7 +7,6 @@ so the Uvicorn supervisor never starts exporter threads that workers might inher
 import traceback
 from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Literal
 
 from pydantic import ValidationError
 
@@ -53,13 +52,11 @@ def bootstrap(log_settings: settings.LogSettings | None = None) -> Generator[Non
 
 
 def initialize(
-    runtime: Literal["flask", "starlette"],
     configured: settings.Settings | None = None,
 ) -> settings.Settings:
     """Enable error reporting before application-specific settings are validated."""
     telemetry.init_sentry(
         configured.sentry if configured is not None else settings.SentrySettings(),
-        runtime,
     )
     configured = configured if configured is not None else settings.Settings()
     telemetry.instrument()

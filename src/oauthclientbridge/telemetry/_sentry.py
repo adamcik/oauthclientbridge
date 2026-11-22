@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Mapping
 from types import ModuleType
-from typing import TYPE_CHECKING, Any, Literal, TypeGuard
+from typing import TYPE_CHECKING, Any, TypeGuard
 
 from oauthclientbridge.settings import SentrySettings
 
@@ -16,21 +16,14 @@ else:
     SentryTransport = object
 
 logger = logging.getLogger(__name__)
-type Runtime = Literal["flask", "starlette"]
 
 
 def _traces_sampler(
     settings: SentrySettings,
-    runtime: Runtime,
 ) -> Callable[[dict[str, object]], float]:
     def sample(sampling_context: dict[str, object]) -> float:
-        context_key, path_key = (
-            ("wsgi_environ", "PATH_INFO")
-            if runtime == "flask"
-            else ("asgi_scope", "path")
-        )
-        context = sampling_context.get(context_key)
-        path = context.get(path_key) if _is_mapping(context) else None
+        context = sampling_context.get("asgi_scope")
+        path = context.get("path") if _is_mapping(context) else None
         if not isinstance(path, str):
             return settings.traces_sample_rate
         return settings.traces_sample_rate_overrides.get(
@@ -55,7 +48,6 @@ else:
 
 def init(
     settings: SentrySettings,
-    runtime: Runtime,
     transport: SentryTransport = None,
 ) -> None:
     if not settings.enabled:
@@ -69,24 +61,16 @@ def init(
         return
 
     from sentry_sdk.integrations.logging import LoggingIntegration
-
-    if runtime == "flask":
-        from sentry_sdk.integrations.flask import FlaskIntegration
-
-        runtime_integration: object = FlaskIntegration()
-    else:
-        from sentry_sdk.integrations.starlette import StarletteIntegration
-
-        runtime_integration = StarletteIntegration()
+    from sentry_sdk.integrations.starlette import StarletteIntegration
 
     sentry_sdk.init(
         dsn=settings.dsn.get_secret_value() if settings.dsn else None,
         release=settings.release,
         sample_rate=settings.sample_rate,
         traces_sample_rate=settings.traces_sample_rate,
-        traces_sampler=_traces_sampler(settings, runtime),
+        traces_sampler=_traces_sampler(settings),
         integrations=[
-            runtime_integration,
+            StarletteIntegration(),
             LoggingIntegration(event_level=None, level=None),
         ],
         instrumenter="otel",
