@@ -1,10 +1,9 @@
 from dataclasses import dataclass
 from http import HTTPStatus
 
-import flask
 import pytest
 
-from oauthclientbridge import oauth
+from oauthclientbridge import crypto, db, oauth
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.oauth import (
     _outcome as oauth_outcome,  # pyright: ignore[reportPrivateUsage] # Direct implementation test.
@@ -13,6 +12,7 @@ from oauthclientbridge.oauth._retry import (
     RetryCondition,  # pyright: ignore[reportPrivateUsage] # Direct implementation test.
 )
 from oauthclientbridge.settings import Settings
+from tests.conftest import BridgeHarness
 
 
 def test_normalize_error_uses_explicit_provider_mapping() -> None:
@@ -48,34 +48,35 @@ def test_normalize_error_filters_mapped_errors_against_allowed_types() -> None:
     )
 
 
-def test_error_handler_returns_503_for_temporarily_unavailable_retry_after(
-    app: flask.Flask,
+@pytest.mark.anyio
+async def test_token_keeps_invalid_grant_as_400_with_retry_after(
+    settings: Settings,
+    bridge_harness: BridgeHarness,
 ) -> None:
-    with app.test_request_context("/callback"):
-        response = oauth.error_handler(
-            oauth.Error(OAuthError.TEMPORARILY_UNAVAILABLE, retry_after=10)
+    client_id = db.generate_id()
+    client_secret = crypto.generate_key()
+    db.insert(
+        client_id,
+        crypto.dumps(client_secret, {"refresh_token": "refresh-token"}),
+        settings.database,
+    )
+    bridge_harness.oauth.results.append({"error": "invalid_grant", "retry_after": 10})
+    response = (
+        await bridge_harness.bridge.token(
+            form={
+                "grant_type": "client_credentials",
+                "client_id": str(client_id),
+                "client_secret": client_secret,
+            },
+            authorization=None,
+            user_agent="",
         )
+    ).response
 
-    assert response.status_code == 503
-    assert response.headers["Retry-After"] == "10"
-    response_data = response.json
-    assert response_data is not None
-    assert response_data["error"] == "temporarily_unavailable"
-
-
-def test_error_handler_keeps_invalid_grant_as_400_with_retry_after(
-    app: flask.Flask,
-) -> None:
-    with app.test_request_context("/token"):
-        response = oauth.error_handler(
-            oauth.Error(OAuthError.INVALID_GRANT, retry_after=10)
-        )
-
-    assert response.status_code == 400
+    assert response.status == 400
     assert "Retry-After" not in response.headers
-    response_data = response.json
-    assert response_data is not None
-    assert response_data["error"] == "invalid_grant"
+    assert isinstance(response.body, dict)
+    assert response.body["error"] == "invalid_grant"
 
 
 @dataclass(frozen=True)

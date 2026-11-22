@@ -50,7 +50,7 @@ def request(
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--runtime", choices=("asgi", "wsgi"), required=True)
+    parser.add_argument("--runtime", choices=("asgi",), required=True)
     parser.add_argument("socket", type=Path)
     args = parser.parse_args()
 
@@ -69,12 +69,8 @@ def main() -> None:
     cookie = SimpleCookie()
     cookie.load(headers["set-cookie"])
     session = cookie["session"]
-    if args.runtime == "asgi":
-        assert session["domain"] == "auth.example.com", session
-        assert session["path"] == "/spotify", session
-    else:
-        assert not session["domain"], session
-        assert session["path"] == "/", session
+    assert session["domain"] == "auth.example.com", session
+    assert session["path"] == "/spotify", session
     assert session["secure"], session
     assert not session["expires"], session
     assert not session["max-age"], session
