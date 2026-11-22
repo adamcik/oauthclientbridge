@@ -1,53 +1,13 @@
 import logging
-import string
-from collections.abc import Mapping, Sequence
 from typing import Any, cast
-from urllib.parse import urlsplit
 
 import structlog
-from flask import Flask, Request, Response, request
-from opentelemetry.semconv.attributes.client_attributes import CLIENT_ADDRESS
-from opentelemetry.semconv.attributes.http_attributes import (
-    HTTP_REQUEST_HEADER_TEMPLATE,
-    HTTP_REQUEST_METHOD,
-    HTTP_RESPONSE_HEADER_TEMPLATE,
-    HTTP_RESPONSE_STATUS_CODE,
-    HTTP_ROUTE,
-)
-from opentelemetry.semconv.attributes.network_attributes import (
-    NETWORK_PROTOCOL_VERSION,
-)
-from opentelemetry.semconv.attributes.server_attributes import SERVER_ADDRESS
-from opentelemetry.semconv.attributes.url_attributes import (
-    URL_FULL,
-    URL_PATH,
-    URL_QUERY,
-    URL_SCHEME,
-)
-from opentelemetry.semconv.attributes.user_agent_attributes import USER_AGENT_ORIGINAL
 from structlog.types import EventDict
 
-from oauthclientbridge import observer, telemetry, types
+from oauthclientbridge import telemetry
 from oauthclientbridge.settings import LogSettings
-from oauthclientbridge.utils import uri
 
-access_logger: structlog.BoundLogger = structlog.get_logger("oauthclientbridge.http")
 logger: structlog.BoundLogger = structlog.get_logger()
-
-HTTP_SERVER_DURATION = "http.server.duration"
-HTTP_REQUEST_BODY_SIZE = "http.request.body.size"
-HTTP_RESPONSE_BODY_SIZE = "http.response.body.size"
-
-
-class AccessLogFormatter(string.Formatter):
-    def get_field(
-        self, field_name: str, args: Sequence[Any], kwargs: Mapping[str, Any]
-    ) -> tuple[Any, str]:
-        if field_name in kwargs:
-            value = kwargs[field_name]
-            return value if value is not None else "-", field_name
-        else:
-            return "{" + field_name + "}", field_name
 
 
 def init_logging(settings: LogSettings) -> None:
@@ -126,9 +86,6 @@ def init_logging(settings: LogSettings) -> None:
 
     root_logger.setLevel(settings.level)
 
-    werkzeug_logger = logging.getLogger("werkzeug")
-    werkzeug_logger.disabled = True
-
     for name, propagate in {
         "uvicorn": True,
         "uvicorn.error": True,
@@ -155,95 +112,3 @@ def add_otel_context_processor(_: Any, __: str, event_dict: EventDict) -> EventD
     event_dict.update(telemetry.otel_log_attributes())
 
     return event_dict
-
-
-def get_request_info(req: Request, duration_ns: int) -> dict[str, Any]:
-    sanitized_url = uri.sanitize_url(str(req.url))
-    sanitized_url_parts = urlsplit(sanitized_url) if sanitized_url is not None else None
-
-    return {
-        # "user.name": req.remote_user,  # No direct OTel constant for remote_user
-        CLIENT_ADDRESS: req.remote_addr,
-        HTTP_SERVER_DURATION: duration_ns / 1e9,
-        HTTP_REQUEST_METHOD: req.method,
-        HTTP_REQUEST_BODY_SIZE: len(req.get_data()),
-        HTTP_ROUTE: req.url_rule.rule if req.url_rule else None,
-        NETWORK_PROTOCOL_VERSION: req.environ.get("SERVER_PROTOCOL"),
-        SERVER_ADDRESS: req.host,
-        URL_FULL: sanitized_url,
-        URL_PATH: req.path,
-        URL_QUERY: sanitized_url_parts.query
-        if sanitized_url_parts is not None
-        else None,
-        URL_SCHEME: req.scheme,
-        USER_AGENT_ORIGINAL: req.headers.get("User-Agent"),
-        f"{HTTP_REQUEST_HEADER_TEMPLATE}.content_type": req.content_type,
-        f"{HTTP_REQUEST_HEADER_TEMPLATE}.content_length": req.content_length,
-    }
-
-
-def get_response_info(resp: Response) -> dict[str, Any]:
-    return {
-        HTTP_RESPONSE_BODY_SIZE: len(resp.get_data()),
-        HTTP_RESPONSE_STATUS_CODE: resp.status_code,
-        f"{HTTP_RESPONSE_HEADER_TEMPLATE}.content_length": resp.content_length,
-        f"{HTTP_RESPONSE_HEADER_TEMPLATE}.content_type": resp.content_type,
-        f"{HTTP_RESPONSE_HEADER_TEMPLATE}.cache_control": resp.headers.get(
-            "Cache-Control"
-        ),
-    }
-
-
-def lifecycle_request(req: Request) -> observer.RequestLifecycleRequest:
-    return observer.RequestLifecycleRequest(
-        attributes=get_request_info(req, duration_ns=0)
-    )
-
-
-def lifecycle_response(resp: Response) -> observer.RequestLifecycleResponse:
-    return observer.RequestLifecycleResponse(
-        status_code=resp.status_code,
-        body_size=len(resp.get_data()),
-        headers=observer.RequestLifecycleResponseHeaders(
-            content_type=resp.content_type,
-            content_length=resp.content_length,
-            cache_control=resp.headers.get("Cache-Control"),
-        ),
-    )
-
-
-def lifecycle_endpoint(name: str | None) -> types.Endpoint:
-    endpoints = {
-        "views.authorize": types.Endpoint.AUTHORIZE,
-        "views.callback": types.Endpoint.CALLBACK,
-        "views.token": types.Endpoint.TOKEN,
-        "views.metrics": types.Endpoint.METRICS,
-    }
-    return (
-        endpoints.get(name, types.Endpoint.UNKNOWN)
-        if name is not None
-        else types.Endpoint.UNKNOWN
-    )
-
-
-def init_access_logs(settings: LogSettings, app: Flask) -> None:
-    if app.extensions.get("oauthclientbridge_access_logs_initialized"):
-        logger.warning("Access logs already initialized for app")
-        return
-    app.extensions["oauthclientbridge_access_logs_initialized"] = True
-
-    lifecycle_observer = telemetry.request_lifecycle_observer(
-        settings.access_log_format
-    )
-
-    def _before_request_log_context() -> None:
-        lifecycle_observer.start(lifecycle_request(request))
-
-    def _after_request_log_context(response: Response) -> Response:
-        lifecycle_observer.complete(
-            lifecycle_endpoint(request.endpoint), lifecycle_response(response)
-        )
-        return response
-
-    _ = app.before_request(_before_request_log_context)
-    _ = app.after_request(_after_request_log_context)
