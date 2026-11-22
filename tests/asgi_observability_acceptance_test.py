@@ -217,6 +217,7 @@ async def test_unexpected_token_failure_has_safe_response_and_error_observabilit
             "status": "http_internal_server_error",
         },
     )
+
     def fail(*_args: object) -> NoReturn:
         secret = crypto.generate_key()
         _ = secret
@@ -334,10 +335,9 @@ async def test_non_oauth_failure_is_safe_and_not_an_oauth_outcome(
     assert len(server_spans) == 1
     assert server_spans[0].status.status_code == trace.StatusCode.ERROR
     assert any(event.name == "exception" for event in server_spans[0].events)
-    if endpoint == "metrics":
-        assert server_spans[0].attributes is not None
-        assert server_spans[0].attributes["error.unhandled"] is True
-        assert server_spans[0].attributes["oauth.endpoint"] == endpoint
+    assert server_spans[0].attributes is not None
+    assert server_spans[0].attributes["error.unhandled"] is True
+    assert server_spans[0].attributes["oauth.endpoint"] == endpoint
 
 
 async def test_framework_native_routing_responses_remain_unhandled(
