@@ -1,0 +1,53 @@
+{
+  pkgs,
+  appPackages,
+  module,
+}: let
+  inherit (pkgs) lib;
+  # Distinct store paths catch mixed revisions without building an application.
+  overridePackages = lib.genAttrs ["web" "management" "assets"] (
+    component: pkgs.runCommand "preprod-${component}" {} "mkdir -p $out"
+  );
+  evaluated = import (pkgs.path + "/nixos/lib/eval-config.nix") {
+    inherit pkgs;
+    system = pkgs.stdenv.hostPlatform.system;
+    modules = [
+      module
+      {
+        system.stateVersion = "26.05";
+        services.oauthclientbridge.instances = {
+          alpha.cleanDatabase.enable = true;
+          beta.cleanDatabase.enable = true;
+          preprod = {
+            packages = overridePackages;
+            cleanDatabase.enable = true;
+          };
+        };
+      }
+    ];
+  };
+  config = evaluated.config;
+  checkInstance = name: expected: let
+    instance = config.services.oauthclientbridge.instances.${name};
+    services = config.systemd.services;
+    unit = "oauthclientbridge-${name}";
+  in
+    lib.assertMsg
+    (lib.all (component: instance.packages.${component} == expected.${component}) ["web" "management" "assets"])
+    "${name} must select the complete matching package set"
+    && lib.assertMsg
+    (lib.hasInfix (builtins.unsafeDiscardStringContext "exec ${expected.web}/bin/oauthclientbridge-web ") services.${unit}.script)
+    "${name} web must use its selected package"
+    && lib.assertMsg
+    (lib.all (command:
+      lib.hasInfix (builtins.unsafeDiscardStringContext "exec ${expected.management}/bin/oauthclientbridge ${command}")
+      services."${unit}-${command}".script) ["initdb" "upgradedb" "cleandb"])
+    "${name} management units must use its selected package"
+    && lib.assertMsg
+    (instance.staticRoot == "${expected.assets}/share/oauthclientbridge/static")
+    "${name} staticRoot must use its selected assets";
+in
+  assert checkInstance "alpha" appPackages;
+  assert checkInstance "beta" appPackages;
+  assert checkInstance "preprod" overridePackages;
+    pkgs.runCommand "oauthclientbridge-module-check" {} "touch $out"

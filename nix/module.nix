@@ -1,4 +1,4 @@
-# The flake supplies one matching package set for web, administration, and assets.
+# The flake supplies the default matching package set for each instance.
 {appPackages}: {
   config,
   lib,
@@ -11,8 +11,27 @@
   reserved = ["DB_DATABASE" "PROMETHEUS_MULTIPROC_DIR" "PYTHONDONTWRITEBYTECODE" "CREDENTIALS_DIRECTORY"];
   credentialNames = ["OAUTH_CLIENT_SECRET" "BRIDGE_SESSION_SECRET" "BRIDGE_METRICS_TOKEN" "SENTRY_DSN"];
   isRuntimeFile = path: lib.hasPrefix "/" path && !(lib.hasPrefix "/nix/store/" path);
-  instanceOptions = {name, ...}: {
+  instanceOptions = {
+    name,
+    config,
+    ...
+  }: {
     options = {
+      packages = mkOption {
+        type = types.submodule {
+          options = lib.genAttrs ["web" "management" "assets"] (component:
+            mkOption {
+              type = types.package;
+              description = "Matching ${component} package for this instance.";
+            });
+        };
+        default = {inherit (appPackages) web management assets;};
+        defaultText = lib.literalExpression "{ inherit (appPackages) web management assets; }";
+        description = ''
+          Matching web, management, and assets packages from one application revision.
+          Override the complete set to run a different revision for this instance only.
+        '';
+      };
       environmentFile = mkOption {
         type = types.nullOr types.str;
         default = null;
@@ -69,7 +88,7 @@
       staticRoot = mkOption {
         type = types.str;
         readOnly = true;
-        default = "${appPackages.assets}/share/oauthclientbridge/static";
+        default = "${config.packages.assets}/share/oauthclientbridge/static";
         description = "Matching public build-time assets for the host's existing file server.";
       };
       stateDirectory = mkOption {
@@ -150,7 +169,7 @@
         script =
           environmentScript
           + ''
-            exec ${appPackages.management}/bin/oauthclientbridge ${command}
+            exec ${instance.packages.management}/bin/oauthclientbridge ${command}
           '';
         serviceConfig = {
           Type = "oneshot";
@@ -170,7 +189,7 @@
           + ''
             # Multiprocess metrics must not retain data from an earlier web process.
             rm -f "$PROMETHEUS_MULTIPROC_DIR"/*.db
-            exec ${appPackages.web}/bin/oauthclientbridge-web \
+            exec ${instance.packages.web}/bin/oauthclientbridge-web \
               --fd 3 \
               --workers ${toString instance.workers} \
               --timeout-graceful-shutdown ${toString instance.gracefulShutdownTimeout}
@@ -193,7 +212,7 @@
         script =
           environmentScript
           + ''
-            exec ${appPackages.management}/bin/oauthclientbridge cleandb
+            exec ${instance.packages.management}/bin/oauthclientbridge cleandb
           '';
         serviceConfig = {
           Type = "oneshot";
