@@ -186,10 +186,7 @@ async def fetch_with_requests(
     auth: str | None = None,
     **data: str | None,
 ) -> OAuthResponse:
-    """Run an upstream request with a per-call snapshot of the fetch policy.
-
-    Bind settings with functools.partial to supply an UpstreamFetcher.
-    """
+    """Perform an upstream OAuth request without blocking the event loop."""
     return await execution.run_sync(
         "oauth.fetch",
         _fetch_sync,
@@ -197,7 +194,7 @@ async def fetch_with_requests(
         upstream_grant_type,
         auth,
         data,
-        settings.model_copy(deep=True),
+        settings,
     )
 
 

@@ -1,5 +1,4 @@
 import atexit
-from functools import partial
 
 from opentelemetry import trace
 
@@ -17,7 +16,12 @@ with startup.bootstrap():
     settings = startup.initialize("flask")
     with tracer.start_as_current_span("STARTUP"):
         app = create_app(
-            settings, fetch=partial(oauth.fetch_with_requests, settings.fetch)
+            settings,
+            fetch=lambda uri, upstream_grant_type, auth=None, **data: (
+                oauth.fetch_with_requests(
+                    settings.fetch, uri, upstream_grant_type, auth, **data
+                )
+            ),
         )
         start_runtime_services(app)
 

@@ -1,13 +1,11 @@
 import asyncio
 import unittest.mock
 
-import pytest
 import requests
 from freezegun import freeze_time
 from requests_mock import Mocker as RequestsMocker
 
 from oauthclientbridge import oauth
-from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.oauth import (
     _core as oauth_core,  # pyright: ignore[reportPrivateUsage] # Direct implementation test.
 )
@@ -54,30 +52,6 @@ def test_oauth_fetch_is_async(
     )
 
     assert result["access_token"] == "mock_token"
-
-
-def test_oauth_fetch_snapshots_nested_policy_for_each_call(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    settings = FetchSettings(error_types={"provider_error": OAuthError.INVALID_GRANT})
-
-    def fetch_sync(
-        uri: str,
-        endpoint: str,
-        auth: str | None,
-        data: dict[str, str | None],
-        snapshot: FetchSettings,
-    ) -> dict[str, OAuthError]:
-        settings.error_types["provider_error"] = OAuthError.INVALID_CLIENT
-        return {"error": snapshot.error_types["provider_error"]}
-
-    monkeypatch.setattr(oauth_core, "_fetch_sync", fetch_sync)
-
-    first = run_fetch(settings, "https://provider.example.com/token", "test_endpoint")
-    second = run_fetch(settings, "https://provider.example.com/token", "test_endpoint")
-
-    assert first["error"] == OAuthError.INVALID_GRANT
-    assert second["error"] == OAuthError.INVALID_CLIENT
 
 
 def test_oauth_fetch_does_not_call_requests_with_expired_deadline(
