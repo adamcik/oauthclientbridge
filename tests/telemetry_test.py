@@ -12,11 +12,13 @@ import pytest_sentry_capture
 import requests
 import sentry_sdk
 import structlog
-from flask.testing import FlaskClient
 from opentelemetry import metrics, trace
 from opentelemetry.sdk.metrics.export import HistogramDataPoint, NumberDataPoint
 from pydantic import SecretStr
 from requests_mock import Mocker
+from starlette.applications import Starlette
+from starlette.requests import Request
+from starlette.testclient import TestClient
 
 from oauthclientbridge import db, oauth, telemetry, types
 from oauthclientbridge.errors import OAuthError
@@ -455,17 +457,18 @@ def test_authorize_trace_redacts_redirect_location(
 
 def test_unhandled_server_error_marks_span_unhandled(
     otel_mock: otel.OTelMocker,
-    client: FlaskClient,
+    asgi_client: httpx.Client,
 ) -> None:
-    # ASGI custom-route failures lack error.unhandled; retain this contract until parity.
-    app = client.application
+    assert isinstance(asgi_client, TestClient)
+    app = asgi_client.app
+    assert isinstance(app, Starlette)
 
-    def boom() -> str:
+    async def boom(_: Request) -> str:
         raise RuntimeError("boom")
 
-    app.add_url_rule("/boom", view_func=boom)
+    app.add_route("/boom", boom)
 
-    response = client.get("/boom")
+    response = asgi_client.get("/boom")
 
     assert response.status_code == 500
 
