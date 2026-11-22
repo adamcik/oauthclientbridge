@@ -4,6 +4,7 @@ import logging
 import os
 import socket
 import threading
+from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import cast
 
@@ -11,7 +12,6 @@ import httpx
 import pytest
 import structlog
 import uvicorn
-from flask import Flask, Request
 from opentelemetry import trace
 from opentelemetry.semconv.attributes.client_attributes import (
     CLIENT_ADDRESS,
@@ -34,11 +34,13 @@ from opentelemetry.semconv.attributes.url_attributes import (
     URL_SCHEME,
 )
 from opentelemetry.semconv.attributes.user_agent_attributes import USER_AGENT_ORIGINAL
-from werkzeug.datastructures import Headers
-from werkzeug.routing import Rule
+from pytest_otel_capture import OTelMocker
+from starlette.applications import Starlette
+from starlette.requests import Request
+from starlette.responses import Response
+from starlette.routing import Route
 
-from oauthclientbridge import asgi, db, logs, oauth, startup, types
-from oauthclientbridge.errors import OAuthError
+from oauthclientbridge import asgi, db, logs, startup, types
 from oauthclientbridge.settings import LogLevel, LogSettings, Settings
 
 tracer = trace.get_tracer(__name__)
@@ -191,191 +193,187 @@ def test_json_exception_has_frames_but_no_locals(
     assert all("locals" not in frame for frame in exceptions[0]["frames"])
 
 
-def test_flask_request_logging(capsys: pytest.CaptureFixture[str]):
-    log_settings = LogSettings(
-        level=LogLevel.DEBUG,
-        colors=False,
-        json_output=True,
+@pytest.fixture
+def logging_app(settings: Settings) -> Starlette:
+    app = asgi.create_app(settings, initialize_runtime=False)
+
+    async def echo(request: Request) -> Response:
+        body = await request.body()
+        logging.getLogger(__name__).info("Inside ASGI route.")
+        return Response(
+            body or b"Hello, World!",
+            media_type="text/plain",
+            headers={
+                "Cache-Control": "no-store",
+                "Set-Cookie": "secret-response-cookie",
+                "X-Private": "secret-response-header",
+            },
+        )
+
+    app.router.routes.append(Route("/echo/{name}", echo, methods=["GET", "POST"]))
+    return app
+
+
+@pytest.fixture
+async def logging_client(logging_app: Starlette) -> AsyncGenerator[httpx.AsyncClient]:
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=logging_app, client=("127.0.0.1", 12345)),
+        base_url="http://bridge.example.com",
+    ) as client:
+        yield client
+
+
+@pytest.mark.anyio
+async def test_asgi_request_and_response_logging(
+    logging_client: httpx.AsyncClient, capsys: pytest.CaptureFixture[str]
+) -> None:
+    logs.init_logging(LogSettings(json_output=True))
+    response = await logging_client.post(
+        "/echo/test?param=value",
+        content=b"test data",
+        headers={"Content-Type": "text/plain", "User-Agent": "test-agent"},
     )
-    logs.init_logging(log_settings)
-
-    app = Flask(__name__)
-    logs.init_access_logs(log_settings, app)
-
-    def index():
-        app.logger.info("Inside Flask app route.")
-        return "Hello, World!"
-
-    app.add_url_rule("/", view_func=index)
-
-    with app.test_client() as client:
-        response = client.get("/")
-        assert response.status_code == 200
-        assert b"Hello, World!" in response.data
-
+    assert response.status_code == 200
+    assert response.content == b"test data"
     records = parse_logs(capsys)
-
     app_record = next(r for r in records if r["logger"] == "tests.logs_test")
-    assert app_record["event"] == "Inside Flask app route."
-
-    # TODO: Simplify these asserts, we can instead check that the expected to
-    # level keys are there and test each of those helpers independently.
-
-    record = next(r for r in records if r["logger"] == "oauthclientbridge.http")
-    assert record[HTTP_REQUEST_METHOD] == "GET"
+    assert app_record["event"] == "Inside ASGI route."
+    access = [r for r in records if r["logger"] == "oauthclientbridge.http"]
+    assert len(access) == 1
+    record = access[0]
+    assert record[CLIENT_ADDRESS] == "127.0.0.1"
+    assert record[HTTP_REQUEST_METHOD] == "POST"
+    assert record["http.request.body.size"] == len(b"test data")
     assert record[HTTP_RESPONSE_STATUS_CODE] == 200
-    assert record[HTTP_ROUTE] == "/"
-    assert record[SERVER_ADDRESS] == "localhost"
-    url = record[URL_FULL]
-    assert isinstance(url, str)
-    assert url.endswith("/")
-    assert record[URL_QUERY] == ""
+    assert record["http.response.body.size"] == len(b"test data")
+    assert record[NETWORK_PROTOCOL_VERSION] == "1.1"
+    assert record[SERVER_ADDRESS] == "bridge.example.com"
+    assert record[URL_FULL] == "http://bridge.example.com/echo/test?param=<REDACTED>"
+    assert record[URL_PATH] == "/echo/test"
+    assert record[URL_QUERY] == "param=<REDACTED>"
     assert record[URL_SCHEME] == "http"
-    assert record[f"{HTTP_REQUEST_HEADER_TEMPLATE}.content_type"] is None
-    assert record[f"{HTTP_RESPONSE_HEADER_TEMPLATE}.cache_control"] is None
+    assert record[USER_AGENT_ORIGINAL] == "test-agent"
+    assert record[f"{HTTP_REQUEST_HEADER_TEMPLATE}.content_type"] == "text/plain"
+    assert record[f"{HTTP_REQUEST_HEADER_TEMPLATE}.content_length"] == 9
     assert (
         record[f"{HTTP_RESPONSE_HEADER_TEMPLATE}.content_type"]
-        == "text/html; charset=utf-8"
+        == "text/plain; charset=utf-8"
     )
-    assert record[logs.HTTP_RESPONSE_BODY_SIZE] == len(b"Hello, World!")
-    assert logs.HTTP_SERVER_DURATION in record
+    assert record[f"{HTTP_RESPONSE_HEADER_TEMPLATE}.content_length"] == 9
+    assert record[f"{HTTP_RESPONSE_HEADER_TEMPLATE}.cache_control"] == "no-store"
+    assert {
+        key for key in record if key.startswith(f"{HTTP_RESPONSE_HEADER_TEMPLATE}.")
+    } == {
+        f"{HTTP_RESPONSE_HEADER_TEMPLATE}.content_type",
+        f"{HTTP_RESPONSE_HEADER_TEMPLATE}.content_length",
+        f"{HTTP_RESPONSE_HEADER_TEMPLATE}.cache_control",
+    }
+    assert "secret-response-cookie" not in json.dumps(record)
+    assert "secret-response-header" not in json.dumps(record)
+    duration = record["http.server.duration"]
+    assert isinstance(duration, (int, float)) and duration >= 0
+    assert record["event"] == '127.0.0.1 "POST /echo/test 1.1" 200 9 "test-agent"'
 
-    # Assert the formatted access log message
-    expected_access_log = (
-        f'127.0.0.1 "GET / {record[NETWORK_PROTOCOL_VERSION]}" '
-        f'200 {len(b"Hello, World!")} "{record[USER_AGENT_ORIGINAL]}"'
-    )
-    assert record["event"] == expected_access_log
 
-
-def test_access_log_not_duplicated_if_initialized_twice(
+@pytest.mark.anyio
+async def test_access_log_records_matched_route_template(
+    logging_client: httpx.AsyncClient,
     capsys: pytest.CaptureFixture[str],
-):
-    log_settings = LogSettings(
-        level=LogLevel.DEBUG,
-        colors=False,
-        json_output=True,
+    otel_mock: OTelMocker,
+) -> None:
+    logs.init_logging(LogSettings(json_output=True))
+    assert (await logging_client.get("/echo/concrete-value")).status_code == 200
+    record = next(
+        r for r in parse_logs(capsys) if r["logger"] == "oauthclientbridge.http"
     )
-    logs.init_logging(log_settings)
-
-    app = Flask(__name__)
-    logs.init_access_logs(log_settings, app)
-    logs.init_access_logs(log_settings, app)
-
-    def index():
-        return "Hello, World!"
-
-    app.add_url_rule("/", view_func=index)
-
-    with app.test_client() as client:
-        response = client.get("/")
-        assert response.status_code == 200
-
-    records = parse_logs(capsys)
-    access_logs = [r for r in records if r.get("logger") == "oauthclientbridge.http"]
-    assert len(access_logs) == 1
-
-
-def test_access_log_includes_oauth_error(capsys: pytest.CaptureFixture[str]):
-    log_settings = LogSettings(
-        level=LogLevel.DEBUG,
-        colors=False,
-        json_output=True,
+    assert record[HTTP_ROUTE] == "/echo/{name}"
+    server_span = next(
+        span
+        for span in otel_mock.get_finished_spans()
+        if span.readable_span.kind == trace.SpanKind.SERVER
     )
-    logs.init_logging(log_settings)
+    assert server_span.attributes is not None
+    assert server_span.attributes[HTTP_ROUTE] == "/echo/{name}"
 
-    app = Flask(__name__)
-    logs.init_access_logs(log_settings, app)
-    _ = app.register_error_handler(oauth.Error, oauth.error_handler)
 
-    def token():
-        raise oauth.Error(OAuthError.INVALID_GRANT, "Grant has been revoked.")
-
-    app.add_url_rule("/token", view_func=token, methods=["POST"])
-
-    with app.test_client() as client:
-        response = client.post("/token")
-        assert response.status_code == 400
-
+@pytest.mark.anyio
+async def test_access_log_redacts_query_and_excludes_sensitive_headers(
+    logging_client: httpx.AsyncClient, capsys: pytest.CaptureFixture[str]
+) -> None:
+    logs.init_logging(LogSettings(json_output=True))
+    response = await logging_client.get(
+        "/echo/test?code=secret-code&state=secret-state&next=%2Fhome",
+        headers={
+            "Authorization": "Bearer secret-token",
+            "Cookie": "secret-cookie",
+            "Referer": "https://secret-referer.example/",
+        },
+    )
+    assert response.status_code == 200
     records = parse_logs(capsys)
     record = next(r for r in records if r["logger"] == "oauthclientbridge.http")
-    assert record[HTTP_RESPONSE_STATUS_CODE] == 400
-    assert record["oauth_error"] == "invalid_grant"
-
-
-def test_get_request_info():
-    req = cast(
-        Request,
-        Request.from_values(
-            method="GET",
-            path="/test",
-            query_string="param=value",
-            headers=Headers(
-                [("User-Agent", "test-agent"), ("Referer", "test-referer")]
-            ),
-            environ_overrides={
-                "REMOTE_ADDR": "127.0.0.1",
-                "SERVER_PROTOCOL": "HTTP/1.1",
-            },
-            data=b"",
-        ),
+    assert record[URL_FULL] == (
+        "http://bridge.example.com/echo/test?code=<REDACTED>&state=<REDACTED>&next=<REDACTED>"
     )
-    req.url_rule = Rule("/test")
-
-    duration_ns = 1000000000  # 1 second
-    info = logs.get_request_info(req, duration_ns)
-
-    assert info[CLIENT_ADDRESS] == "127.0.0.1"
-    assert info[HTTP_REQUEST_METHOD] == "GET"
-    assert info[logs.HTTP_REQUEST_BODY_SIZE] == 0
-    assert info[HTTP_ROUTE] == "/test"
-    assert info[NETWORK_PROTOCOL_VERSION] == "HTTP/1.1"
-    assert info[SERVER_ADDRESS] == "localhost"
-    assert info[URL_FULL] == "http://localhost/test?param=<REDACTED>"
-    assert info[URL_PATH] == "/test"
-    assert info[URL_QUERY] == "param=<REDACTED>"
-    assert info[URL_SCHEME] == "http"
-    assert info[USER_AGENT_ORIGINAL] == "test-agent"
-    assert info[f"{HTTP_REQUEST_HEADER_TEMPLATE}.content_type"] is None
-    assert info[f"{HTTP_REQUEST_HEADER_TEMPLATE}.content_length"] is None
-    assert f"{HTTP_REQUEST_HEADER_TEMPLATE}.referer" not in info
-    assert info[logs.HTTP_SERVER_DURATION] == 1.0
+    assert record[URL_QUERY] == "code=<REDACTED>&state=<REDACTED>&next=<REDACTED>"
+    assert record[f"{HTTP_REQUEST_HEADER_TEMPLATE}.content_type"] is None
+    assert record[f"{HTTP_REQUEST_HEADER_TEMPLATE}.content_length"] is None
+    assert record["http.request.body.size"] == 0
+    for header in ("authorization", "cookie", "referer"):
+        assert f"{HTTP_REQUEST_HEADER_TEMPLATE}.{header}" not in record
+    output = json.dumps(record)
+    for secret in (
+        "secret-code",
+        "secret-state",
+        "secret-token",
+        "secret-cookie",
+        "secret-referer",
+        "%2Fhome",
+    ):
+        assert secret not in output
 
 
-def test_get_request_info_redacts_all_url_query_values():
-    req = cast(
-        Request,
-        Request.from_values(
-            method="GET",
-            path="/callback",
-            query_string="code=secret-code&state=secret-state&next=%2Fhome",
-            environ_overrides={
-                "REMOTE_ADDR": "127.0.0.1",
-                "SERVER_PROTOCOL": "HTTP/1.1",
-            },
-            data=b"",
-        ),
+@pytest.mark.anyio
+async def test_access_log_bounds_request_attributes(
+    logging_client: httpx.AsyncClient, capsys: pytest.CaptureFixture[str]
+) -> None:
+    logs.init_logging(LogSettings(json_output=True))
+    value = "x" * 2048
+    response = await logging_client.post(
+        f"/echo/{value}",
+        headers={"Host": value, "User-Agent": value, "Content-Type": value},
+        content=b"",
     )
-
-    info = logs.get_request_info(req, 1)
-
-    assert info[URL_FULL] == (
-        "http://localhost/callback?code=<REDACTED>&state=<REDACTED>&next=<REDACTED>"
+    assert response.status_code == 200
+    record = next(
+        r for r in parse_logs(capsys) if r["logger"] == "oauthclientbridge.http"
     )
-    assert info[URL_QUERY] == "code=<REDACTED>&state=<REDACTED>&next=<REDACTED>"
+    assert record[SERVER_ADDRESS] == value[:1024]
+    assert record[URL_PATH] == (f"/echo/{value}")[:1024]
+    assert record[USER_AGENT_ORIGINAL] == value[:1024]
+    assert record[f"{HTTP_REQUEST_HEADER_TEMPLATE}.content_type"] == value[:1024]
 
 
-def test_get_response_info():
-    from flask import Response
-
-    resp = Response("test data", status=200, headers={"Content-Type": "text/plain"})
-    info = logs.get_response_info(resp)
-
-    assert info[logs.HTTP_RESPONSE_BODY_SIZE] == len(b"test data")
-    assert info[HTTP_RESPONSE_STATUS_CODE] == 200
-    assert info[f"{HTTP_RESPONSE_HEADER_TEMPLATE}.content_length"] == len(b"test data")
-    assert info[f"{HTTP_RESPONSE_HEADER_TEMPLATE}.content_type"] == "text/plain"
-    assert info[f"{HTTP_RESPONSE_HEADER_TEMPLATE}.cache_control"] is None
+@pytest.mark.anyio
+async def test_access_log_includes_oauth_error_and_clears_context(
+    logging_client: httpx.AsyncClient, capsys: pytest.CaptureFixture[str]
+) -> None:
+    logs.init_logging(LogSettings(json_output=True))
+    response = await logging_client.post("/token", data={"grant_type": "invalid"})
+    assert response.status_code == 400
+    assert response.json()["error"] == "unsupported_grant_type"
+    assert (await logging_client.get("/not-found")).status_code == 404
+    logging.getLogger(__name__).info("Outside request.")
+    records = parse_logs(capsys)
+    access = [r for r in records if r["logger"] == "oauthclientbridge.http"]
+    assert len(access) == 2
+    assert access[0][HTTP_RESPONSE_STATUS_CODE] == 400
+    assert access[0]["oauth_error"] == "unsupported_grant_type"
+    assert "oauth_error" not in access[1]
+    assert "oauth_endpoint" not in access[1]
+    outside = next(r for r in records if r["event"] == "Outside request.")
+    assert "oauth_error" not in outside
+    assert "oauth_endpoint" not in outside
 
 
 def test_configure_structlog_console_colors(capsys: pytest.CaptureFixture[str]):
@@ -429,6 +427,7 @@ def parse_logs(capsys: pytest.CaptureFixture[str]) -> list[types.JsonDict]:
 
 
 def parse_log_record(line: str) -> types.JsonDict:
+    assert line.startswith("{"), repr(line)
     value: object = json.loads(line)
     assert isinstance(value, dict)
     return cast(types.JsonDict, value)
@@ -457,28 +456,45 @@ def assert_has_otel_records(record: types.JsonDict, span: trace.Span) -> None:
     assert int(span_id, 16) == span.get_span_context().span_id
 
 
-def test_access_log_formatter():
-    formatter = logs.AccessLogFormatter()
-
-    # Test with all keys present
-    data = {
-        "client.address": "127.0.0.1",
-        "http.request.method": "GET",
-        "url.path": "/test",
-    }
-    format_string = "{client.address} {http.request.method} {url.path}"
-    assert formatter.format(format_string, **data) == "127.0.0.1 GET /test"
-
-    # Test with missing key, expecting {key} output
-    format_string_missing = (
-        "{client.address} {http.request.method} {url.path} {missing.key}"
+@pytest.mark.anyio
+async def test_access_log_formatter(
+    settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:
+    settings.log.json_output = True
+    settings.log.access_log_format = (
+        "{client.address} {http.request.method} {url.path} "
+        "{missing.key} {http.request.header.content_type}"
     )
-    assert (
-        formatter.format(format_string_missing, **data)
-        == "127.0.0.1 GET /test {missing.key}"
+    logs.init_logging(settings.log)
+    app = asgi.create_app(settings, initialize_runtime=False)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://bridge.example.com"
+    ) as client:
+        assert (await client.get("/not-found")).status_code == 404
+    record = next(
+        r for r in parse_logs(capsys) if r["logger"] == "oauthclientbridge.http"
     )
+    assert record["event"] == "127.0.0.1 GET /not-found {missing.key} -"
 
-    # Test with a key that is None, expecting "-" output
-    data_none = {"client.address": None}
-    format_string_none = "{client.address}"
-    assert formatter.format(format_string_none, **data_none) == "-"
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("instrumented")
+async def test_access_log_correlates_with_server_span(
+    logging_client: httpx.AsyncClient,
+    capsys: pytest.CaptureFixture[str],
+    otel_mock: OTelMocker,
+) -> None:
+    logs.init_logging(LogSettings(json_output=True))
+    assert (await logging_client.get("/echo/test")).status_code == 200
+    records = parse_logs(capsys)
+    record = next(r for r in records if r["logger"] == "oauthclientbridge.http")
+    server_span = next(
+        span
+        for span in otel_mock.get_finished_spans()
+        if span.readable_span.kind == trace.SpanKind.SERVER
+    )
+    assert record["trace_id"] == trace.format_trace_id(server_span.trace_id)
+    assert record["span_id"] == trace.format_span_id(server_span.span_id)
+    app_record = next(r for r in records if r["event"] == "Inside ASGI route.")
+    assert app_record["trace_id"] == record["trace_id"]
+    assert app_record["span_id"] == record["span_id"]

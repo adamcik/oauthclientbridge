@@ -10,6 +10,8 @@ from opentelemetry.semconv.attributes.http_attributes import (
     HTTP_RESPONSE_HEADER_TEMPLATE,
     HTTP_RESPONSE_STATUS_CODE,
 )
+from starlette.applications import Starlette
+from starlette.routing import Match, Route
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from oauthclientbridge import observer, types
@@ -181,7 +183,7 @@ def _asgi_request(scope: Scope) -> observer.RequestLifecycleRequest:
             "client.address": client[0] if client is not None else None,
             "http.request.method": scope["method"],
             "http.request.body.size": 0,
-            "http.route": None,
+            "http.route": asgi_route(scope),
             "network.protocol.version": _bounded(scope.get("http_version")),
             "server.address": host,
             "url.full": url,
@@ -193,6 +195,17 @@ def _asgi_request(scope: Scope) -> observer.RequestLifecycleRequest:
             "http.request.header.content_length": _content_length(headers),
         }
     )
+
+
+def asgi_route(scope: Scope) -> str | None:
+    # Middleware runs before the router populates endpoint and path parameters.
+    app = scope.get("app")
+    if isinstance(app, Starlette):
+        for route in app.routes:
+            match, _ = route.matches(scope)
+            if match == Match.FULL and isinstance(route, Route):
+                return route.path
+    return None
 
 
 def _asgi_endpoint(scope: Scope, status_code: int) -> types.Endpoint:
