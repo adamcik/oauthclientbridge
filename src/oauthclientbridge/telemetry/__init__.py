@@ -30,7 +30,6 @@ __all__ = [
     "init_sentry",
     "init_tracing",
     "instrument",
-    "instrument_app",
     "instrument_asgi_app",
     "oauth_outcome_observer",
     "observe_client_generation_drain_metric",
@@ -65,7 +64,6 @@ record_invalid_client_id_trace = _otel.record_invalid_client_id_trace
 record_oauth_error_trace = _otel.record_oauth_error_trace
 instrument = _otel.instrument
 uninstrument = _otel.uninstrument
-instrument_app = _otel.instrument_app
 instrument_asgi_app = _otel.instrument_asgi_app
 init_tracing = _otel.init_tracing
 init_metrics = _otel.init_metrics
