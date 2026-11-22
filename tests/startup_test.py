@@ -47,7 +47,6 @@ class ConsoleCase:
             id="asgi-factory",
             args=["from oauthclientbridge import asgi; asgi.create_app()"],
         ),
-        CommandCase(id="wsgi", args=["import oauthclientbridge.wsgi"]),
     ],
     ids=lambda case: case.id,
 )

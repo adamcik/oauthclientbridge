@@ -1,5 +1,3 @@
-import base64
-import json
 import logging
 import sqlite3
 import urllib.parse
@@ -16,14 +14,10 @@ import pytest
 import pytest_sentry_capture
 import sentry_sdk
 import structlog
-from flask import Flask
-from flask.ctx import AppContext
-from flask.testing import FlaskClient
 from pydantic import SecretStr
 from starlette.testclient import TestClient
-from werkzeug.datastructures import Headers
 
-from oauthclientbridge import bridge, create_app, crypto, db, oauth, telemetry, types
+from oauthclientbridge import bridge, crypto, db, oauth, telemetry, types
 from oauthclientbridge.asgi import create_app as create_asgi_app
 from oauthclientbridge.oauth import (
     _retry as oauth_retry,  # pyright: ignore[reportPrivateUsage] # Global retry limiter reset.
@@ -64,7 +58,7 @@ def initialize_sentry(
                 sample_rate=1.0,
                 traces_sample_rate=1.0,
             ),
-            "flask",
+            "starlette",
             sentry_transport,
         )
     except BaseException:
@@ -99,7 +93,7 @@ def oauth_server() -> Generator[OAuthServer, None, None]:
 class ResponseTuple(NamedTuple):
     data: dict[str, Any]
     status: int
-    headers: httpx.Headers | Headers
+    headers: httpx.Headers
 
 
 class TokenTuple(NamedTuple):
@@ -208,32 +202,9 @@ def settings() -> Settings:
 
 
 @pytest.fixture
-def app(settings: Settings) -> Flask:
-    app = create_app(settings, fetch=partial(oauth.fetch_with_requests, settings.fetch))
-    app.secret_key = "test-secret-key"
-    return app
-
-
-@pytest.fixture(scope="function")
-def app_context(app: Flask, settings: Settings) -> Generator[AppContext, None, None]:
-    with app.app_context() as ctx:
-        db.initialize()
-        yield ctx
-
-
-@pytest.fixture
-def client(app: Flask, app_context: AppContext) -> Generator[FlaskClient, None, None]:
-    _ = app_context
-
-    yield app.test_client()
-
-
-@pytest.fixture
-def cursor(app_context: AppContext) -> Generator[sqlite3.Cursor, None, None]:
-    _ = app_context
-
-    with db.get() as connection:
-        yield connection.cursor()
+def initialized_database(settings: Settings, tmp_path: Path) -> None:
+    settings.database.database = str(tmp_path / "tokens.db")
+    db.initialize(settings.database)
 
 
 class GetClient(Protocol):
@@ -242,19 +213,6 @@ class GetClient(Protocol):
         path: str,
         headers: dict[str, str] | None = None,
     ) -> ResponseTuple: ...
-
-
-@pytest.fixture
-def get(client: FlaskClient) -> GetClient:
-    def _get(path: str, headers: dict[str, str] | None = None) -> ResponseTuple:
-        resp = client.get(path, headers=headers)
-        return ResponseTuple(
-            json.loads(resp.text),
-            resp.status_code,
-            resp.headers,
-        )
-
-    return _get
 
 
 class PostClient(Protocol):
@@ -268,52 +226,9 @@ class PostClient(Protocol):
 
 
 @pytest.fixture
-def post(client: FlaskClient) -> PostClient:
-    def _post(
-        path: str,
-        data: dict[str, Any],
-        auth: tuple[types.ClientId, types.ClientSecret] | None = None,
-        headers: Mapping[str, str | bytes] | None = None,
-    ) -> ResponseTuple:
-        request_headers = dict(headers or {})
-
-        if auth:
-            encoded = base64.b64encode(("{}:{}".format(*auth)).encode("ascii"))
-            request_headers["Authorization"] = "Basic {}".format(
-                encoded.decode("ascii")
-            )
-
-        resp = client.post(path, headers=request_headers, data=data)
-
-        return ResponseTuple(
-            json.loads(resp.text),
-            resp.status_code,
-            resp.headers,
-        )
-
-    return _post
-
-
-@pytest.fixture
-def state(client: FlaskClient) -> str:
-    """Populate the OAuth state used by callback-flow tests."""
-    with client.session_transaction() as session:
-        session["state"] = "abcdef"
-    return "abcdef"
-
-
-@pytest.fixture
-def client_state(client: FlaskClient) -> str:
-    """Populate client-provided state stored alongside OAuth state."""
-    with client.session_transaction() as session:
-        session["client_state"] = "s3cret"
-    return "s3cret"
-
-
-@pytest.fixture
-def asgi_client(settings: Settings, app_context: AppContext) -> Generator[httpx.Client]:
-    # The legacy context keeps the shared in-memory database alive, not HTTP state.
-    _ = app_context
+def asgi_client(
+    settings: Settings, initialized_database: None
+) -> Generator[httpx.Client]:
     app = create_asgi_app(
         settings,
         fetch=partial(oauth.fetch_with_requests, settings.fetch),

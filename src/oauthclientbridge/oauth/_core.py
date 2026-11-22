@@ -6,15 +6,13 @@ import time
 from http import HTTPStatus
 from typing import Any, Protocol, override
 
-import flask
 import requests
 import structlog
 from opentelemetry import metrics, trace
 
 from oauthclientbridge import execution, telemetry, types
 from oauthclientbridge.errors import OAuthError
-from oauthclientbridge.settings import FetchSettings, current_settings
-from oauthclientbridge.utils import uri as uri_utils
+from oauthclientbridge.settings import FetchSettings
 
 from ._outcome import (
     OAuthResponse,
@@ -85,37 +83,6 @@ class Error(Exception):
     @override
     def __str__(self) -> str:
         return f"{self.error}: {self.description}"
-
-
-def error_handler(e: Error) -> flask.Response:
-    """Create a well formed JSON response with status and auth headers."""
-    result: dict[str, str] = {
-        "error": e.error.value,
-        "error_description": e.description,
-    }
-
-    if e.uri is not None:
-        result["error_uri"] = e.uri
-
-    response = flask.jsonify(result)
-    if e.error == OAuthError.INVALID_CLIENT:
-        response.status_code = HTTPStatus.UNAUTHORIZED
-        response.headers["WWW-Authenticate"] = (
-            f'Basic realm="{current_settings.auth_realm}"'
-        )
-    elif e.error == OAuthError.TEMPORARILY_UNAVAILABLE:
-        response.status_code = HTTPStatus.SERVICE_UNAVAILABLE
-        if e.retry_after is not None:
-            response.headers["Retry-After"] = int(e.retry_after)
-    else:
-        response.status_code = HTTPStatus.BAD_REQUEST
-
-    status = HTTPStatus(response.status_code)
-    structlog.contextvars.bind_contextvars(oauth_error=e.error.value)
-    telemetry.record_oauth_error_trace(e.error.value, e.description, e, status=status)
-
-    telemetry.record_server_error_metric(status, e.error)
-    return response
 
 
 def scrub_refresh_token(token: OAuthResponse) -> OAuthResponse:
@@ -508,11 +475,4 @@ def jitter_delay(
     return delay * random.uniform(
         lower_bound,
         settings.backoff_jitter_max,
-    )
-
-
-def redirect(uri: str, **params: str) -> flask.Response:
-    return flask.Response(
-        status=HTTPStatus.FOUND,
-        headers={"Location": uri_utils.rewrite_uri(uri, params)},
     )
