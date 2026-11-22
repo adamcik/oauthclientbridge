@@ -17,9 +17,9 @@ of creating a strange hybrid flow.
 
 ## Installation
 
-Install by running:
-
-    pip install OAuth-Client-Bridge
+Deploy with the [NixOS module](docs/nixos.md). Native NixOS is the only
+supported deployment path. See [Nix packages](docs/nix-packages.md) for the
+packaged web server, management CLI, and assets.
 
 ## Settings
 
@@ -41,36 +41,14 @@ their full environment-variable names as filenames. Environment values keep
 precedence over file values. The [NixOS module](docs/nixos.md) loads sops-nix secrets
 through systemd credentials without exporting secret contents.
 
-Once these are set (e.g., by sourcing a `.env` file), you can initialize the
-database:
-
-    oauthclientbridge initdb
-
-Run the ASGI server (also the default when no command is given):
-
-    oauthclientbridge serve
-
-For local development with one worker:
-
-    oauthclientbridge serve --workers 1 --host 127.0.0.1 --port 8000
-
-The server runs application startup and shutdown services. It uses four workers
-by default; `WORKERS` and `ASGI_GRACEFUL_SHUTDOWN_TIMEOUT` configure the worker
-count and graceful shutdown timeout, or use the corresponding `serve` options.
-
-Run `upgradedb` when upgrading an existing database:
-
-    oauthclientbridge upgradedb
-
-Additionally you might want to run `cleandb` as a cron job to reclaim
-unused database space:
-
-    oauthclientbridge cleandb
+Use the module's [management units](docs/nixos.md#provisioning-and-migrations-are-explicit)
+for database initialization, upgrades, and optional scheduled cleanup. The module
+also configures worker count and graceful shutdown through `workers` and
+`gracefulShutdownTimeout`.
 
 ## Setting up a production instance
 
-See [native NixOS deployment](docs/nixos.md) or the existing
-[Podman Quadlet deployment](deploy/README.md).
+See [NixOS deployment](docs/nixos.md).
 
 The Nix runtime and development package set uses Determinate Systems'
 [weekly nixpkgs feed](https://determinate.systems/blog/nixpkgs-cooldown/), with a
@@ -80,7 +58,7 @@ not constrain Python dependencies, fetched releases, or other flake inputs.
 For an urgent fix, temporarily point `inputs.nixpkgs.url` at a reviewed upstream
 revision or `github:NixOS/nixpkgs/nixos-unstable`, run `nix flake update nixpkgs`, and
 validate through a PR. Restore the weekly feed once it includes the fix. Publish the
-refreshed native and container outputs before updating consumer pins; retain this
+refreshed native packages before updating consumer pins; retain this
 flake's own runtime package set for cache compatibility.
 
 -   Always use HTTPS since we are passing access tokens around.
@@ -88,8 +66,8 @@ flake's own runtime package set for cache compatibility.
     `false` only for local HTTP development.
 -   Ensure the deployment passes the correct request scheme, host, and client
     address to the application. The ASGI middleware trusts one reverse-proxy
-    hop; sanitize forwarded headers at the proxy. See the Caddy example in the
-    [deployment instructions](deploy/README.md).
+    hop; sanitize forwarded headers at the proxy. See
+    [proxy configuration](docs/nixos.md#proxy-and-static-files).
 -   `OAUTH_SCOPES` is used when the authorization request omits `scope`.
     Set `OAUTH_ALLOWED_SCOPES` to restrict requested scopes to that allowlist.
     Leaving it unset permits dynamic scopes for compatibility and should only be

@@ -4,7 +4,6 @@
     "github>adamcik/renovate-config:application",
     "github>adamcik/renovate-config:automerge"
   ],
-  "ignorePaths": ["deploy/**"],
   "packageRules": [
     {
       "matchDatasources": ["pypi"],

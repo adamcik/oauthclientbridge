@@ -5,9 +5,6 @@ on:
   push:
     branches:
       - main
-  release:
-    types:
-      - published
 
 jobs:
   actions-lock:
@@ -28,7 +25,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -51,70 +47,5 @@ jobs:
       - name: Run nix flake check
         run: nix flake check
 
-      - name: Compute version override
-        run: |
-          BUILD_OVERRIDES="${RUNNER_TEMP}/.build-overrides"
-          echo "BUILD_OVERRIDES=${BUILD_OVERRIDES}" >> "$GITHUB_ENV"
-          VERSION="$(nix develop -c hatchling version)"
-          REVISION="$(git rev-parse HEAD)"
-          CREATED="$(git show -s --format=%cI HEAD)"
-          jq -n \
-            --arg version "$VERSION" \
-            --arg revision "$REVISION" \
-            --arg created "$CREATED" \
-            '{version:$version, revision:$revision, created:$created}' \
-            | tee "$BUILD_OVERRIDES"
-          test -s "$BUILD_OVERRIDES"
-
-      - name: Build image
-        run: nix build .#image --override-input build-overrides "path:${BUILD_OVERRIDES}"
-
-      - name: Install Podman
-        run: |
-          if ! command -v podman >/dev/null || ! command -v newuidmap >/dev/null; then
-            sudo apt-get update
-            sudo apt-get install --yes podman uidmap
-          fi
-          if test "$(sysctl --values kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true)" = 1; then
-            sudo sysctl --write kernel.apparmor_restrict_unprivileged_userns=0
-          fi
-          if test "$(sysctl --values kernel.unprivileged_userns_clone 2>/dev/null || true)" = 0; then
-            sudo sysctl --write kernel.unprivileged_userns_clone=1
-          fi
-          test "$(podman info --format '{{.Host.Security.Rootless}}')" = true
-          podman unshare true
-
-      - name: Load image into Podman
-        run: nix run .#image.copyToPodman --override-input build-overrides "path:${BUILD_OVERRIDES}"
-
-      - name: Smoke test ASGI image
-        run: nix develop --command deploy/smoke-image.sh
-
-      - name: Login to GHCR
-        if: |
-          (github.event_name == 'push' && github.ref_name == github.event.repository.default_branch) ||
-          github.event_name == 'release'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_ACTOR: ${{ github.actor }}
-        run: echo "${GH_TOKEN}" | skopeo login ghcr.io -u "${GH_ACTOR}" --password-stdin
-
-      - name: Push image to GHCR
-        if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch
-        run: nix run .#image.copyToRegistry --override-input build-overrides "path:${BUILD_OVERRIDES}"
-
-      - name: Push ASGI compatibility tag to GHCR
-        if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch
-        run: nix run .#image.copyTo --override-input build-overrides "path:${BUILD_OVERRIDES}" -- "docker://ghcr.io/adamcik/oauthclientbridge:asgi"
-
-      - name: Push release-tagged image to GHCR
-        if: github.event_name == 'release'
-        env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: nix run .#image.copyTo --override-input build-overrides "path:${BUILD_OVERRIDES}" -- "docker://ghcr.io/adamcik/oauthclientbridge:${RELEASE_TAG}"
-
-      - name: Push ASGI release compatibility tag to GHCR
-        if: github.event_name == 'release'
-        env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: nix run .#image.copyTo --override-input build-overrides "path:${BUILD_OVERRIDES}" -- "docker://ghcr.io/adamcik/oauthclientbridge:${RELEASE_TAG}-asgi"
+      - name: Test NixOS deployment
+        run: nix build .#nixos-test .#nixos-permissions-test

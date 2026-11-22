@@ -1,7 +1,7 @@
 # Native NixOS deployment
 
-Import `inputs.oauthclientbridge.nixosModules.default`. Containers remain supported;
-the native service runs the same packaged ASGI entrypoint and CLI as `asgi-image`.
+Import `inputs.oauthclientbridge.nixosModules.default`. Native NixOS is the only
+supported deployment path, using the packaged ASGI server, management CLI, and assets.
 The native module does not configure a database server, proxy, TLS, firewall, or
 backups. SQLite is the app's existing database, not a new deployment dependency.
 
@@ -128,31 +128,11 @@ versions out of traffic until the explicit migration succeeds, then restart web
 and any previously enabled timer. Do not run migrations while other writers or
 maintenance jobs are active.
 
-To move a container instance:
-
-1. Pin the source and target app revisions. Do not simultaneously change runtime,
-   schema, and provider settings without a tested recovery plan.
-2. Stop its container and any scheduled jobs. Never run both deployment paths
-   against a copied or shared writable database during the cutover.
-3. Take a consistent SQLite backup using the host's backup procedure. Copying only
-   the main file while WAL writes are active can lose committed data. Quiesce all
-   writers and checkpoint, or use SQLite's backup API. Preserve the original.
-4. Install the copy as `/var/lib/oauthclientbridge/spotify/sqlite.db`, owned by
-   `oauthclientbridge-spotify:oauthclientbridge-spotify`, mode `0600`; keep its
-   parent directory mode `0700`. Keep the host's backup configuration responsible
-   for this new path.
-5. Install equivalent runtime settings and secret files. Preserve provider redirect
-   URIs, cookie settings, callback template, scopes, and telemetry configuration.
-6. Explicitly start `oauthclientbridge-spotify-upgradedb.service` if required by
-   the target version. Check its journal and exit status before starting web.
-7. Start web, verify application behavior, then change the host's proxy route.
-   Retain the old image digest and backup until the rollback window closes.
-
 `cleanDatabase.enable` defaults to false. Enabling it creates a persistent weekly
 timer (with up to 15 minutes of jitter) running `cleandb`, which vacuums SQLite;
 `cleanDatabase.onCalendar` customizes the schedule. Vacuuming may contend with
 traffic, so choose a maintenance window. The native module deliberately supports
-isolated databases only, not shared state paths. If existing containers or other
+isolated databases only, not shared state paths. If other
 writers share a database, keep their jobs disabled until exactly one maintenance
 owner has been selected. Do not enable one job per replica of a shared database.
 
@@ -209,15 +189,13 @@ and app closure, not SQLite contents, schema changes, tokens, or runtime secrets
 Before upgrading, test whether the older app can read the newer schema. If not,
 rollback requires stopping every writer and restoring a compatible database
 backup, with the expected loss of changes since that backup. Do not blindly
-re-run `initdb` or copy a database over live WAL files. Switching the proxy back
-to a container is safe only when that container uses a database compatible with
-its pinned image; avoid resuming writes to an obsolete pre-cutover copy.
+re-run `initdb` or copy a database over live WAL files.
 
 ## Verification
 
-Run `nix fmt`, `nix flake check`, and
-`nix build .#image .#asgi-image`. VM tests are opt-in and are not run by
-`nix flake check`. On Linux, run the full VM test with `nix build -L .#nixos-test`.
+Run `nix fmt` and `nix flake check`. CI also runs the NixOS VM tests, which are
+not included in `nix flake check`. On Linux, run the full VM test with
+`nix build -L .#nixos-test`.
 It boots NixOS with the real packaged app, SQLite, two isolated instances,
 root-only runtime credential files matching sops-nix output, explicit initialization
 and legacy migration, an opt-in timer, and a host-configured nginx serving store
@@ -233,5 +211,4 @@ mode `0600` files, fresh sidecars created by either identity, both startup order
 and access across unit restarts without granting the proxy group state or private
 runtime access. The full test uses the real app and backup-user group membership.
 A local fake OAuth provider avoids real credentials and external network
-dependencies; it does not test provider availability. Existing rootless Podman
-smoke tests remain useful for container-specific behavior (see `deploy/README.md`).
+dependencies; it does not test provider availability.
