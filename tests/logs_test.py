@@ -277,7 +277,9 @@ async def test_asgi_request_and_response_logging(
 
 @pytest.mark.anyio
 async def test_access_log_records_matched_route_template(
-    logging_client: httpx.AsyncClient, capsys: pytest.CaptureFixture[str]
+    logging_client: httpx.AsyncClient,
+    capsys: pytest.CaptureFixture[str],
+    otel_mock: OTelMocker,
 ) -> None:
     logs.init_logging(LogSettings(json_output=True))
     assert (await logging_client.get("/echo/concrete-value")).status_code == 200
@@ -285,6 +287,13 @@ async def test_access_log_records_matched_route_template(
         r for r in parse_logs(capsys) if r["logger"] == "oauthclientbridge.http"
     )
     assert record[HTTP_ROUTE] == "/echo/{name}"
+    server_span = next(
+        span
+        for span in otel_mock.get_finished_spans()
+        if span.readable_span.kind == trace.SpanKind.SERVER
+    )
+    assert server_span.attributes is not None
+    assert server_span.attributes[HTTP_ROUTE] == "/echo/{name}"
 
 
 @pytest.mark.anyio

@@ -273,6 +273,10 @@ def _asgi_request_hook(span: trace.Span, scope: dict[str, Any]) -> None:
     if not span or not span.is_recording():
         return
 
+    route = _lifecycle.asgi_route(scope)
+    if route is not None:
+        span.set_attribute("http.route", route)
+
     scheme = scope.get("scheme", "http")
     server = scope.get("server") or ("localhost", 80)
     headers = dict(scope.get("headers", []))
