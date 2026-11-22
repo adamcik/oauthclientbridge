@@ -16,14 +16,12 @@ from . import (
     _oauth_outcome,
     _otel,
     _prometheus,
-    _refresh,
     _resources,
     _sentry,
 )
 
 __all__ = [
     "ClientResponseStatus",
-    "add_refresher",
     "bind_invalid_client_id_log_context",
     "capture_unhandled_exception",
     "export_metrics",
@@ -53,13 +51,10 @@ __all__ = [
     "record_server_error_metric",
     "record_workaround_metric",
     "request_lifecycle_observer",
-    "request_refresh",
     "set_build_info_metric",
     "set_client_id_context",
     "set_token_state_counts_metric",
     "start_asyncio_monitor",
-    "start_background_refresh",
-    "stop_background_refresh",
     "uninstrument",
 ]
 
@@ -96,10 +91,6 @@ request_lifecycle_observer = _lifecycle.RequestLifecycleObserver
 observe_token_grant_age_metric = _prometheus.observe_token_grant_age_metric
 set_build_info_metric = _prometheus.set_build_info_metric
 set_token_state_counts_metric = _prometheus.set_token_state_counts_metric
-add_refresher = _refresh.add_refresher
-request_refresh = _refresh.request_refresh
-start_background_refresh = _refresh.start_background_refresh
-stop_background_refresh = _refresh.stop_background_refresh
 
 
 def start_asyncio_monitor(task_spawner: abc.TaskGroup, name: str) -> None:
