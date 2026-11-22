@@ -166,12 +166,11 @@ def test_html_template_preserves_optional_variables_and_filters():
 
 @pytest.mark.parametrize("provider", ["spotify", "soundcloud"])
 def test_bundled_callback_template_and_policies_authorize_script(provider: str):
-    deploy = Path(__file__).resolve().parents[1] / "deploy" / provider
-    template = (deploy / "callback.html").read_text()
-    policy = next(
-        line.split("=", 1)[1]
-        for line in (deploy / "env").read_text().splitlines()
-        if line.startswith("BRIDGE_CALLBACK_CONTENT_SECURITY_POLICY=")
+    templates = Path(__file__).resolve().parents[1] / "assets" / "templates"
+    template = (templates / f"{provider}.html").read_text()
+    policy = (
+        "default-src 'none'; script-src 'nonce-{{ csp_nonce }}'; "
+        "form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
     )
     response = _template.render_browser_oauth_result(
         template,
