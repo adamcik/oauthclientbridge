@@ -652,6 +652,8 @@ async def test_httpx_fetcher_preserves_retryable_response_when_retry_delay_is_ca
 async def test_httpx_fetcher_reuses_http11_connection(
     upstream_grant_type: types.UpstreamGrantType,
     oauth_server: OAuthServer,
+    otel_mock: OTelMocker,
+    instrumented: None,
 ) -> None:
     for _ in range(2):
         oauth_server.expect("/token").respond(
@@ -669,6 +671,21 @@ async def test_httpx_fetcher_reuses_http11_connection(
         await client.aclose()
 
     assert len({request.client_address for request in oauth_server.requests}) == 1
+
+    spans = otel_mock.get_finished_spans()
+    requests = [span for span in spans if span.name == "POST"]
+    assert len(requests) == 2
+    assert requests[0].attributes["httpx.connection.setup"] is True
+    assert requests[1].attributes["httpx.connection.setup"] is False
+    connections = [span for span in spans if span.name == "HTTP connection.connect_tcp"]
+    assert len(connections) == 1
+    assert connections[0].parent_span_id == requests[0].span_id
+    waits = [
+        span for span in spans if span.name == "HTTP http11.receive_response_headers"
+    ]
+    assert {span.parent_span_id for span in waits} == {
+        span.span_id for span in requests
+    }
 
 
 @pytest.mark.anyio

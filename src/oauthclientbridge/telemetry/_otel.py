@@ -62,7 +62,7 @@ from oauthclientbridge.settings import (
 )
 from oauthclientbridge.utils import uri
 
-from . import _lifecycle
+from . import _httpx, _lifecycle
 from ._buckets import BYTES, TIME
 from ._resources import otel_log_attributes, resource_attributes
 
@@ -206,7 +206,7 @@ def instrument() -> None:
     _logging_instrumentor.instrument(log_hook=_logging_log_hook)
     _sqlite_instrumentor.instrument()
     _requests_instrumentor.instrument(response_hook=_requests_response_hook)
-    _httpx_instrumentor.instrument()
+    _httpx_instrumentor.instrument(async_request_hook=_httpx.request_hook)
 
 
 def uninstrument() -> None:

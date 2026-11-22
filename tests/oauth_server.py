@@ -1,4 +1,5 @@
 import json
+import ssl
 from collections import deque
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -100,12 +101,18 @@ class Expectation:
 
 
 class OAuthServer:
-    def __init__(self) -> None:
+    def __init__(self, *, tls_context: ssl.SSLContext | None = None) -> None:
         self._expectations: deque[_Expectation] = deque()
         self._lock = Lock()
         self._requests_ready = Condition(self._lock)
         self.requests: list[ObservedRequest] = []
         self._server = _OAuthServer(("127.0.0.1", 0), _RequestHandler)
+        self._scheme = "http"
+        if tls_context is not None:
+            self._server.socket = tls_context.wrap_socket(
+                self._server.socket, server_side=True
+            )
+            self._scheme = "https"
         self._server.oauth_server = self
         self._thread = Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
@@ -115,7 +122,7 @@ class OAuthServer:
 
     def url_for(self, path: str) -> str:
         host, port = self._server.server_address
-        return f"http://{host}:{port}{path}"
+        return f"{self._scheme}://{host}:{port}{path}"
 
     def close(self) -> None:
         self._server.shutdown()
