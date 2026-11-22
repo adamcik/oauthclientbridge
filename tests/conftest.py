@@ -58,7 +58,6 @@ def initialize_sentry(
                 sample_rate=1.0,
                 traces_sample_rate=1.0,
             ),
-            "starlette",
             sentry_transport,
         )
     except BaseException:
