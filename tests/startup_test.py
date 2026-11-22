@@ -165,11 +165,10 @@ def test_sentry_receives_sanitized_settings_failure_before_app_is_created(
     initialize_sentry = telemetry.init_sentry
     client = None
 
-    def with_transport(configured: settings.SentrySettings, runtime: str) -> None:
+    def with_transport(configured: settings.SentrySettings) -> None:
         nonlocal client
-        assert runtime == "starlette"
         try:
-            initialize_sentry(configured, "starlette", sentry_transport)
+            initialize_sentry(configured, sentry_transport)
         finally:
             client = sentry_sdk.get_client()
 
@@ -180,7 +179,7 @@ def test_sentry_receives_sanitized_settings_failure_before_app_is_created(
 
     try:
         with pytest.raises(SystemExit) as exit, startup.bootstrap():
-            startup.initialize("starlette")
+            startup.initialize()
 
         assert exit.value.code == 1
         assert client is not None

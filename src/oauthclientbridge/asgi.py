@@ -22,7 +22,7 @@ def create_app(
     """Create the ASGI application for an in-process client or ASGI server."""
     if initialize_runtime:
         with startup.bootstrap(settings.log if settings is not None else None):
-            settings = startup.initialize("starlette", settings)
+            settings = startup.initialize(settings)
             telemetry.set_build_info_metric(settings.otel)
             return _create_app(settings, fetch, fallback_observer, outcome_observer)
 
