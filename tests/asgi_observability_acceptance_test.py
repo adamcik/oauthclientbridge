@@ -389,7 +389,10 @@ async def test_authorize_correlates_trace_and_redacts_redirect_location(
     acceptance_client: httpx.AsyncClient,
     otel_mock: OTelMocker,
 ) -> None:
-    response = await acceptance_client.get("/")
+    trace_id = 0x1234567890ABCDEF
+    response = await acceptance_client.get(
+        "/", headers={"traceparent": f"00-{trace_id:032x}-0000000000123456-01"}
+    )
 
     assert response.status_code == HTTPStatus.FOUND
     server_span = next(
@@ -398,8 +401,76 @@ async def test_authorize_correlates_trace_and_redacts_redirect_location(
         if span.readable_span.kind == trace.SpanKind.SERVER
     )
     assert_trace_header(response.headers["traceresponse"], server_span.trace_id)
+    assert server_span.trace_id == trace_id
     assert server_span.attributes is not None
     location = server_span.attributes["http.response.header.location"]
     assert location.startswith("https://provider.example.com/auth?")
     assert "state=<REDACTED>" in location
     assert "client_secret" not in location
+
+
+@dataclass(frozen=True)
+class IncomingTraceCase:
+    id: str
+    headers: dict[str, str]
+    trace_id: int
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        IncomingTraceCase(
+            id="w3c-only",
+            headers={
+                "traceparent": "00-00000000000000001234567890abcdef-0000000000123456-01"
+            },
+            trace_id=0x1234567890ABCDEF,
+        ),
+        IncomingTraceCase(
+            id="sentry-only",
+            headers={
+                "sentry-trace": "0000000000000000fedcba0987654321-0000000000654321-1"
+            },
+            trace_id=0xFEDCBA0987654321,
+        ),
+        IncomingTraceCase(
+            id="w3c-takes-precedence",
+            headers={
+                "traceparent": "00-00000000000000001234567890abcdef-0000000000123456-01",
+                "sentry-trace": "0000000000000000fedcba0987654321-0000000000654321-1",
+            },
+            trace_id=0x1234567890ABCDEF,
+        ),
+        IncomingTraceCase(
+            id="invalid-w3c-retains-sentry",
+            headers={
+                "traceparent": "invalid",
+                "sentry-trace": "0000000000000000fedcba0987654321-0000000000654321-1",
+            },
+            trace_id=0xFEDCBA0987654321,
+        ),
+    ],
+    ids=lambda case: case.id,
+)
+async def test_sentry_enabled_incoming_trace_propagation(
+    acceptance_app: Starlette,
+    otel_mock: OTelMocker,
+    case: IncomingTraceCase,
+) -> None:
+    # Enter at the transport boundary so client-side SDK instrumentation cannot
+    # add or replace the incoming headers under test.
+    async with httpx.ASGITransport(app=acceptance_app) as transport:
+        response = await transport.handle_async_request(
+            httpx.Request("GET", "https://bridge.example.com/", headers=case.headers)
+        )
+        await response.aread()
+        await response.aclose()
+
+    server_spans = [
+        span
+        for span in otel_mock.get_finished_spans()
+        if span.readable_span.kind == trace.SpanKind.SERVER
+    ]
+    assert len(server_spans) == 1
+    assert server_spans[0].trace_id == case.trace_id
+    assert_trace_header(response.headers["traceresponse"], case.trace_id)
