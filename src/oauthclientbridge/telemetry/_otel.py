@@ -328,7 +328,9 @@ def init_tracing(
         )
 
         provider.add_span_processor(SentrySpanProcessor())
-        propagators.append(SentryPropagator())
+        # Composite extraction is ordered: a valid W3C parent must take precedence
+        # over sentry-trace, including headers added by SDK client integrations.
+        propagators.insert(0, SentryPropagator())
 
     trace.set_tracer_provider(provider)
 
