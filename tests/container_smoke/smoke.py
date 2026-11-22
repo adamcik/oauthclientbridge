@@ -50,7 +50,6 @@ def request(
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--runtime", choices=("asgi",), required=True)
     parser.add_argument("socket", type=Path)
     args = parser.parse_args()
 

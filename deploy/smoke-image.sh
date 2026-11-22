@@ -113,7 +113,7 @@ for _ in $(seq 1 200); do
 done
 test -S "$workspace/run/server.sock"
 
-python tests/container_smoke/smoke.py --runtime asgi "$workspace/run/server.sock"
+python tests/container_smoke/smoke.py "$workspace/run/server.sock"
 
 timeout 45 podman stop --time 35 "$container" >/dev/null
 exit_code="$(podman container inspect --format '{{.State.ExitCode}}' "$container")"
