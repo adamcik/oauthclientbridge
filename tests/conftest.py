@@ -2,7 +2,7 @@ import logging
 import sqlite3
 import urllib.parse
 from collections.abc import AsyncGenerator, Callable, Generator, Mapping
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from contextlib import AbstractAsyncContextManager, asynccontextmanager, closing
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
@@ -201,9 +201,13 @@ def settings() -> Settings:
 
 
 @pytest.fixture
-def initialized_database(settings: Settings, tmp_path: Path) -> None:
-    settings.database.database = str(tmp_path / "tokens.db")
-    db.initialize(settings.database)
+def initialized_database(settings: Settings) -> Generator[None, None, None]:
+    database_uri = f"file:oauthclientbridge-{uuid4()}?mode=memory&cache=shared"
+    settings.database.database = database_uri
+    # Keep the database alive between the runtime's per-operation connections.
+    with closing(sqlite3.connect(database_uri, uri=True)):
+        db.initialize(settings.database)
+        yield
 
 
 class GetClient(Protocol):
