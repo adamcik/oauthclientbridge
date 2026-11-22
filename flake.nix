@@ -238,6 +238,13 @@
             touch "$out"
           '';
         }
+        // lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+          module = import ./nix/module-test.nix {
+            inherit pkgs;
+            appPackages = self.packages.${system};
+            module = self.nixosModules.default;
+          };
+        }
         // lib.optionalAttrs (self.packages.${system} ? image) {
           image-scripts = pkgs.runCommand "oauthclientbridge-image-scripts-check" {} ''
             test ${self.packages.${system}.image} = ${self.packages.${system}.asgi-image}
