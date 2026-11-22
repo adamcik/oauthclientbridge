@@ -56,7 +56,7 @@ cat >"$workspace/callback.html" <<'EOF'
 EOF
 chmod 0644 "$workspace/callback.html"
 
-python tests/container_smoke/fake_upstream.py \
+python tests/deployment/fake_upstream.py \
   --port-file "$workspace/upstream-port" &
 upstream_pid=$!
 
@@ -113,7 +113,7 @@ for _ in $(seq 1 200); do
 done
 test -S "$workspace/run/server.sock"
 
-python tests/container_smoke/smoke.py "$workspace/run/server.sock"
+python tests/deployment/smoke.py "$workspace/run/server.sock"
 
 timeout 45 podman stop --time 35 "$container" >/dev/null
 exit_code="$(podman container inspect --format '{{.State.ExitCode}}' "$container")"

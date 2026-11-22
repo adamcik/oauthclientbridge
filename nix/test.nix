@@ -83,7 +83,7 @@ pkgs.testers.runNixOSTest {
       wantedBy = ["multi-user.target"];
       serviceConfig = {
         RuntimeDirectory = "upstream";
-        ExecStart = "${pkgs.python312}/bin/python ${../tests/container_smoke/fake_upstream.py} --port-file /run/upstream/port";
+        ExecStart = "${pkgs.python312}/bin/python ${../tests/deployment/fake_upstream.py} --port-file /run/upstream/port";
       };
     };
 
@@ -159,7 +159,7 @@ pkgs.testers.runNixOSTest {
 
     with subtest("real OAuth exchange through the packaged app and database"):
         machine.wait_for_unit("nginx.service")
-        machine.succeed("${pkgs.python312}/bin/python ${../tests/container_smoke/smoke.py} --runtime asgi /run/nginx/smoke.sock")
+        machine.succeed("${pkgs.python312}/bin/python ${../tests/deployment/smoke.py} /run/nginx/smoke.sock")
         assert machine.succeed("sqlite3 /var/lib/oauthclientbridge/alpha/sqlite.db 'SELECT count(*) FROM tokens'").strip() == "1"
         assert machine.succeed("sqlite3 /var/lib/oauthclientbridge/beta/sqlite.db 'SELECT client_id FROM tokens'").strip() == "legacy"
 
