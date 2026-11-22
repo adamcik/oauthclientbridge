@@ -146,6 +146,7 @@ pkgs.testers.runNixOSTest {
 
     with subtest("explicit initialization and legacy schema upgrade"):
         machine.succeed("systemctl start oauthclientbridge-alpha-initdb")
+        machine.succeed("test $(stat -c '%a:%U:%G' /var/lib/oauthclientbridge/alpha/sqlite.db) = 660:oauthclientbridge-alpha:oauthclientbridge-alpha")
         machine.succeed("install -d -m 0700 -o oauthclientbridge-beta -g oauthclientbridge-beta /var/lib/oauthclientbridge/beta")
         legacy = "CREATE TABLE tokens(client_id text primary key, token blob); INSERT INTO tokens VALUES ('legacy', NULL);"
         machine.succeed(f"runuser -u oauthclientbridge-beta -- sqlite3 /var/lib/oauthclientbridge/beta/sqlite.db {shlex.quote(legacy)}")

@@ -114,12 +114,20 @@
     unit = unitName name;
     sharedDatabase = instance.databaseAccessUsers != [];
     # Enforce ownership of writable paths even if the runtime file sets these names.
-    environmentScript = ''
-      export DB_DATABASE=${lib.escapeShellArg "${instance.stateDirectory}/sqlite.db"}
-      export PROMETHEUS_MULTIPROC_DIR="$RUNTIME_DIRECTORY/prom"
-      export PYTHONDONTWRITEBYTECODE=1
-      mkdir -p "$PROMETHEUS_MULTIPROC_DIR"
-    '';
+    environmentScript =
+      ''
+        export DB_DATABASE=${lib.escapeShellArg "${instance.stateDirectory}/sqlite.db"}
+        export PROMETHEUS_MULTIPROC_DIR="$RUNTIME_DIRECTORY/prom"
+        export PYTHONDONTWRITEBYTECODE=1
+        mkdir -p "$PROMETHEUS_MULTIPROC_DIR"
+      ''
+      # SQLite creates databases as 0644 before applying the unit's umask.
+      # Pre-create only new shared databases; imported files remain operator-owned.
+      + lib.optionalString sharedDatabase ''
+        if [ ! -e "$DB_DATABASE" ]; then
+          (set -o noclobber; : > "$DB_DATABASE")
+        fi
+      '';
     common = {
       environment = instance.environment;
       serviceConfig =
