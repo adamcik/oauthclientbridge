@@ -231,10 +231,10 @@
           packages = pkgs.runCommand "oauthclientbridge-packages-check" {} ''
             ${self.packages.${system}.management}/bin/oauthclientbridge --help > /dev/null
             ${self.packages.${system}.web}/bin/oauthclientbridge-web --help > /dev/null
-            cmp ${./deploy/spotify/callback.html} ${self.packages.${system}.assets}/share/oauthclientbridge/templates/spotify.html
-            cmp ${./deploy/soundcloud/callback.html} ${self.packages.${system}.assets}/share/oauthclientbridge/templates/soundcloud.html
+            cmp ${./assets/templates/spotify.html} ${self.packages.${system}.assets}/share/oauthclientbridge/templates/spotify.html
+            cmp ${./assets/templates/soundcloud.html} ${self.packages.${system}.assets}/share/oauthclientbridge/templates/soundcloud.html
             test -d ${self.packages.${system}.assets}/share/oauthclientbridge/static
-            cmp ${./deploy/static/robots.txt} ${self.packages.${system}.assets}/share/oauthclientbridge/static/robots.txt
+            cmp ${./assets/static/robots.txt} ${self.packages.${system}.assets}/share/oauthclientbridge/static/robots.txt
             touch "$out"
           '';
         }

@@ -24,8 +24,8 @@ sudo install -d -o root -g www-data -m 2775 /run/oauthclientbridge/spotify /run/
 
 sudo install -m 0600 deploy/spotify/env /etc/oauthclientbridge/spotify/env
 sudo install -m 0600 deploy/soundcloud/env /etc/oauthclientbridge/soundcloud/env
-sudo install -m 0644 deploy/spotify/callback.html /etc/oauthclientbridge/spotify/callback.html
-sudo install -m 0644 deploy/soundcloud/callback.html /etc/oauthclientbridge/soundcloud/callback.html
+sudo install -m 0644 assets/templates/spotify.html /etc/oauthclientbridge/spotify/callback.html
+sudo install -m 0644 assets/templates/soundcloud.html /etc/oauthclientbridge/soundcloud/callback.html
 sudo editor /etc/oauthclientbridge/spotify/env
 sudo editor /etc/oauthclientbridge/soundcloud/env
 ```

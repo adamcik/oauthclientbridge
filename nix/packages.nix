@@ -12,9 +12,9 @@
   # Templates contain runtime credentials after rendering; they are not public files.
   assets = pkgs.runCommand "oauthclientbridge-assets" {} ''
     mkdir -p "$out/share/oauthclientbridge/templates" "$out/share/oauthclientbridge/static"
-    cp -r ${../deploy/static}/. "$out/share/oauthclientbridge/static/"
-    cp ${../deploy/spotify/callback.html} "$out/share/oauthclientbridge/templates/spotify.html"
-    cp ${../deploy/soundcloud/callback.html} "$out/share/oauthclientbridge/templates/soundcloud.html"
+    cp -r ${../assets/static}/. "$out/share/oauthclientbridge/static/"
+    cp ${../assets/templates/spotify.html} "$out/share/oauthclientbridge/templates/spotify.html"
+    cp ${../assets/templates/soundcloud.html} "$out/share/oauthclientbridge/templates/soundcloud.html"
   '';
   management = pkgs.writeShellScriptBin "oauthclientbridge" ''
     exec ${runtime}/bin/oauthclientbridge "$@"
