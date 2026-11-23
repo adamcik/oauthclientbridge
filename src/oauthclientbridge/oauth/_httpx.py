@@ -338,7 +338,17 @@ async def _fetch_outcome(
                 )
                 if retry_after_seconds:
                     result["retry_after"] = retry_after_seconds
+                if status is not None:
+                    telemetry.record_client_error_metric(
+                        upstream_grant_type,
+                        status,
+                        outcome.normalized_error or OAuthError.SERVER_ERROR,
+                    )
                 if attempt == settings.total_attempts - 1:
+                    _record_suppressed_retry(
+                        upstream_grant_type,
+                        outcome.retry_condition or RetryCondition.UNKNOWN,
+                    )
                     return _FetchOutcome(result, status, completed_retries)
 
                 timed_out_result = result

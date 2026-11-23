@@ -8,13 +8,11 @@ from http import HTTPStatus
 import httpx
 import pytest
 import pytest_sentry_capture
-import requests
 import sentry_sdk
 import structlog
 from opentelemetry import metrics, trace
 from opentelemetry.sdk.metrics.export import HistogramDataPoint, NumberDataPoint
 from pydantic import SecretStr
-from requests_mock import Mocker
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.testclient import TestClient
@@ -22,7 +20,7 @@ from starlette.testclient import TestClient
 from oauthclientbridge import db, oauth, telemetry, types
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.oauth import (
-    _core as oauth_core,  # pyright: ignore[reportPrivateUsage] # Direct implementation test.
+    _httpx as oauth_httpx,  # pyright: ignore[reportPrivateUsage] # Deterministic retry delays.
 )
 from oauthclientbridge.oauth._outcome import (  # pyright: ignore[reportPrivateUsage] # Direct implementation test.
     OAuthResponse,
@@ -37,9 +35,11 @@ from oauthclientbridge.settings import (
     TelemetrySettings,
 )
 from oauthclientbridge.telemetry import _resources as resource_labels
+from tests.oauth_server import OAuthServer
 
 from .conftest import GetClient, PostClient, TokenTuple
 from .plugins import otel
+from .prometheus import sample_value
 
 
 @pytest.fixture
@@ -69,7 +69,14 @@ def initialize_sentry(
 
 
 def run_fetch(settings: FetchSettings, *args: str, **data: str | None) -> OAuthResponse:
-    return asyncio.run(oauth.fetch_with_requests(settings, *args, **data))
+    async def fetch() -> OAuthResponse:
+        client = oauth.create_httpx_upstream_client(settings)
+        try:
+            return await client.fetch(*args, **data)
+        finally:
+            await client.aclose()
+
+    return asyncio.run(fetch())
 
 
 logger: structlog.BoundLogger = structlog.get_logger()
@@ -77,11 +84,6 @@ logger: structlog.BoundLogger = structlog.get_logger()
 TRACE_ID = 0x1234567890ABCDEF
 SPAN_ID = 0x123456
 HEADER = f"00-{TRACE_ID:032x}-{SPAN_ID:016x}-01"
-
-
-# WARNING: The order of fixtures matters!
-# requests_mock must be before instrumented, a simple way to get this right is
-# to always put the mocker first, then instrumented.
 
 
 def test_telemetry_tracer_otel_enabled(
@@ -244,37 +246,41 @@ def test_log_attributes_preserves_numeric_process_id() -> None:
     }
 
 
-def test_requests_creates_spans(
-    requests_mock: Mocker,
+@pytest.mark.anyio
+async def test_httpx_creates_spans(
+    upstream_server: OAuthServer,
     otel_mock: otel.OTelMocker,
     instrumented: None,
     tracer: trace.Tracer,
 ) -> None:
-    requests_mock.get("http://example.com/test")
+    upstream_server.expect("/token").respond()
 
     with tracer.start_as_current_span("test") as parent_span:
-        requests.get("http://example.com/test")
+        async with httpx.AsyncClient() as client:
+            await client.post(upstream_server.url_for("/token"))
 
     spans = otel_mock.get_finished_spans()
-    requests_span = otel.get_span(spans, "GET")
-    assert requests_span is not None
-    otel.assert_trace_id(requests_span, parent_span)
+    httpx_span = otel.get_span(spans, "POST")
+    assert httpx_span is not None
+    otel.assert_trace_id(httpx_span, parent_span)
 
 
-def test_requests_propagates_header(
-    requests_mock: Mocker,
+@pytest.mark.anyio
+async def test_httpx_propagates_header(
+    upstream_server: OAuthServer,
     instrumented: None,
     tracer: trace.Tracer,
 ) -> None:
-    requests_mock.get("http://example.com/test", status_code=200, json={})
+    upstream_server.expect("/token").respond({})
 
     with tracer.start_as_current_span("parent-span") as parent_span:
-        requests.get("http://example.com/test")
+        async with httpx.AsyncClient() as client:
+            await client.post(upstream_server.url_for("/token"))
 
-    assert len(requests_mock.request_history) == 1
-    assert "traceparent" in requests_mock.request_history[0].headers
+    assert len(upstream_server.requests) == 1
+    assert "traceparent" in upstream_server.requests[0].headers
     otel.assert_trace_header(
-        requests_mock.request_history[0].headers["traceparent"],
+        upstream_server.requests[0].headers["traceparent"],
         parent_span,
     )
 
@@ -485,18 +491,16 @@ def test_endpoint_sets_traceresponse_from_parent(
     otel.assert_trace_header(response.headers["traceresponse"], TRACE_ID)
 
 
-def test_endpoint_creates_requests_spans(
-    requests_mock: Mocker,
+def test_endpoint_creates_httpx_spans(
+    upstream_server: OAuthServer,
     otel_mock: otel.OTelMocker,
     instrumented: None,
     asgi_post: PostClient,
     refresh_token: TokenTuple,
     settings: Settings,
 ) -> None:
-    requests_mock.post(
-        settings.oauth.token_uri,
-        json={"access_token": "mock_token", "token_type": "Bearer"},
-        status_code=200,
+    upstream_server.expect("/token").respond(
+        {"access_token": "mock_token", "token_type": "Bearer"}
     )
 
     asgi_post(
@@ -521,18 +525,20 @@ def test_endpoint_creates_requests_spans(
 
 
 def test_outgoing_request_span_records_retry_after_header(
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     otel_mock: otel.OTelMocker,
     settings: Settings,
     instrumented: None,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     settings.fetch.total_attempts = 2
-    requests_mock.post(
-        settings.oauth.token_uri,
-        status_code=429,
-        headers={"Content-Type": "application/json", "Retry-After": "10"},
-        json={"error": "temporarily_unavailable"},
-    )
+    monkeypatch.setattr(oauth_httpx, "_sleep", unittest.mock.AsyncMock())
+    for _ in range(settings.fetch.total_attempts):
+        upstream_server.expect("/token").respond(
+            {"error": "temporarily_unavailable"},
+            status=429,
+            headers={"Content-Type": "application/json", "Retry-After": "10"},
+        )
 
     run_fetch(settings.fetch, settings.oauth.token_uri, "test_endpoint")
 
@@ -542,6 +548,9 @@ def test_outgoing_request_span_records_retry_after_header(
     for outgoing_request_span in outgoing_request_spans:
         assert outgoing_request_span.attributes is not None
         assert outgoing_request_span.attributes[
+            "http.response.header.content_length"
+        ] == str(len(b'{"error": "temporarily_unavailable"}'))
+        assert outgoing_request_span.attributes[
             "http.response.header.content_type"
         ] == ("application/json")
         assert (
@@ -550,17 +559,15 @@ def test_outgoing_request_span_records_retry_after_header(
 
 
 def test_endpoint_creates_sqlite3_spans(
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     otel_mock: otel.OTelMocker,
     instrumented: None,
     asgi_post: PostClient,
     refresh_token: TokenTuple,
     settings: Settings,
 ) -> None:
-    requests_mock.post(
-        settings.oauth.token_uri,
-        json={"access_token": "mock_token", "token_type": "Bearer"},
-        status_code=200,
+    upstream_server.expect("/token").respond(
+        {"access_token": "mock_token", "token_type": "Bearer"}
     )
 
     data = {
@@ -578,21 +585,19 @@ def test_endpoint_creates_sqlite3_spans(
 
 
 def test_token_update_records_changed_fields(
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     otel_mock: otel.OTelMocker,
     instrumented: None,
     asgi_post: PostClient,
     refresh_token: TokenTuple,
     settings: Settings,
 ) -> None:
-    requests_mock.post(
-        settings.oauth.token_uri,
-        json={
+    upstream_server.expect("/token").respond(
+        {
             "access_token": "mock_token",
             "token_type": "Bearer",
             "refresh_token": "rotated_refresh_token",
         },
-        status_code=200,
     )
 
     asgi_post(
@@ -614,21 +619,19 @@ def test_token_update_records_changed_fields(
 
 
 def test_token_insert_records_fields(
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     otel_mock: otel.OTelMocker,
     instrumented: None,
     asgi_get: GetClient,
     asgi_state: str,
     settings: Settings,
 ) -> None:
-    requests_mock.post(
-        settings.oauth.token_uri,
-        json={
+    upstream_server.expect("/token").respond(
+        {
             "access_token": "mock_token",
             "refresh_token": "refresh_token",
             "token_type": "Bearer",
         },
-        status_code=200,
     )
 
     asgi_get("/callback?code=1234&state=" + asgi_state)
@@ -672,16 +675,14 @@ def test_revoked_grant_workaround_adds_span_event(
 
 
 def test_endpoint_propagates_outgoing_traceparent(
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     instrumented: None,
     asgi_post: PostClient,
     refresh_token: TokenTuple,
     settings: Settings,
 ) -> None:
-    requests_mock.post(
-        settings.oauth.token_uri,
-        json={"access_token": "mock_token", "token_type": "Bearer"},
-        status_code=200,
+    upstream_server.expect("/token").respond(
+        {"access_token": "mock_token", "token_type": "Bearer"}
     )
 
     asgi_post(
@@ -694,7 +695,7 @@ def test_endpoint_propagates_outgoing_traceparent(
         headers={"traceparent": HEADER},
     )
 
-    history = requests_mock.request_history
+    history = upstream_server.requests
     assert len(history) == 1
     assert "traceparent" in history[0].headers
     otel.assert_trace_header(history[0].headers["traceparent"], TRACE_ID)
@@ -711,14 +712,16 @@ def test_asgi_metrics(
     assert otel.get_metric(metrics, "http.server.active_requests") is not None
 
 
-def test_requests_metrics(
-    requests_mock: Mocker,
+@pytest.mark.anyio
+async def test_httpx_metrics(
+    upstream_server: OAuthServer,
     otel_mock: otel.OTelMocker,
     instrumented: None,
 ) -> None:
-    requests_mock.get("http://example.com/test", status_code=200)
+    upstream_server.expect("/token").respond()
 
-    requests.get("http://example.com/test")
+    async with httpx.AsyncClient() as client:
+        await client.post(upstream_server.url_for("/token"))
 
     metrics = otel_mock.get_metrics_data()
     assert otel.get_metric(metrics, "http.client.duration") is not None
@@ -856,16 +859,14 @@ def test_db_cursor_count_metric_error(
 
 
 def test_oauth_client_duration_metric_success(
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     otel_mock: otel.OTelMocker,
     asgi_get: GetClient,
     asgi_state: str,
     settings: Settings,
 ):
-    requests_mock.post(
-        settings.oauth.token_uri,
-        json={"access_token": "mock_token", "token_type": "Bearer"},
-        status_code=200,
+    upstream_server.expect("/token").respond(
+        {"access_token": "mock_token", "token_type": "Bearer"}
     )
 
     asgi_get("/callback?code=1234&state=" + asgi_state)
@@ -884,16 +885,14 @@ def test_oauth_client_duration_metric_success(
 
 
 def test_oauth_client_retries_metric_success(
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     otel_mock: otel.OTelMocker,
     asgi_get: GetClient,
     asgi_state: str,
     settings: Settings,
 ):
-    requests_mock.post(
-        settings.oauth.token_uri,
-        json={"access_token": "mock_token", "token_type": "Bearer"},
-        status_code=200,
+    upstream_server.expect("/token").respond(
+        {"access_token": "mock_token", "token_type": "Bearer"}
     )
 
     asgi_get("/callback?code=1234&state=" + asgi_state)
@@ -913,21 +912,17 @@ def test_oauth_client_retries_metric_success(
 
 
 def test_oauth_client_retries_metric_records_completed_retry_count(
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     otel_mock: otel.OTelMocker,
     asgi_get: GetClient,
     asgi_state: str,
     settings: Settings,
 ):
-    requests_mock.post(
-        settings.oauth.token_uri,
-        [
-            {"status_code": 503, "json": {"error": "temporarily_unavailable"}},
-            {
-                "json": {"access_token": "mock_token", "token_type": "Bearer"},
-                "status_code": 200,
-            },
-        ],
+    upstream_server.expect("/token").respond(
+        {"error": "temporarily_unavailable"}, status=503
+    )
+    upstream_server.expect("/token").respond(
+        {"access_token": "mock_token", "token_type": "Bearer"}
     )
 
     asgi_get("/callback?code=1234&state=" + asgi_state)
@@ -946,22 +941,18 @@ def test_oauth_client_retries_metric_records_completed_retry_count(
 
 
 def test_oauth_client_retries_metric_prometheus_uses_final_status(
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     settings: Settings,
 ):
-    requests_mock.post(
-        settings.oauth.token_uri,
-        [
-            {"status_code": 503, "json": {"error": "temporarily_unavailable"}},
-            {
-                "json": {"access_token": "mock_token", "token_type": "Bearer"},
-                "status_code": 200,
-            },
-        ],
+    upstream_server.expect("/token").respond(
+        {"error": "temporarily_unavailable"}, status=503
+    )
+    upstream_server.expect("/token").respond(
+        {"access_token": "mock_token", "token_type": "Bearer"}
     )
 
-    with unittest.mock.patch("time.sleep"):
-        run_fetch(settings.fetch, settings.oauth.token_uri, "retry-metric-test")
+    settings.fetch.backoff_factor = 0
+    run_fetch(settings.fetch, settings.oauth.token_uri, "retry-metric-test")
 
     body = telemetry.export_metrics(settings.prometheus).decode()
 
@@ -973,27 +964,20 @@ def test_oauth_client_retries_metric_prometheus_uses_final_status(
 
 
 def test_oauth_client_retry_metrics_record_attempts_and_reasons(
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     asgi_client: httpx.Client,
     asgi_state: str,
     settings: Settings,
 ):
-    requests_mock.post(
-        settings.oauth.token_uri,
-        [
-            {"status_code": 503, "json": {"error": "temporarily_unavailable"}},
-            {
-                "json": {"access_token": "mock_token", "token_type": "Bearer"},
-                "status_code": 200,
-            },
-        ],
+    upstream_server.expect("/token").respond(
+        {"error": "temporarily_unavailable"}, status=503
+    )
+    upstream_server.expect("/token").respond(
+        {"access_token": "mock_token", "token_type": "Bearer"}
     )
 
-    with (
-        unittest.mock.patch("random.uniform", return_value=1.0),
-        unittest.mock.patch("time.sleep"),
-    ):
-        asgi_client.get("/callback?code=1234&state=" + asgi_state)
+    settings.fetch.backoff_factor = 0
+    asgi_client.get("/callback?code=1234&state=" + asgi_state)
 
     metrics_resp = asgi_client.get("/metrics")
 
@@ -1007,26 +991,19 @@ def test_oauth_client_retry_metrics_record_attempts_and_reasons(
 
 
 def test_oauth_client_retry_metrics_bucket_429_as_resource_exhausted(
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     settings: Settings,
 ):
     endpoint = "rate-limit-reason-test"
-    requests_mock.post(
-        settings.oauth.token_uri,
-        [
-            {"status_code": 429, "json": {"error": "temporarily_unavailable"}},
-            {
-                "json": {"access_token": "mock_token", "token_type": "Bearer"},
-                "status_code": 200,
-            },
-        ],
+    upstream_server.expect("/token").respond(
+        {"error": "temporarily_unavailable"}, status=429
+    )
+    upstream_server.expect("/token").respond(
+        {"access_token": "mock_token", "token_type": "Bearer"}
     )
 
-    with (
-        unittest.mock.patch("random.uniform", return_value=1.0),
-        unittest.mock.patch("time.sleep"),
-    ):
-        run_fetch(settings.fetch, settings.oauth.token_uri, endpoint)
+    settings.fetch.backoff_factor = 0
+    run_fetch(settings.fetch, settings.oauth.token_uri, endpoint)
 
     body = telemetry.export_metrics(settings.prometheus)
     assert b"oauth_client_retry_decisions_total" in body
@@ -1035,23 +1012,31 @@ def test_oauth_client_retry_metrics_bucket_429_as_resource_exhausted(
 
 
 def test_oauth_client_error_metric_uses_normalized_retryable_invalid_grant(
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     settings: Settings,
 ):
     endpoint = "retryable-invalid-grant-metric-test"
-    requests_mock.post(
-        settings.oauth.token_uri,
-        status_code=503,
-        json={"error": OAuthError.INVALID_GRANT},
+    labels = {
+        "endpoint": endpoint,
+        "error": "temporarily_unavailable",
+        "status": "http_service_unavailable",
+    }
+    before = sample_value(
+        telemetry.export_metrics(settings.prometheus),
+        "oauth_client_error_total",
+        labels,
     )
+    for _ in range(settings.fetch.total_attempts):
+        upstream_server.expect("/token").respond(
+            {"error": OAuthError.INVALID_GRANT}, status=503
+        )
 
     run_fetch(settings.fetch, settings.oauth.token_uri, endpoint)
 
     body = telemetry.export_metrics(settings.prometheus)
 
-    assert (
-        f'oauth_client_error_total{{endpoint="{endpoint}",error="temporarily_unavailable",status="http_service_unavailable"}}'.encode()
-        in body
+    assert sample_value(body, "oauth_client_error_total", labels) == (
+        before + settings.fetch.total_attempts
     )
     assert (
         f'oauth_client_error_total{{endpoint="{endpoint}",error="invalid_grant",status="http_service_unavailable"}}'.encode()
@@ -1060,51 +1045,18 @@ def test_oauth_client_error_metric_uses_normalized_retryable_invalid_grant(
 
 
 def test_oauth_client_retry_metrics_record_deadline_skip(
-    monkeypatch: pytest.MonkeyPatch,
+    upstream_server: OAuthServer,
     settings: Settings,
 ):
     settings.fetch.total_timeout = 1.0
     settings.fetch.total_attempts = 3
-    settings.fetch.backoff_factor = 0.8
-
-    fake_time = [0.0]
-
-    def now() -> float:
-        return fake_time[0]
-
-    def sleep(duration: float) -> None:
-        fake_time[0] += duration
-
-    fetch_calls = 0
-
-    def fetch_side_effect(
-        span: trace.Span,
-        prepared: requests.PreparedRequest,
-        timeout: float,
-        endpoint: str,
-        *_: object,
-    ) -> tuple[OAuthResponse, HTTPStatus | None, int]:
-        _ = span, prepared, timeout, endpoint
-        nonlocal fetch_calls
-        if fetch_calls == 0:
-            fetch_calls += 1
-            fake_time[0] += 0.2
-            return (
-                {"error": "temporarily_unavailable"},
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                0,
-            )
-
-        raise AssertionError("unexpected retry attempt")
-
-    monkeypatch.setattr(oauth_core.time, "time", now)
-    monkeypatch.setattr(oauth_core.time, "monotonic", now)
-    monkeypatch.setattr(oauth_core.time, "sleep", sleep)
-    monkeypatch.setattr(oauth_core.random, "uniform", lambda _low, _high: 1.25)
-    monkeypatch.setattr(oauth_core, "_fetch", fetch_side_effect)
+    upstream_server.expect("/token").respond(
+        {"error": "temporarily_unavailable"}, status=503, headers={"Retry-After": "10"}
+    )
 
     run_fetch(settings.fetch, settings.oauth.token_uri, "test_endpoint")
 
+    assert len(upstream_server.requests) == 1
     body = telemetry.export_metrics(settings.prometheus)
 
     assert b"oauth_client_retry_decisions_total" in body
@@ -1113,39 +1065,40 @@ def test_oauth_client_retry_metrics_record_deadline_skip(
 
 
 def test_oauth_client_retry_metrics_record_attempt_limit_skip(
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     settings: Settings,
 ):
     settings.fetch.total_attempts = 2
     endpoint = "attempt-limit-reason-test"
-    requests_mock.post(
-        settings.oauth.token_uri,
-        json={"error": "temporarily_unavailable"},
-        status_code=503,
+    labels = {"endpoint": endpoint, "decision": "skip", "reason": "unavailable"}
+    before = sample_value(
+        telemetry.export_metrics(settings.prometheus),
+        "oauth_client_retry_decisions_total",
+        labels,
     )
+    for _ in range(settings.fetch.total_attempts):
+        upstream_server.expect("/token").respond(
+            {"error": "temporarily_unavailable"}, status=503
+        )
 
-    with unittest.mock.patch("time.sleep"):
-        run_fetch(settings.fetch, settings.oauth.token_uri, endpoint)
+    settings.fetch.backoff_factor = 0
+    run_fetch(settings.fetch, settings.oauth.token_uri, endpoint)
 
     body = telemetry.export_metrics(settings.prometheus)
 
-    assert b"oauth_client_retry_decisions_total" in body
-    assert b'decision="skip"' in body
-    assert b'reason="unavailable"' in body
+    assert (
+        sample_value(body, "oauth_client_retry_decisions_total", labels) == before + 1
+    )
 
 
 def test_oauth_client_metrics_failure(
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     otel_mock: otel.OTelMocker,
     asgi_get: GetClient,
     asgi_state: str,
     settings: Settings,
 ):
-    requests_mock.post(
-        settings.oauth.token_uri,
-        json={"error": "invalid_grant"},
-        status_code=400,
-    )
+    upstream_server.expect("/token").respond({"error": "invalid_grant"}, status=400)
 
     asgi_get("/callback?code=1234&state=" + asgi_state)
 
@@ -1163,16 +1116,14 @@ def test_oauth_client_metrics_failure(
 
 
 def test_oauth_client_total_metric_success(
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     otel_mock: otel.OTelMocker,
     asgi_get: GetClient,
     asgi_state: str,
     settings: Settings,
 ):
-    requests_mock.post(
-        settings.oauth.token_uri,
-        json={"access_token": "mock_token", "token_type": "Bearer"},
-        status_code=200,
+    upstream_server.expect("/token").respond(
+        {"access_token": "mock_token", "token_type": "Bearer"}
     )
 
     asgi_get("/callback?code=1234&state=" + asgi_state)
@@ -1191,17 +1142,13 @@ def test_oauth_client_total_metric_success(
 
 
 def test_oauth_client_total_metric_failure(
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     otel_mock: otel.OTelMocker,
     asgi_get: GetClient,
     asgi_state: str,
     settings: Settings,
 ):
-    requests_mock.post(
-        settings.oauth.token_uri,
-        json={"error": "invalid_grant"},
-        status_code=400,
-    )
+    upstream_server.expect("/token").respond({"error": "invalid_grant"}, status=400)
 
     asgi_get("/callback?code=1234&state=" + asgi_state)
 

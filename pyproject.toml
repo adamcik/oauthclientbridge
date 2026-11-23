@@ -23,7 +23,6 @@ dependencies = [
   "opentelemetry-instrumentation-asgi==0.66b2",
   "opentelemetry-instrumentation-httpx==0.66b2",
   "opentelemetry-instrumentation-logging==0.66b2",
-  "opentelemetry-instrumentation-requests==0.66b2",
   "opentelemetry-instrumentation-sqlite3==0.66b2",
   "opentelemetry-instrumentation-system-metrics==0.66b2",
   "opentelemetry-sdk==1.45.2",
@@ -31,7 +30,6 @@ dependencies = [
   "pydantic==2.14.2",
   "pydantic-settings==2.16.2",
   "python-multipart==0.0.32",
-  "requests==2.34.2",
   "starlette==1.10.0",
   "structlog==26.1.0",
   "typer==0.27.3",
@@ -60,12 +58,10 @@ test = [
   "pytest-otel-capture==0.2.0",
   "pytest-sentry-capture",
   "pytest-xdist",
-  "requests_mock",
   { include-group = "sentry" },
 ]
 typing = [
   "basedpyright==1.40.2",
-  "types-requests",
   { include-group = "sentry" },
 ]
 

@@ -1,23 +1,16 @@
 import urllib.parse
-from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Protocol, cast
 
 import httpx
 import pytest
-import requests
 from pytest_sentry_capture import SentryCapture
-from requests_mock import Mocker
 
 from oauthclientbridge import crypto, db
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import Settings
+from tests.oauth_server import OAuthServer
 
 from .conftest import PostClient, ResponseTuple, TokenTuple
-
-
-class RequestWithBody(Protocol):
-    body: str | bytes | None
 
 
 @dataclass(frozen=True)
@@ -374,32 +367,13 @@ def test_token_wrong_secret_and_not_found_identical(
 def test_token_refresh_post_data(
     asgi_post: PostClient,
     refresh_token: TokenTuple,
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     settings: Settings,
 ):
     """Test that expected data gets POSTed to provider."""
 
-    def match(request: requests.Request) -> bool:
-        expected: dict[str, list[str]] = {
-            "client_id": [settings.oauth.client_id],
-            "client_secret": [settings.oauth.client_secret.get_secret_value()],
-            "grant_type": [settings.oauth.grant_type],
-            "refresh_token": [refresh_token.value["refresh_token"]],
-        }
-        request_with_body = cast(RequestWithBody, request)
-        body = request_with_body.body
-        assert isinstance(body, (str, bytes))
-        if isinstance(body, str):
-            parsed_body = urllib.parse.parse_qs(body)
-        else:
-            parsed_body = urllib.parse.parse_qs(body)
-        assert expected == parsed_body
-        return True
-
-    _ = requests_mock.post(
-        settings.oauth.token_uri,
-        json={"access_token": "abc", "grant_type": "test"},
-        additional_matcher=cast(Callable[..., bool], match),
+    upstream_server.expect("/token").respond(
+        {"access_token": "abc", "token_type": "test"}
     )
 
     data = {
@@ -409,6 +383,14 @@ def test_token_refresh_post_data(
     }
 
     _ = asgi_post("/token", data)
+
+    assert len(upstream_server.requests) == 1
+    assert urllib.parse.parse_qs(upstream_server.requests[0].body.decode()) == {
+        "client_id": [settings.oauth.client_id],
+        "client_secret": [settings.oauth.client_secret.get_secret_value()],
+        "grant_type": [settings.oauth.grant_type],
+        "refresh_token": [refresh_token.value["refresh_token"]],
+    }
 
 
 @dataclass(frozen=True)
@@ -443,17 +425,14 @@ class ExtraTokenValuesCase:
 def test_token_with_extra_values(
     asgi_post: PostClient,
     refresh_token: TokenTuple,
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     case: ExtraTokenValuesCase,
     settings: Settings,
 ):
     token = {"access_token": "abc", "token_type": "test", "expires_in": 3600}
     token.update(case.response)
 
-    _ = requests_mock.post(
-        settings.oauth.token_uri,
-        json=token,
-    )
+    upstream_server.expect("/token").respond(token)
 
     data = {
         "client_id": refresh_token.client_id,
@@ -477,12 +456,11 @@ def test_token_with_extra_values(
 def test_token_refresh_token_is_not_returned_from_provider(
     asgi_post: PostClient,
     refresh_token: TokenTuple,
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     settings: Settings,
 ):
-    _ = requests_mock.post(
-        settings.oauth.token_uri,
-        json={
+    upstream_server.expect("/token").respond(
+        {
             "access_token": "abc",
             "token_type": "test",
             "refresh_token": "def",
@@ -506,7 +484,7 @@ def test_token_refresh_token_is_not_returned_from_provider(
 def test_token_only_returns_values_from_provider(
     asgi_post: PostClient,
     refresh_token: TokenTuple,
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     settings: Settings,
 ):
     token = crypto.dumps(
@@ -515,9 +493,8 @@ def test_token_only_returns_values_from_provider(
     )
     _ = db.update(refresh_token.client_id, token, settings.database)
 
-    _ = requests_mock.post(
-        settings.oauth.token_uri,
-        json={"access_token": "abc", "token_type": "test"},
+    upstream_server.expect("/token").respond(
+        {"access_token": "abc", "token_type": "test"}
     )
 
     data = {
@@ -537,7 +514,7 @@ def test_token_only_returns_values_from_provider(
 def test_token_cleans_unneeded_data_from_db(
     asgi_post: PostClient,
     refresh_token: TokenTuple,
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     settings: Settings,
 ):
     token = crypto.dumps(
@@ -551,9 +528,8 @@ def test_token_cleans_unneeded_data_from_db(
     )
     _ = db.update(refresh_token.client_id, token, settings.database)
 
-    _ = requests_mock.post(
-        settings.oauth.token_uri,
-        json={"access_token": "abc", "token_type": "test"},
+    upstream_server.expect("/token").respond(
+        {"access_token": "abc", "token_type": "test"}
     )
 
     data = {
@@ -577,7 +553,7 @@ def test_token_cleans_unneeded_data_from_db(
 def test_token_only_returns_scope_from_db(
     asgi_post: PostClient,
     refresh_token: TokenTuple,
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     settings: Settings,
 ):
     token = crypto.dumps(
@@ -586,9 +562,8 @@ def test_token_only_returns_scope_from_db(
     )
     _ = db.update(refresh_token.client_id, token, settings.database)
 
-    _ = requests_mock.post(
-        settings.oauth.token_uri,
-        json={"access_token": "abc", "token_type": "test"},
+    upstream_server.expect("/token").respond(
+        {"access_token": "abc", "token_type": "test"}
     )
 
     data = {
@@ -671,15 +646,11 @@ class TokenProviderErrorCase:
 def test_token_provider_errors(
     asgi_post: PostClient,
     refresh_token: TokenTuple,
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     settings: Settings,
     case: TokenProviderErrorCase,
 ):
-    _ = requests_mock.post(
-        settings.oauth.token_uri,
-        status_code=400,
-        json={"error": case.error},
-    )
+    upstream_server.expect("/token").respond({"error": case.error}, status=400)
 
     data = {
         "client_id": refresh_token.client_id,
@@ -718,14 +689,11 @@ class InvalidProviderResponseCase:
 def test_token_provider_invalid_response(
     asgi_post: PostClient,
     refresh_token: TokenTuple,
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     settings: Settings,
     case: InvalidProviderResponseCase,
 ):
-    _ = requests_mock.post(
-        settings.oauth.token_uri,
-        json=case.token,
-    )
+    upstream_server.expect("/token").respond(case.token)
 
     data = {
         "client_id": refresh_token.client_id,
@@ -743,14 +711,11 @@ def test_token_provider_invalid_response(
 def test_token_provider_unavailable(
     asgi_post: PostClient,
     refresh_token: TokenTuple,
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     settings: Settings,
 ):
-    _ = requests_mock.post(
-        settings.oauth.token_uri,
-        status_code=503,
-        text="Unavailable.",
-    )
+    for _ in range(settings.fetch.total_attempts):
+        upstream_server.expect("/token").respond(status=503, content=b"Unavailable.")
 
     data = {
         "client_id": refresh_token.client_id,
@@ -769,13 +734,11 @@ def test_token_invalid_grant_revokes_stored_refresh_token(
     asgi_post: PostClient,
     asgi_client: httpx.Client,
     refresh_token: TokenTuple,
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     settings: Settings,
 ):
-    requests_mock.post(
-        settings.oauth.token_uri,
-        status_code=400,
-        json={"error": OAuthError.INVALID_GRANT},
+    upstream_server.expect("/token").respond(
+        {"error": OAuthError.INVALID_GRANT}, status=400
     )
 
     data = {
@@ -793,7 +756,7 @@ def test_token_invalid_grant_revokes_stored_refresh_token(
     assert second.data["error"] == OAuthError.INVALID_GRANT
     record = db.lookup(refresh_token.client_id, settings.database)
     assert record.encrypted_token is None
-    assert len(requests_mock.request_history) == 1
+    assert len(upstream_server.requests) == 1
 
     metrics = asgi_client.get("/metrics")
     assert b"oauth_refresh_token_invalidations_total" in metrics.content
@@ -803,14 +766,13 @@ def test_token_invalid_grant_revokes_stored_refresh_token(
 def test_token_retryable_invalid_grant_does_not_revoke_refresh_token(
     asgi_post: PostClient,
     refresh_token: TokenTuple,
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     settings: Settings,
 ):
-    requests_mock.post(
-        settings.oauth.token_uri,
-        status_code=503,
-        json={"error": OAuthError.INVALID_GRANT},
-    )
+    for _ in range(settings.fetch.total_attempts):
+        upstream_server.expect("/token").respond(
+            {"error": OAuthError.INVALID_GRANT}, status=503
+        )
 
     data = {
         "client_id": refresh_token.client_id,
@@ -829,14 +791,13 @@ def test_token_retryable_invalid_grant_does_not_revoke_refresh_token(
 def test_token_retryable_invalid_client_returns_temporarily_unavailable(
     asgi_post: PostClient,
     refresh_token: TokenTuple,
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     settings: Settings,
 ):
-    requests_mock.post(
-        settings.oauth.token_uri,
-        status_code=503,
-        json={"error": OAuthError.INVALID_CLIENT},
-    )
+    for _ in range(settings.fetch.total_attempts):
+        upstream_server.expect("/token").respond(
+            {"error": OAuthError.INVALID_CLIENT}, status=503
+        )
 
     data = {
         "client_id": refresh_token.client_id,
@@ -855,15 +816,15 @@ def test_token_retryable_invalid_client_returns_temporarily_unavailable(
 def test_token_retryable_refresh_error_returns_retry_after_header(
     asgi_post: PostClient,
     refresh_token: TokenTuple,
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     settings: Settings,
 ):
-    requests_mock.post(
-        settings.oauth.token_uri,
-        status_code=503,
-        headers={"Retry-After": "10"},
-        json={"error": OAuthError.TEMPORARILY_UNAVAILABLE},
-    )
+    for _ in range(settings.fetch.total_attempts):
+        upstream_server.expect("/token").respond(
+            {"error": OAuthError.TEMPORARILY_UNAVAILABLE},
+            status=503,
+            headers={"Retry-After": "10"},
+        )
 
     data = {
         "client_id": refresh_token.client_id,
@@ -881,14 +842,11 @@ def test_token_retryable_refresh_error_returns_retry_after_header(
 def test_token_terminal_refresh_error_ignores_retry_after_header(
     asgi_post: PostClient,
     refresh_token: TokenTuple,
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     settings: Settings,
 ):
-    requests_mock.post(
-        settings.oauth.token_uri,
-        status_code=400,
-        headers={"Retry-After": "10"},
-        json={"error": OAuthError.INVALID_GRANT},
+    upstream_server.expect("/token").respond(
+        {"error": OAuthError.INVALID_GRANT}, status=400, headers={"Retry-After": "10"}
     )
 
     data = {
@@ -911,11 +869,13 @@ def test_token_terminal_refresh_error_ignores_retry_after_header(
 def test_token_unexpected_error_returns_json(
     asgi_client: httpx.Client,
     refresh_token: TokenTuple,
-    requests_mock: Mocker,
-    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
     sentry_capture: SentryCapture,
 ):
-    requests_mock.post(settings.oauth.token_uri, exc=RuntimeError("boom"))
+    async def fail(*args: object, **kwargs: object) -> httpx.Response:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", fail)
     response = asgi_client.post(
         "/token",
         data={"grant_type": "client_credentials"},

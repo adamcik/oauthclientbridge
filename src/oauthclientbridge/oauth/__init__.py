@@ -1,7 +1,6 @@
 from ._core import (
     Error,
     UpstreamFetcher,
-    fetch_with_requests,
     sanitize_for_logging,
     scrub_refresh_token,
 )
@@ -22,7 +21,6 @@ __all__ = [
     "HttpxUpstreamClient",
     "UpstreamFetcher",
     "create_httpx_upstream_client",
-    "fetch_with_requests",
     "normalize_error",
     "sanitize_for_logging",
     "scrub_refresh_token",

@@ -4,7 +4,7 @@ from http import HTTPStatus
 from typing import Any, assert_never
 from urllib.parse import urlsplit
 
-import requests
+import httpx
 import structlog
 from opentelemetry import trace
 from opentelemetry.baggage.propagation import W3CBaggagePropagator
@@ -21,7 +21,6 @@ from opentelemetry.instrumentation.propagators import (
     TraceResponsePropagator,
     set_global_response_propagator,
 )
-from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.instrumentation.sqlite3 import SQLite3Instrumentor
 from opentelemetry.instrumentation.system_metrics import (
     SystemMetricsInstrumentor,
@@ -48,7 +47,6 @@ from opentelemetry.sdk.trace.export import (
     SimpleSpanProcessor,
 )
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
-from requests.structures import CaseInsensitiveDict
 from starlette.applications import Starlette
 
 # Import the leaf module directly; importing through telemetry's facade creates a cycle.
@@ -122,36 +120,6 @@ def record_oauth_outcome_trace(
         record_oauth_error_trace(error.value, "", exception, status=status)
 
 
-def _requests_response_hook(
-    span: trace.Span,
-    request: requests.PreparedRequest,
-    response: requests.Response,
-):
-    if not span or not span.is_recording():
-        return
-
-    span.set_attribute(
-        "http.response.body.size",
-        len(response.content),
-    )
-
-    if "Content-Length" in response.headers:
-        span.set_attribute(
-            "http.response.header.content_length",
-            response.headers["Content-Length"],
-        )
-    if "Content-Type" in response.headers:
-        span.set_attribute(
-            "http.response.header.content_type",
-            response.headers["Content-Type"],
-        )
-    if "Retry-After" in response.headers:
-        span.set_attribute(
-            "http.response.header.retry_after",
-            response.headers["Retry-After"],
-        )
-
-
 def _record_response_headers(span: trace.Span, headers: Mapping[str, str]) -> None:
     location = headers.get("Location")
     if location is not None:
@@ -182,9 +150,7 @@ def _record_response_headers(span: trace.Span, headers: Mapping[str, str]) -> No
 
 
 def _asgi_response_headers(headers: Mapping[str, str]) -> None:
-    _record_response_headers(
-        trace.get_current_span(), CaseInsensitiveDict[str](headers)
-    )
+    _record_response_headers(trace.get_current_span(), httpx.Headers(headers))
 
 
 def _logging_log_hook(span: trace.Span, record: object) -> None:
@@ -197,7 +163,6 @@ def _logging_log_hook(span: trace.Span, record: object) -> None:
 _system_metrics_instrumentor = SystemMetricsInstrumentor()
 _logging_instrumentor = LoggingInstrumentor()
 _sqlite_instrumentor = SQLite3Instrumentor()
-_requests_instrumentor = RequestsInstrumentor()
 _httpx_instrumentor = HTTPXClientInstrumentor()
 
 
@@ -205,15 +170,16 @@ def instrument() -> None:
     _system_metrics_instrumentor.instrument()
     _logging_instrumentor.instrument(log_hook=_logging_log_hook)
     _sqlite_instrumentor.instrument()
-    _requests_instrumentor.instrument(response_hook=_requests_response_hook)
-    _httpx_instrumentor.instrument(async_request_hook=_httpx.request_hook)
+    _httpx_instrumentor.instrument(
+        async_request_hook=_httpx.request_hook,
+        async_response_hook=_httpx.response_hook,
+    )
 
 
 def uninstrument() -> None:
     _system_metrics_instrumentor.uninstrument()
     _logging_instrumentor.uninstrument()
     _sqlite_instrumentor.uninstrument()
-    _requests_instrumentor.uninstrument()
     _httpx_instrumentor.uninstrument()
 
 

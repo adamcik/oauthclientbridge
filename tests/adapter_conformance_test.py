@@ -2,15 +2,14 @@
 
 import urllib.parse
 from dataclasses import dataclass
-from functools import partial
 from http import HTTPStatus
 
 import pytest
-from requests_mock import Mocker
 
 from oauthclientbridge import crypto, db, oauth
 from oauthclientbridge.settings import Settings
 from tests.conftest import AdapterClient, BridgeHarness
+from tests.oauth_server import OAuthServer
 
 pytestmark = pytest.mark.anyio
 
@@ -184,25 +183,26 @@ async def test_adapter_keeps_native_routing_responses_framework_owned(
     assert method_not_allowed.status_code == HTTPStatus.METHOD_NOT_ALLOWED
 
 
-async def test_asgi_adapter_supports_requests_backed_upstream_fetch(
+async def test_asgi_adapter_supports_httpx_backed_upstream_fetch(
     settings: Settings,
     adapter_client: AdapterClient,
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
 ) -> None:
-    requests_mock.post(
-        settings.oauth.token_uri,
-        json={"token_type": "Bearer", "access_token": "provider-token"},
+    upstream_server.expect("/token").respond(
+        {"token_type": "Bearer", "access_token": "provider-token"}
     )
 
-    async with adapter_client(
-        settings, partial(oauth.fetch_with_requests, settings.fetch)
-    ) as client:
-        authorization = await client.get("/")
-        state = urllib.parse.parse_qs(
-            urllib.parse.urlsplit(authorization.headers["location"]).query
-        )["state"][0]
-        callback = await client.get(
-            "/callback", params={"code": "authorization-code", "state": state}
-        )
+    upstream = oauth.create_httpx_upstream_client(settings.fetch)
+    try:
+        async with adapter_client(settings, upstream.fetch) as client:
+            authorization = await client.get("/")
+            state = urllib.parse.parse_qs(
+                urllib.parse.urlsplit(authorization.headers["location"]).query
+            )["state"][0]
+            callback = await client.get(
+                "/callback", params={"code": "authorization-code", "state": state}
+            )
+    finally:
+        await upstream.aclose()
 
     assert callback.status_code == HTTPStatus.OK

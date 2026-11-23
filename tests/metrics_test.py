@@ -3,7 +3,6 @@ import uuid
 from collections.abc import Generator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from functools import partial
 from pathlib import Path
 from typing import cast
 
@@ -12,7 +11,6 @@ import httpx
 import pytest
 from prometheus_client import parser
 from pydantic import SecretStr
-from requests_mock import Mocker
 from starlette.testclient import TestClient
 
 from oauthclientbridge import crypto, db, oauth, telemetry, types
@@ -20,6 +18,7 @@ from oauthclientbridge.asgi import create_app
 from oauthclientbridge.asgi_context import TokenStateRefresher
 from oauthclientbridge.settings import DatabaseSettings, Settings, TelemetrySettings
 from oauthclientbridge.telemetry import _prometheus as stats
+from tests.oauth_server import OAuthServer
 
 from .conftest import PostClient, TokenTuple
 
@@ -44,12 +43,14 @@ def metrics_database(
 
 @pytest.fixture
 def asgi_client(
-    settings: Settings, metrics_database: sqlite3.Connection
+    settings: Settings,
+    metrics_database: sqlite3.Connection,
+    upstream_fetch: oauth.UpstreamFetcher,
 ) -> Generator[httpx.Client]:
     _ = metrics_database
     app = create_app(
         settings,
-        fetch=partial(oauth.fetch_with_requests, settings.fetch),
+        fetch=upstream_fetch,
         initialize_runtime=False,
     )
     client = cast(
@@ -208,7 +209,7 @@ def test_metrics_token_endpoint_requests_background_refresh(
     asgi_post: PostClient,
     refresh_token: TokenTuple,
     settings: Settings,
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     monkeypatch: pytest.MonkeyPatch,
 ):
     requested = 0
@@ -218,7 +219,7 @@ def test_metrics_token_endpoint_requests_background_refresh(
         requested += 1
 
     monkeypatch.setattr(TokenStateRefresher, "request", request)
-    requests_mock.post(settings.oauth.token_uri, json={"error": "invalid_grant"})
+    upstream_server.expect("/token").respond({"error": "invalid_grant"})
 
     response = asgi_post(
         "/token",
@@ -237,7 +238,7 @@ def test_metrics_callback_requests_background_refresh(
     asgi_client: httpx.Client,
     asgi_state: str,
     settings: Settings,
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     monkeypatch: pytest.MonkeyPatch,
 ):
     requested = 0
@@ -247,9 +248,8 @@ def test_metrics_callback_requests_background_refresh(
         requested += 1
 
     monkeypatch.setattr(TokenStateRefresher, "request", request)
-    requests_mock.post(
-        settings.oauth.token_uri,
-        json={"access_token": "new-access", "token_type": "Bearer"},
+    upstream_server.expect("/token").respond(
+        {"access_token": "new-access", "token_type": "Bearer"}
     )
 
     response = asgi_client.get(
@@ -373,11 +373,11 @@ def test_metrics_classifies_refresh_token_responses(
     asgi_client: httpx.Client,
     asgi_post: PostClient,
     refresh_token: TokenTuple,
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     settings: Settings,
     case: RefreshTokenResponseCase,
 ):
-    requests_mock.post(settings.oauth.token_uri, json=case.response)
+    upstream_server.expect("/token").respond(case.response)
     before = _refresh_token_response_counts(asgi_client)
 
     response = asgi_post(

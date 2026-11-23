@@ -4,7 +4,6 @@ import urllib.parse
 from collections.abc import AsyncGenerator, Callable, Generator, Mapping
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, closing
 from dataclasses import dataclass, field
-from functools import partial
 from pathlib import Path
 from typing import Any, NamedTuple, Protocol, cast
 from uuid import uuid4
@@ -87,6 +86,12 @@ def oauth_server() -> Generator[OAuthServer, None, None]:
         yield server
     finally:
         server.close()
+
+
+@pytest.fixture
+def upstream_server(settings: Settings, oauth_server: OAuthServer) -> OAuthServer:
+    settings.oauth.token_uri = oauth_server.url_for("/token")
+    return oauth_server
 
 
 class ResponseTuple(NamedTuple):
@@ -229,12 +234,33 @@ class PostClient(Protocol):
 
 
 @pytest.fixture
+def upstream_fetch(settings: Settings) -> oauth.UpstreamFetcher:
+    # These endpoint tests do not start runtime services. Bound each HTTPX client
+    # to its fetch so TestClient's per-request event loops cannot share a pool.
+    async def fetch(
+        uri: str,
+        upstream_grant_type: types.UpstreamGrantType,
+        auth: str | None = None,
+        **data: str | None,
+    ) -> dict[str, Any]:
+        client = oauth.create_httpx_upstream_client(settings.fetch)
+        try:
+            return await client.fetch(uri, upstream_grant_type, auth, **data)
+        finally:
+            await client.aclose()
+
+    return fetch
+
+
+@pytest.fixture
 def asgi_client(
-    settings: Settings, initialized_database: None
+    settings: Settings,
+    initialized_database: None,
+    upstream_fetch: oauth.UpstreamFetcher,
 ) -> Generator[httpx.Client]:
     app = create_asgi_app(
         settings,
-        fetch=partial(oauth.fetch_with_requests, settings.fetch),
+        fetch=upstream_fetch,
         initialize_runtime=False,
     )
     # Starlette dynamically selects its client base; this suite uses HTTPX, not HTTPX2.
