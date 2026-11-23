@@ -14,21 +14,28 @@ from oauthclientbridge import settings, startup, telemetry
 
 
 def check_version(expected: dict[str, object]) -> None:
-    installed = metadata.metadata("oauthclientbridge")
     version = expected["version"]
     revision = expected["revision"] or "unknown"
     dirty = "unknown" if expected["dirty"] is None else str(expected["dirty"]).lower()
+
+    installed = metadata.metadata("oauthclientbridge")
+
     assert installed["Version"] == version, (installed["Version"], version)
     assert installed["Vcs-Revision"] == revision
     assert installed["Vcs-Dirty"] == dirty
     assert settings.SentrySettings().release == f"oauthclientbridge@{version}"
+
     configured_telemetry = settings.TelemetrySettings()
+
     assert configured_telemetry.service_version == version
     assert configured_telemetry.vcs_revision == revision
+
     output = subprocess.check_output(["oauthclientbridge", "--version"], text=True)
+
     assert output.strip() == (
         f"oauthclientbridge {version} (revision: {revision}, dirty: {dirty})"
     )
+
     # Initialize diagnostics with inert endpoints; no server, database, or OAuth
     # request is needed to check what a newly started process reports.
     configured = settings.Settings(
@@ -46,15 +53,18 @@ def check_version(expected: dict[str, object]) -> None:
         startup.bootstrap(settings.LogSettings(json_output=True)),
     ):
         startup.initialize(configured)
+
     events = [json.loads(line) for line in log_output.getvalue().splitlines()]
     event = next(
         event for event in events if event["event"] == "Application initialized"
     )
+
     assert event["service.version"] == version
     assert event["vcs.revision"] == revision
     assert event["vcs.dirty"] == dirty
 
     telemetry.set_build_info_metric(configured_telemetry)
+
     metrics = telemetry.export_metrics(settings.PrometheusSettings()).decode()
     labels = next(
         sample.labels
@@ -62,6 +72,7 @@ def check_version(expected: dict[str, object]) -> None:
         for sample in family.samples
         if sample.name == "oauth_build_info"
     )
+
     assert labels["service_version"] == version
     assert labels["vcs_revision"] == revision
 
