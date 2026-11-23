@@ -7,6 +7,7 @@ from typer import (
     Option,  # pyright: ignore[reportUnknownVariableType] # Typer's Click ParamType annotation lacks a type argument.
 )
 
+import oauthclientbridge
 from oauthclientbridge import db, settings, startup
 
 app = typer.Typer(
@@ -17,8 +18,41 @@ app = typer.Typer(
 
 
 def main() -> None:
+    # Version inspection must also work when deployment configuration is invalid.
+    if sys.argv[1:] == ["--version"]:
+        _show_version()
+        return
     with startup.bootstrap():
         app(args=sys.argv[1:] or ["serve"])
+
+
+def _show_version() -> None:
+    typer.echo(
+        f"oauthclientbridge {oauthclientbridge.__version__} "
+        f"(revision: {oauthclientbridge.__revision__}, "
+        f"dirty: {oauthclientbridge.__dirty__})"
+    )
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        _show_version()
+        raise typer.Exit()
+
+
+@app.callback()
+def _options(
+    version: Annotated[
+        bool,
+        Option(
+            "--version",
+            help="Show installed build provenance.",
+            callback=_version_callback,
+            is_eager=True,
+        ),
+    ] = False,
+) -> None:
+    pass
 
 
 @app.command()

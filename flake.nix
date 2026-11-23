@@ -52,6 +52,13 @@
     forAllSystems = lib.genAttrs lib.systems.flakeExposed;
 
     overrideMetadata = builtins.fromJSON (builtins.readFile build-overrides);
+    baseVersion = (builtins.fromTOML (builtins.readFile ./pyproject.toml)).project.version;
+    buildMetadata = import ./nix/build-metadata.nix {
+      inherit lib baseVersion;
+      source = self;
+      overrides = overrideMetadata;
+    };
+    buildRevision = buildMetadata.revision;
 
     workspace = uv2nix.lib.workspace.loadWorkspace {workspaceRoot = ./.;};
 
@@ -95,11 +102,36 @@
               });
 
               oauthclientbridge = prev.oauthclientbridge.overrideAttrs (old: {
-                env =
-                  (old.env or {})
-                  // lib.optionalAttrs ((overrideMetadata.version or null) != null) {
-                    SETUPTOOLS_SCM_PRETEND_VERSION = overrideMetadata.version;
-                  };
+                version = buildMetadata.version;
+                __intentionallyOverridingVersion = true;
+                # The backend reads project.version; changing the derivation's
+                # version alone would leave the installed distribution unstamped.
+                postPatch =
+                  (old.postPatch or "")
+                  + ''
+                    substituteInPlace pyproject.toml --replace-fail \
+                      ${lib.escapeShellArg "version = ${builtins.toJSON baseVersion}"} \
+                      ${lib.escapeShellArg "version = ${builtins.toJSON buildMetadata.version}"}
+                  '';
+                postInstall =
+                  (old.postInstall or "")
+                  + ''
+                    metadata="$out/${python.sitePackages}/oauthclientbridge-${buildMetadata.version}.dist-info/METADATA"
+                    { printf '%s\n' \
+                        'Vcs-Revision: ${
+                      if buildRevision == null
+                      then "unknown"
+                      else buildRevision
+                    }' \
+                        'Vcs-Dirty: ${
+                      if buildMetadata.dirty == null
+                      then "unknown"
+                      else lib.boolToString buildMetadata.dirty
+                    }'
+                      cat "$metadata"
+                    } > "$TMPDIR/METADATA"
+                    mv "$TMPDIR/METADATA" "$metadata"
+                  '';
               });
             })
           ]
@@ -163,6 +195,9 @@
         devVenv = pythonSet.mkVirtualEnv "oauthclientbridge-checks-env" {
           oauthclientbridge = ["dev"];
         };
+        runtimeVenv = pythonSet.mkVirtualEnv "oauthclientbridge-runtime-env" {
+          oauthclientbridge = ["sentry"];
+        };
         mkCheck = name: script:
           pkgs.runCommand name {
             src = ./.;
@@ -214,7 +249,14 @@
 
           treefmt = treefmtEval.${system}.config.build.check ./.;
 
+          build-metadata = assert import ./nix/build-metadata-test.nix {inherit lib;};
+            pkgs.runCommand "oauthclientbridge-build-metadata-check" {} ''
+              touch "$out"
+            '';
+
           packages = pkgs.runCommand "oauthclientbridge-packages-check" {} ''
+            export PATH="${runtimeVenv}/bin:$PATH"
+            python ${./tests/packaging/check_version.py} ${lib.escapeShellArg (builtins.toJSON buildMetadata)}
             ${self.packages.${system}.management}/bin/oauthclientbridge --help > /dev/null
             ${self.packages.${system}.web}/bin/oauthclientbridge-web --help > /dev/null
             cmp ${./assets/templates/spotify.html} ${self.packages.${system}.assets}/share/oauthclientbridge/templates/spotify.html
