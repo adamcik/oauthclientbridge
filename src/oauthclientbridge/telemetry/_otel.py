@@ -13,9 +13,7 @@ from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExport
 from opentelemetry.instrumentation.asgi import (  # pyright: ignore[reportMissingTypeStubs]
     OpenTelemetryMiddleware,
 )
-from opentelemetry.instrumentation.httpx import (  # pyright: ignore[reportMissingModuleSource]
-    HTTPXClientInstrumentor,
-)
+from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.instrumentation.logging import LoggingInstrumentor
 from opentelemetry.instrumentation.propagators import (
     TraceResponsePropagator,
