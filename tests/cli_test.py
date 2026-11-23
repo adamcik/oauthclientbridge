@@ -13,9 +13,25 @@ from typer.testing import CliRunner
 from oauthclientbridge import cli
 
 
-def test_version_works_without_valid_deployment_configuration() -> None:
+@dataclass(frozen=True)
+class VersionCase:
+    id: str
+    args: list[str]
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        VersionCase(id="standalone", args=["--version"]),
+        VersionCase(id="before-command", args=["--version", "serve"]),
+    ],
+    ids=lambda case: case.id,
+)
+def test_version_works_without_valid_deployment_configuration(
+    case: VersionCase,
+) -> None:
     result = subprocess.run(
-        ["oauthclientbridge", "--version"],
+        ["oauthclientbridge", *case.args],
         env={**os.environ, "LOG_LEVEL": "invalid", "DB_DATABASE": "/missing/database"},
         text=True,
         capture_output=True,
@@ -35,6 +51,13 @@ def test_typer_exposes_version_option() -> None:
     assert result.exit_code == 0, result.output
     assert "revision:" in result.output
     assert "dirty:" in result.output
+
+
+def test_version_is_not_a_subcommand_option() -> None:
+    result = CliRunner().invoke(cli.app, ["serve", "--version"])
+
+    assert result.exit_code == 2, result.output
+    assert "No such option: --version" in result.output
 
 
 @pytest.mark.parametrize(

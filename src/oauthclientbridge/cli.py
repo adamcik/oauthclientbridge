@@ -19,9 +19,10 @@ app = typer.Typer(
 
 def main() -> None:
     # Version inspection must also work when deployment configuration is invalid.
-    if sys.argv[1:] == ["--version"]:
+    if sys.argv[1:2] == ["--version"]:
         _show_version()
         return
+
     with startup.bootstrap():
         app(args=sys.argv[1:] or ["serve"])
 
