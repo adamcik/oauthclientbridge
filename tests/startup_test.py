@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 import sentry_sdk
 
+import oauthclientbridge
 from oauthclientbridge import settings, startup, telemetry
 from tests.plugins import sentry
 
@@ -124,6 +125,9 @@ def test_startup_failure_is_one_safe_json_error(
     errors = [record for record in records if record["level"] == "error"]
     assert len(errors) == 1
     assert errors[0]["error_type"] == failure.error_type
+    assert errors[0]["service.version"] == oauthclientbridge.__version__
+    assert errors[0]["vcs.revision"] == oauthclientbridge.__revision__
+    assert errors[0]["vcs.dirty"] == oauthclientbridge.__dirty__
     if failure.error_type == "FileNotFoundError":
         assert errors[0]["error_filename"] == str(missing_template)
     assert "startup-secret-must-not-appear" not in result.stderr
