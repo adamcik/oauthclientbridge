@@ -4,7 +4,6 @@ from http import HTTPStatus
 
 import httpx
 import pytest
-from requests_mock import Mocker
 
 from oauthclientbridge import crypto, db
 from oauthclientbridge.bridge import (
@@ -13,6 +12,7 @@ from oauthclientbridge.bridge import (
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import Settings
 from tests.conftest import GetClient
+from tests.oauth_server import OAuthServer
 
 
 def test_authorize_redirects(asgi_client: httpx.Client):
@@ -115,14 +115,11 @@ def test_callback_authorization_client_state(
     asgi_get: GetClient,
     asgi_client_state: str,
     asgi_state: str,
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     settings: Settings,
 ):
     data = {"token_type": "Bearer", "access_token": "1234567890"}
-    _ = requests_mock.post(
-        settings.oauth.token_uri,
-        json=data,
-    )
+    upstream_server.expect("/token").respond(data)
 
     resp = asgi_get("/callback?code=1234&state=" + asgi_state)
 
@@ -254,15 +251,15 @@ def test_callback_preserves_retry_after_for_temporarily_unavailable(
     asgi_client_state: str,
     asgi_get: GetClient,
     asgi_state: str,
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     settings: Settings,
 ):
-    requests_mock.post(
-        settings.oauth.token_uri,
-        status_code=503,
-        headers={"Retry-After": "10"},
-        json={"error": "temporarily_unavailable"},
-    )
+    for _ in range(settings.fetch.total_attempts):
+        upstream_server.expect("/token").respond(
+            {"error": "temporarily_unavailable"},
+            status=503,
+            headers={"Retry-After": "10"},
+        )
     resp = asgi_get(f"/callback?state={asgi_state}&code=abc")
 
     assert resp.status == 503
@@ -287,37 +284,37 @@ class AuthorizationCodeErrorCase:
         AuthorizationCodeErrorCase(
             name="empty payload",
             data={},
-            expected_error=OAuthError.INVALID_RESPONSE,
+            expected_error=OAuthError.INVALID_REQUEST,
             expected_status=400,
         ),
         AuthorizationCodeErrorCase(
             name="missing access token",
             data={"token_type": "foobar"},
-            expected_error=OAuthError.INVALID_RESPONSE,
+            expected_error=OAuthError.INVALID_REQUEST,
             expected_status=400,
         ),
         AuthorizationCodeErrorCase(
             name="missing token type",
             data={"access_token": "foobar"},
-            expected_error=OAuthError.INVALID_RESPONSE,
+            expected_error=OAuthError.INVALID_REQUEST,
             expected_status=400,
         ),
         AuthorizationCodeErrorCase(
             name="empty token values",
             data={"access_token": "", "token_type": ""},
-            expected_error=OAuthError.INVALID_RESPONSE,
+            expected_error=OAuthError.INVALID_REQUEST,
             expected_status=400,
         ),
         AuthorizationCodeErrorCase(
             name="empty token type",
             data={"access_token": "foobar", "token_type": ""},
-            expected_error=OAuthError.INVALID_RESPONSE,
+            expected_error=OAuthError.INVALID_REQUEST,
             expected_status=400,
         ),
         AuthorizationCodeErrorCase(
             name="empty access token",
             data={"access_token": "", "token_type": "foobar"},
-            expected_error=OAuthError.INVALID_RESPONSE,
+            expected_error=OAuthError.INVALID_REQUEST,
             expected_status=400,
         ),
         AuthorizationCodeErrorCase(
@@ -377,7 +374,7 @@ class AuthorizationCodeErrorCase:
         AuthorizationCodeErrorCase(
             name="unknown provider error",
             data={"error": "badErrorCode"},
-            expected_error=OAuthError.SERVER_ERROR,
+            expected_error=OAuthError.INVALID_REQUEST,
             expected_status=400,
         ),
     ],
@@ -387,13 +384,10 @@ def test_callback_authorization_code_error_handling(
     case: AuthorizationCodeErrorCase,
     asgi_get: GetClient,
     asgi_state: str,
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     settings: Settings,
 ):
-    _ = requests_mock.post(
-        settings.oauth.token_uri,
-        json=case.data,
-    )
+    upstream_server.expect("/token").respond(case.data)
 
     resp = asgi_get("/callback?code=1234&state=" + asgi_state)
     assert resp.status == case.expected_status
@@ -404,13 +398,10 @@ def test_callback_authorization_code_error_handling(
 def test_callback_authorization_code_invalid_response(
     asgi_get: GetClient,
     asgi_state: str,
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     settings: Settings,
 ):
-    _ = requests_mock.post(
-        settings.oauth.token_uri,
-        text="Not a JSON value",
-    )
+    upstream_server.expect("/token").respond(content=b"Not a JSON value")
 
     resp = asgi_get("/callback?code=1234&state=" + asgi_state)
     assert resp.status == 400
@@ -420,14 +411,11 @@ def test_callback_authorization_code_invalid_response(
 def test_callback_authorization_code_stores_token(
     asgi_get: GetClient,
     asgi_state: str,
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     settings: Settings,
 ):
     data = {"token_type": "Bearer", "access_token": "1234567890"}
-    _ = requests_mock.post(
-        settings.oauth.token_uri,
-        json=data,
-    )
+    upstream_server.expect("/token").respond(data)
 
     resp = asgi_get("/callback?code=1234&state=" + asgi_state)
 
@@ -440,7 +428,7 @@ def test_callback_authorization_code_stores_token(
 def test_callback_authorization_code_store_refresh_token(
     asgi_get: GetClient,
     asgi_state: str,
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     settings: Settings,
 ):
     token = {
@@ -450,10 +438,7 @@ def test_callback_authorization_code_store_refresh_token(
         "access_token": "123",
         "expires_in": 3600,
     }
-    _ = requests_mock.post(
-        settings.oauth.token_uri,
-        json=token,
-    )
+    upstream_server.expect("/token").respond(token)
 
     resp = asgi_get("/callback?code=1234&state=" + asgi_state)
 
@@ -468,14 +453,11 @@ def test_callback_authorization_code_store_refresh_token(
 def test_callback_authorization_code_store_unknown(
     asgi_get: GetClient,
     asgi_state: str,
-    requests_mock: Mocker,
+    upstream_server: OAuthServer,
     settings: Settings,
 ):
     data = {"token_type": "Bearer", "access_token": "123", "private": "foobar"}
-    _ = requests_mock.post(
-        settings.oauth.token_uri,
-        json=data,
-    )
+    upstream_server.expect("/token").respond(data)
 
     resp = asgi_get("/callback?code=1234&state=" + asgi_state)
 

@@ -1,64 +1,26 @@
-import asyncio
-import unittest.mock
+import time
 from dataclasses import dataclass
-from http import HTTPStatus
+from unittest import mock
 
+import anyio
+import httpx
 import pytest
-import requests
-from opentelemetry import trace
-from requests_mock import Mocker as RequestsMocker
 
-from oauthclientbridge import oauth
-from oauthclientbridge.errors import OAuthError
+from oauthclientbridge import oauth, types
 from oauthclientbridge.oauth import (
-    _core as oauth_core,  # pyright: ignore[reportPrivateUsage] # Direct implementation test.
+    _core,  # pyright: ignore[reportPrivateUsage] # Control jitter sampling.
+    _httpx,  # pyright: ignore[reportPrivateUsage] # Control transport and retry delay.
+    _retry,  # pyright: ignore[reportPrivateUsage] # Direct limiter contract test.
 )
-from oauthclientbridge.oauth import (
-    _retry as oauth_retry,  # pyright: ignore[reportPrivateUsage] # Direct implementation test.
-)
-from oauthclientbridge.oauth._outcome import (
-    OAuthResponse,  # pyright: ignore[reportPrivateUsage] # Direct implementation test.
-)
-from oauthclientbridge.settings import FetchSettings, Settings
-
-
-def run_fetch(settings: FetchSettings, *args: str, **data: str | None) -> OAuthResponse:
-    return asyncio.run(oauth.fetch_with_requests(settings, *args, **data))
-
-
-@dataclass
-class MockTime:
-    wall_seconds: float = 0.0
-    monotonic_seconds: float = 0.0
-
-    def time(self) -> float:
-        return self.wall_seconds
-
-    def monotonic(self) -> float:
-        return self.monotonic_seconds
-
-    def sleep(self, seconds: float) -> None:
-        self.advance(monotonic=seconds)
-
-    def advance(self, *, monotonic: float, wall: float | None = None) -> None:
-        self.monotonic_seconds += monotonic
-        self.wall_seconds += monotonic if wall is None else wall
-
-
-@pytest.fixture
-def mock_time(monkeypatch: pytest.MonkeyPatch) -> MockTime:
-    clock = MockTime()
-    monkeypatch.setattr(oauth_core.time, "time", clock.time)
-    monkeypatch.setattr(oauth_core.time, "monotonic", clock.monotonic)
-    monkeypatch.setattr(oauth_core.time, "sleep", clock.sleep)
-    return clock
+from oauthclientbridge.settings import FetchSettings
+from tests.oauth_server import OAuthServer
 
 
 def test_retry_limiter_factory_is_cached() -> None:
-    oauth_retry.get_retry_limiter.cache_clear()
+    _retry.get_retry_limiter.cache_clear()
 
-    limiter1 = oauth_retry.get_retry_limiter(8, 0.5)
-    limiter2 = oauth_retry.get_retry_limiter(8, 0.5)
+    limiter1 = _retry.get_retry_limiter(8, 0.5)
+    limiter2 = _retry.get_retry_limiter(8, 0.5)
 
     assert limiter1 is limiter2
     assert limiter1.capacity == 8
@@ -66,197 +28,251 @@ def test_retry_limiter_factory_is_cached() -> None:
 
 
 def test_retry_limiter_factory_refreshes_when_settings_change() -> None:
-    oauth_retry.get_retry_limiter.cache_clear()
-    limiter1 = oauth_retry.get_retry_limiter(8, 0.5)
-    limiter2 = oauth_retry.get_retry_limiter(3, 1.0)
+    _retry.get_retry_limiter.cache_clear()
+    limiter1 = _retry.get_retry_limiter(8, 0.5)
+    limiter2 = _retry.get_retry_limiter(3, 1.0)
 
     assert limiter2 is not limiter1
     assert limiter2.capacity == 3
     assert limiter2.refill_amount == 1.0
 
 
-def test_oauth_fetch_normalizes_retryable_invalid_client_to_temporarily_unavailable(
-    settings: Settings,
-    requests_mock: RequestsMocker,
-) -> None:
-    settings.fetch.total_attempts = 1
-    requests_mock.post(
-        settings.oauth.token_uri,
-        status_code=503,
-        json={"error": OAuthError.INVALID_CLIENT},
+@dataclass(frozen=True)
+class RetryCase:
+    id: str
+    statuses: tuple[int, ...]
+    attempts: int
+    expected_error: str | None = None
+    provider_error: str | None = "invalid_client"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "case",
+    [
+        RetryCase(id="initial-only", statuses=(200,), attempts=1),
+        RetryCase(id="success-no-retry", statuses=(200,), attempts=3),
+        RetryCase(id="one-retry", statuses=(503, 200), attempts=2),
+        RetryCase(id="gateway-retry", statuses=(502, 200), attempts=2),
+        RetryCase(id="two-retries", statuses=(504, 504, 200), attempts=3),
+        RetryCase(
+            id="exhausted",
+            statuses=(504, 504, 504),
+            attempts=3,
+            expected_error="temporarily_unavailable",
+        ),
+        RetryCase(
+            id="invalid-client-unavailable",
+            statuses=(503,),
+            attempts=1,
+            expected_error="temporarily_unavailable",
+        ),
+        RetryCase(
+            id="bad-request-terminal",
+            statuses=(400,),
+            attempts=3,
+            expected_error="server_error",
+            provider_error=None,
+        ),
+        RetryCase(
+            id="server-error-terminal",
+            statuses=(500,),
+            attempts=3,
+            expected_error="server_error",
+            provider_error=None,
+        ),
+    ],
+    ids=lambda case: case.id,
+)
+async def test_httpx_retry_policy(case: RetryCase, oauth_server: OAuthServer) -> None:
+    for status in case.statuses:
+        oauth_server.expect("/token").respond(
+            {"access_token": "token", "token_type": "Bearer"}
+            if status == 200
+            else {"error": case.provider_error}
+            if case.provider_error
+            else None,
+            status=status,
+        )
+    client = oauth.create_httpx_upstream_client(
+        FetchSettings(total_attempts=case.attempts, backoff_factor=0)
     )
-
-    result = run_fetch(settings.fetch, settings.oauth.token_uri, "test_endpoint")
-
-    assert result["error"] == OAuthError.TEMPORARILY_UNAVAILABLE
-
-
-def test_oauth_fetch_still_runs_initial_attempt_when_total_attempts_is_one(
-    settings: Settings,
-    requests_mock: RequestsMocker,
-) -> None:
-    settings.fetch.total_attempts = 1
-    requests_mock.post(
-        settings.oauth.token_uri,
-        json={"access_token": "mock_token", "token_type": "Bearer"},
-        status_code=200,
+    try:
+        result = await client.fetch(
+            oauth_server.url_for("/token"), types.UpstreamGrantType.REFRESH_TOKEN
+        )
+    finally:
+        await client.aclose()
+    assert len(oauth_server.requests) == len(case.statuses)
+    assert (
+        oauth_server.requests[0].headers["User-Agent"].startswith("oauthclientbridge ")
     )
+    if case.expected_error is None:
+        assert result["access_token"] == "token"
+    else:
+        assert result["error"] == case.expected_error
 
-    result = run_fetch(settings.fetch, settings.oauth.token_uri, "test_endpoint")
 
-    assert result["access_token"] == "mock_token"
-    assert len(requests_mock.request_history) == 1
+@dataclass(frozen=True)
+class JitterCase:
+    id: str
+    retry_after: str | None
+    samples: tuple[float, ...]
+    expected_delays: tuple[float, ...]
+    lower: float = 0.75
+    upper: float = 1.25
 
 
-def test_oauth_fetch_total_attempts_allows_one_retry(
-    settings: Settings,
-    requests_mock: RequestsMocker,
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "case",
+    [
+        JitterCase(
+            id="backoff", retry_after=None, samples=(1.25,), expected_delays=(0.125,)
+        ),
+        JitterCase(
+            id="configured-bounds",
+            retry_after=None,
+            samples=(2.0,),
+            expected_delays=(0.2,),
+            lower=1,
+            upper=2,
+        ),
+        JitterCase(
+            id="provider-floor",
+            retry_after="10",
+            samples=(0.75,),
+            expected_delays=(10,),
+        ),
+        JitterCase(
+            id="independent-samples",
+            retry_after="10",
+            samples=(0.75, 1.25),
+            expected_delays=(10, 12.5),
+        ),
+    ],
+    ids=lambda case: case.id,
+)
+async def test_httpx_retry_jitter(
+    case: JitterCase, oauth_server: OAuthServer, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    settings.fetch.total_attempts = 2
-    requests_mock.post(
-        settings.oauth.token_uri,
-        [
-            {"status_code": 503, "json": {"error": "temporarily_unavailable"}},
-            {
-                "json": {"access_token": "mock_token", "token_type": "Bearer"},
-                "status_code": 200,
-            },
-        ],
+    for _ in case.samples:
+        oauth_server.expect("/token").respond(
+            status=429 if case.retry_after else 503,
+            headers={"Retry-After": case.retry_after} if case.retry_after else {},
+        )
+    oauth_server.expect("/token").respond(
+        {"access_token": "token", "token_type": "Bearer"}
     )
+    uniform = mock.Mock(side_effect=case.samples)
+    sleep = mock.AsyncMock()
+    monkeypatch.setattr(_core.random, "uniform", uniform)
+    monkeypatch.setattr(_httpx, "_sleep", sleep)
+    client = oauth.create_httpx_upstream_client(
+        FetchSettings(backoff_jitter_min=case.lower, backoff_jitter_max=case.upper)
+    )
+    try:
+        result = await client.fetch(
+            oauth_server.url_for("/token"), types.UpstreamGrantType.REFRESH_TOKEN
+        )
+    finally:
+        await client.aclose()
+    assert result["access_token"] == "token"
+    assert [call.args[0] for call in sleep.await_args_list] == list(
+        case.expected_delays
+    )
+    assert uniform.call_args_list == [
+        mock.call(max(1, case.lower) if case.retry_after else case.lower, case.upper)
+    ] * len(case.samples)
 
-    with unittest.mock.patch("time.sleep"):
-        result = run_fetch(settings.fetch, settings.oauth.token_uri, "test_endpoint")
 
-    assert result["access_token"] == "mock_token"
-    assert len(requests_mock.request_history) == 2
-
-
-def test_oauth_fetch_does_not_start_retry_after_sleep_exhausts_deadline(
-    settings: Settings,
+@pytest.mark.anyio
+async def test_httpx_retries_transport_errors(
     monkeypatch: pytest.MonkeyPatch,
-    mock_time: MockTime,
 ) -> None:
-    settings.fetch.total_timeout = 1.0
-    settings.fetch.total_attempts = 3
-    settings.fetch.backoff_factor = 0.8
-
-    first_result = (
-        {"error": "temporarily_unavailable"},
-        HTTPStatus.SERVICE_UNAVAILABLE,
-        0,
+    responses = iter(
+        (
+            httpx.ConnectError("connection failed"),
+            httpx.ConnectTimeout("timeout"),
+            httpx.Response(200, json={"access_token": "token", "token_type": "Bearer"}),
+        )
     )
+    observed: list[httpx.Request] = []
 
-    fetch_calls = 0
+    def respond(request: httpx.Request) -> httpx.Response:
+        observed.append(request)
+        response = next(responses)
+        if isinstance(response, Exception):
+            raise response
+        return response
 
-    def fetch_side_effect(
-        span: trace.Span,
-        prepared: requests.PreparedRequest,
-        timeout: float,
-        endpoint: str,
-        *_: object,
-    ) -> tuple[OAuthResponse, HTTPStatus | None, int]:
-        _ = span, prepared, timeout, endpoint
-        nonlocal fetch_calls
-        if fetch_calls == 0:
-            fetch_calls += 1
-            mock_time.advance(monotonic=0.2)
-            return first_result
-
-        raise AssertionError("unexpected retry attempt")
-
-    monkeypatch.setattr(oauth_core.random, "uniform", lambda _low, _high: 1.25)
-    monkeypatch.setattr(oauth_core, "_fetch", fetch_side_effect)
-
-    result = run_fetch(settings.fetch, settings.oauth.token_uri, "test_endpoint")
-
-    assert result["error"] == "temporarily_unavailable"
-    assert mock_time.monotonic_seconds == pytest.approx(0.2)
+    monkeypatch.setattr(
+        _httpx,
+        "_create_client",
+        lambda _: httpx.AsyncClient(transport=httpx.MockTransport(respond)),
+    )
+    client = oauth.create_httpx_upstream_client(FetchSettings(backoff_factor=0))
+    try:
+        result = await client.fetch(
+            "https://provider.invalid/token", types.UpstreamGrantType.REFRESH_TOKEN
+        )
+    finally:
+        await client.aclose()
+    assert result["access_token"] == "token"
+    assert len(observed) == 3
 
 
-def test_oauth_fetch_total_deadline_uses_monotonic_clock(
-    settings: Settings,
-    monkeypatch: pytest.MonkeyPatch,
-    mock_time: MockTime,
+@pytest.mark.anyio
+async def test_httpx_expired_deadline_sends_no_request(
+    oauth_server: OAuthServer,
 ) -> None:
-    settings.fetch.total_timeout = 1.0
-    settings.fetch.total_attempts = 2
-    settings.fetch.backoff_factor = 0.3
+    client = oauth.create_httpx_upstream_client(FetchSettings(total_timeout=0))
+    try:
+        result = await client.fetch(
+            oauth_server.url_for("/token"), types.UpstreamGrantType.REFRESH_TOKEN
+        )
+    finally:
+        await client.aclose()
+    assert result["error"] == "server_error"
+    assert not oauth_server.requests
 
-    observed_timeouts: list[float] = []
-    mock_time.advance(monotonic=0.0, wall=100.0)
 
-    def fetch_side_effect(
-        span: trace.Span,
-        prepared: requests.PreparedRequest,
-        timeout: float,
-        endpoint: str,
-        *_: object,
-    ) -> tuple[OAuthResponse, HTTPStatus | None, int]:
-        _ = span, prepared, endpoint
-        observed_timeouts.append(timeout)
-        if len(observed_timeouts) == 1:
-            mock_time.advance(monotonic=0.2, wall=500.0)
-            return (
-                {"error": "temporarily_unavailable"},
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                0,
-            )
+@pytest.mark.anyio
+async def test_httpx_retries_share_monotonic_total_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    attempts = 0
+    deadlines: list[float] = []
+    remaining: list[float] = []
 
-        return (
-            {"access_token": "mock_token", "token_type": "Bearer"},
-            HTTPStatus.OK,
-            0,
+    async def respond(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        deadlines.append(anyio.current_effective_deadline())
+        remaining.append(deadlines[-1] - anyio.current_time())
+        await anyio.lowlevel.checkpoint()
+        if attempts == 1:
+            monkeypatch.setattr(time, "time", lambda: 1e12)
+            return httpx.Response(503, json={"error": "temporarily_unavailable"})
+        return httpx.Response(
+            200, json={"access_token": "token", "token_type": "Bearer"}
         )
 
-    monkeypatch.setattr(oauth_core.random, "uniform", lambda _low, _high: 0.75)
-    monkeypatch.setattr(oauth_core, "_fetch", fetch_side_effect)
-
-    result = run_fetch(settings.fetch, settings.oauth.token_uri, "test_endpoint")
-
-    assert result["access_token"] == "mock_token"
-    assert observed_timeouts == pytest.approx([1.0, 0.575])
-
-
-def test_oauth_fetch_uses_remaining_budget_for_retry_timeout(
-    settings: Settings,
-    monkeypatch: pytest.MonkeyPatch,
-    mock_time: MockTime,
-) -> None:
-    settings.fetch.total_timeout = 1.0
-    settings.fetch.total_attempts = 3
-    settings.fetch.backoff_factor = 0.3
-
-    observed_timeouts: list[float] = []
-
-    def fetch_side_effect(
-        span: trace.Span,
-        prepared: requests.PreparedRequest,
-        timeout: float,
-        endpoint: str,
-        *_: object,
-    ) -> tuple[OAuthResponse, HTTPStatus | None, int]:
-        _ = span, prepared, endpoint
-        observed_timeouts.append(timeout)
-        if len(observed_timeouts) == 1:
-            mock_time.advance(monotonic=0.2)
-            return (
-                {"error": "temporarily_unavailable"},
-                HTTPStatus.SERVICE_UNAVAILABLE,
-                0,
-            )
-
-        mock_time.advance(monotonic=timeout)
-        return (
-            {"access_token": "mock_token", "token_type": "Bearer"},
-            HTTPStatus.OK,
-            0,
+    monkeypatch.setattr(
+        _httpx,
+        "_create_client",
+        lambda _: httpx.AsyncClient(transport=httpx.MockTransport(respond)),
+    )
+    client = oauth.create_httpx_upstream_client(
+        FetchSettings(total_timeout=1, backoff_factor=0)
+    )
+    try:
+        result = await client.fetch(
+            "https://provider.invalid/token", types.UpstreamGrantType.REFRESH_TOKEN
         )
-
-    monkeypatch.setattr(oauth_core.random, "uniform", lambda _low, _high: 0.75)
-    monkeypatch.setattr(oauth_core, "_fetch", fetch_side_effect)
-
-    result = run_fetch(settings.fetch, settings.oauth.token_uri, "test_endpoint")
-
-    assert result["access_token"] == "mock_token"
-    assert observed_timeouts[0] == pytest.approx(1.0)
-    assert observed_timeouts[1] == pytest.approx(0.575)
+    finally:
+        await client.aclose()
+    assert result["access_token"] == "token"
+    assert attempts == 2
+    assert deadlines[0] == deadlines[1]
+    assert all(0 < budget <= 1 for budget in remaining)

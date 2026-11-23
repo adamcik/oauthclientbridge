@@ -78,10 +78,13 @@ class Expectation:
         *,
         status: int = HTTPStatus.OK,
         headers: Mapping[str, str] | None = None,
+        content: bytes | None = None,
         request_started: Event | None = None,
         hold_until: Event | None = None,
     ) -> None:
         body = b"" if response is None else json.dumps(response).encode()
+        if content is not None:
+            body = content
         response_headers = (
             {} if response is None else {"Content-Type": "application/json"}
         )

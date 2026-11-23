@@ -14,6 +14,7 @@ not an exact reuse ratio: failed attempts can open multiple sockets per request.
 from collections.abc import Awaitable, Callable
 from typing import Any, cast
 
+import httpx as httpx_client
 from opentelemetry import trace
 from opentelemetry.instrumentation import (
     httpx,  # pyright: ignore[reportMissingModuleSource]
@@ -40,6 +41,18 @@ async def request_hook(span: trace.Span, request: httpx.RequestInfo) -> None:
     if span.is_recording():
         span.set_attribute("httpx.connection.setup", False)
     extensions["trace"] = _TransportTrace(span, previous)
+
+
+async def response_hook(
+    span: trace.Span, request: httpx.RequestInfo, response: httpx.ResponseInfo
+) -> None:
+    if not span.is_recording():
+        return
+    headers = httpx_client.Headers(response.headers)
+    for name in ("content-length", "content-type", "retry-after"):
+        value = headers.get(name)
+        if value is not None:
+            span.set_attribute(f"http.response.header.{name.replace('-', '_')}", value)
 
 
 type _TraceCallback = Callable[[str, dict[str, Any]], Awaitable[None]]

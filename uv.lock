@@ -369,7 +369,6 @@ dependencies = [
     { name = "opentelemetry-instrumentation-asgi" },
     { name = "opentelemetry-instrumentation-httpx" },
     { name = "opentelemetry-instrumentation-logging" },
-    { name = "opentelemetry-instrumentation-requests" },
     { name = "opentelemetry-instrumentation-sqlite3" },
     { name = "opentelemetry-instrumentation-system-metrics" },
     { name = "opentelemetry-sdk" },
@@ -377,7 +376,6 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "python-multipart" },
-    { name = "requests" },
     { name = "starlette" },
     { name = "structlog" },
     { name = "typer" },
@@ -393,11 +391,9 @@ dev = [
     { name = "pytest-otel-capture" },
     { name = "pytest-sentry-capture" },
     { name = "pytest-xdist" },
-    { name = "requests-mock" },
     { name = "ruff" },
     { name = "sentry-sdk", extra = ["opentelemetry"] },
     { name = "structlog-sentry" },
-    { name = "types-requests" },
 ]
 lint = [
     { name = "ruff" },
@@ -413,7 +409,6 @@ test = [
     { name = "pytest-otel-capture" },
     { name = "pytest-sentry-capture" },
     { name = "pytest-xdist" },
-    { name = "requests-mock" },
     { name = "sentry-sdk", extra = ["opentelemetry"] },
     { name = "structlog-sentry" },
 ]
@@ -421,7 +416,6 @@ typing = [
     { name = "basedpyright" },
     { name = "sentry-sdk", extra = ["opentelemetry"] },
     { name = "structlog-sentry" },
-    { name = "types-requests" },
 ]
 
 [package.metadata]
@@ -436,7 +430,6 @@ requires-dist = [
     { name = "opentelemetry-instrumentation-asgi", specifier = "==0.66b2" },
     { name = "opentelemetry-instrumentation-httpx", specifier = "==0.66b2" },
     { name = "opentelemetry-instrumentation-logging", specifier = "==0.66b2" },
-    { name = "opentelemetry-instrumentation-requests", specifier = "==0.66b2" },
     { name = "opentelemetry-instrumentation-sqlite3", specifier = "==0.66b2" },
     { name = "opentelemetry-instrumentation-system-metrics", specifier = "==0.66b2" },
     { name = "opentelemetry-sdk", specifier = "==1.45.2" },
@@ -444,7 +437,6 @@ requires-dist = [
     { name = "pydantic", specifier = "==2.14.2" },
     { name = "pydantic-settings", specifier = "==2.16.2" },
     { name = "python-multipart", specifier = "==0.0.32" },
-    { name = "requests", specifier = "==2.34.2" },
     { name = "starlette", specifier = "==1.10.0" },
     { name = "structlog", specifier = "==26.1.0" },
     { name = "typer", specifier = "==0.27.3" },
@@ -460,11 +452,9 @@ dev = [
     { name = "pytest-otel-capture", specifier = "==0.2.0" },
     { name = "pytest-sentry-capture" },
     { name = "pytest-xdist" },
-    { name = "requests-mock" },
     { name = "ruff", specifier = "==0.17.3" },
     { name = "sentry-sdk", extras = ["opentelemetry"], specifier = "==2.74.0" },
     { name = "structlog-sentry", specifier = "==2.2.1" },
-    { name = "types-requests" },
 ]
 lint = [{ name = "ruff", specifier = "==0.17.3" }]
 sentry = [
@@ -478,7 +468,6 @@ test = [
     { name = "pytest-otel-capture", specifier = "==0.2.0" },
     { name = "pytest-sentry-capture" },
     { name = "pytest-xdist" },
-    { name = "requests-mock" },
     { name = "sentry-sdk", extras = ["opentelemetry"], specifier = "==2.74.0" },
     { name = "structlog-sentry", specifier = "==2.2.1" },
 ]
@@ -486,7 +475,6 @@ typing = [
     { name = "basedpyright", specifier = "==1.40.2" },
     { name = "sentry-sdk", extras = ["opentelemetry"], specifier = "==2.74.0" },
     { name = "structlog-sentry", specifier = "==2.2.1" },
-    { name = "types-requests" },
 ]
 
 [[package]]
@@ -650,21 +638,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/23/2f/900c10a10c780f06c0e90e885e5fdcb95f93a91efbd73d3b87d11c6ac72a/opentelemetry_instrumentation_logging-0.66b2.tar.gz", hash = "sha256:a94210291ae10395ad617c2b69bd7c2e10f77818b8beac11368460f47c370eb1", size = 20350, upload-time = "2026-10-29T17:38:34.161Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/6d/52/1f18b14487fa599f96537b2550c7096f824216fedeeb03fdb7f0f67db847/opentelemetry_instrumentation_logging-0.66b2-py3-none-any.whl", hash = "sha256:6141bc09a7868235172748e8a2cd9806549d742b4f5019ce2a571e8c157e5e7d", size = 15926, upload-time = "2026-10-29T17:37:36.938Z" },
-]
-
-[[package]]
-name = "opentelemetry-instrumentation-requests"
-version = "0.66b2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-instrumentation" },
-    { name = "opentelemetry-semantic-conventions" },
-    { name = "opentelemetry-util-http" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/46/2e/cdd7a2ebbdb9d31879781842feb6a3515e4a1d4d87cd701556fc849ddd35/opentelemetry_instrumentation_requests-0.66b2.tar.gz", hash = "sha256:bcfbdc3ff3ec8524044908788f0e7f3c25e219053b496fd9926d75f8d7c7bc96", size = 17984, upload-time = "2026-10-29T17:38:43.998Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/b2/fc/d73ebbb46158722f63eb9e95a22a2aa03ec8cadd5ef9b91fda350ddd33ca/opentelemetry_instrumentation_requests-0.66b2-py3-none-any.whl", hash = "sha256:b0ba903a0bd7ebb234c8b32d3d957efc4061ba8571916558dc3f3dcdabb5e5e1", size = 13322, upload-time = "2026-10-29T17:37:51.421Z" },
 ]
 
 [[package]]
@@ -1008,18 +981,6 @@ wheels = [
 ]
 
 [[package]]
-name = "requests-mock"
-version = "1.12.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "requests" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/92/32/587625f91f9a0a3d84688bf9cfc4b2480a7e8ec327cefd0ff2ac891fd2cf/requests-mock-1.12.1.tar.gz", hash = "sha256:e9e12e333b525156e82a3c852f22016b9158220d2f47454de9cae8a77d371401", size = 60901, upload-time = "2024-03-29T03:54:29.446Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/97/ec/889fbc557727da0c34a33850950310240f2040f3b1955175fdb2b36a8910/requests_mock-1.12.1-py2.py3-none-any.whl", hash = "sha256:b1e37054004cdd5e56c84454cc7df12b25f90f382159087f4b6915aaeef39563", size = 27695, upload-time = "2024-03-29T03:54:27.64Z" },
-]
-
-[[package]]
 name = "rich"
 version = "15.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1141,18 +1102,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/03/51/d33db42cc72ffd8c30777547b42d01f0cbf9d95a770457698d0174b3ed71/typer-0.27.3.tar.gz", hash = "sha256:d0396f770a560ab1b0a8504e13b5f254b728cedb05c61cf0359e944e50ce8901", size = 205303, upload-time = "2026-10-06T17:24:16.61Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/07/ea/2e31b67051e91a133189e9c000c222502ddc6969856416de0d095de4c0b0/typer-0.27.3-py3-none-any.whl", hash = "sha256:e50022f28b82a86313e54501317a1db64bf8f8d036ff8cfe5ca7e47675454aff", size = 123312, upload-time = "2026-10-06T17:24:15.054Z" },
-]
-
-[[package]]
-name = "types-requests"
-version = "2.33.0.20260518"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "urllib3" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/e0/01/c5a19253fe1ac159159ddf9a3a07cec8bb5e486ec4d9002ad2821da0e5d2/types_requests-2.33.0.20260518.tar.gz", hash = "sha256:df7bd3bfe0ca8402dfb841e7d9be714bb5578203283d66d7dc4ef69343449a5e", size = 24752, upload-time = "2026-05-18T06:07:37.966Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/1c/bc/b139710a3b6018f7fb2b9508b35c8af564e61bf2bf4fa619d088f3e16f85/types_requests-2.33.0.20260518-py3-none-any.whl", hash = "sha256:626d697d1adaaff76e2044dc8c5c051d8f21abc157bdfe204a75558076fe0bf0", size = 21391, upload-time = "2026-05-18T06:07:37.044Z" },
 ]
 
 [[package]]

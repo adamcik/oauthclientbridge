@@ -10,6 +10,12 @@ class RequestInfo(NamedTuple):
     stream: httpx.SyncByteStream | httpx.AsyncByteStream | None
     extensions: MutableMapping[str, Any] | None
 
+class ResponseInfo(NamedTuple):
+    status_code: int
+    headers: httpx.Headers
+    stream: httpx.SyncByteStream | httpx.AsyncByteStream | None
+    extensions: MutableMapping[str, Any] | None
+
 class HTTPXClientInstrumentor:
     def instrument(self, **kwargs: Any) -> None: ...
     def uninstrument(self, **kwargs: Any) -> None: ...
