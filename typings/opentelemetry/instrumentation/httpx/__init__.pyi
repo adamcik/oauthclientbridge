@@ -12,8 +12,8 @@ class RequestInfo(NamedTuple):
 
 class ResponseInfo(NamedTuple):
     status_code: int
-    headers: httpx.Headers
-    stream: httpx.SyncByteStream | httpx.AsyncByteStream | None
+    headers: httpx.Headers | None
+    stream: httpx.SyncByteStream | httpx.AsyncByteStream
     extensions: MutableMapping[str, Any] | None
 
 class HTTPXClientInstrumentor:
