@@ -16,9 +16,7 @@ from typing import Any, cast
 
 import httpx as httpx_client
 from opentelemetry import trace
-from opentelemetry.instrumentation import (
-    httpx,  # pyright: ignore[reportMissingModuleSource]
-)
+from opentelemetry.instrumentation import httpx
 
 from . import _prometheus
 
