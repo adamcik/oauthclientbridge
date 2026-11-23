@@ -1,4 +1,6 @@
+import os
 import sqlite3
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,6 +11,30 @@ import uvicorn
 from typer.testing import CliRunner
 
 from oauthclientbridge import cli
+
+
+def test_version_works_without_valid_deployment_configuration() -> None:
+    result = subprocess.run(
+        ["oauthclientbridge", "--version"],
+        env={**os.environ, "LOG_LEVEL": "invalid", "DB_DATABASE": "/missing/database"},
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "oauthclientbridge " in result.stdout
+    assert "revision:" in result.stdout
+    assert "dirty:" in result.stdout
+    assert result.stderr == ""
+
+
+def test_typer_exposes_version_option() -> None:
+    result = CliRunner().invoke(cli.app, ["--version"])
+
+    assert result.exit_code == 0, result.output
+    assert "revision:" in result.output
+    assert "dirty:" in result.output
 
 
 @pytest.mark.parametrize(
