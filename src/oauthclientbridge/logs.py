@@ -4,10 +4,18 @@ from typing import Any, cast
 import structlog
 from structlog.types import EventDict
 
+import oauthclientbridge
 from oauthclientbridge import telemetry
 from oauthclientbridge.settings import LogSettings
 
 logger: structlog.BoundLogger = structlog.get_logger()
+
+# Source identity belongs to the installed process, not a trace or deployment.
+_BUILD_PROVENANCE = {
+    "service.version": oauthclientbridge.__version__,
+    "vcs.revision": oauthclientbridge.__revision__,
+    "vcs.dirty": oauthclientbridge.__dirty__,
+}
 
 
 def init_logging(settings: LogSettings) -> None:
@@ -29,6 +37,7 @@ def init_logging(settings: LogSettings) -> None:
             ]
         ),
         structlog.stdlib.ExtraAdder(),
+        _add_build_provenance,
     ]
 
     try:
@@ -102,13 +111,24 @@ class _ApplicationLogHandler(logging.StreamHandler[Any]):
     """An owned sink that can be replaced without removing host/test handlers."""
 
 
+def _add_build_provenance(_: Any, __: str, event_dict: EventDict) -> EventDict:
+    event_dict.update(_BUILD_PROVENANCE)
+    return event_dict
+
+
 def add_otel_context_processor(_: Any, __: str, event_dict: EventDict) -> EventDict:
+    attributes = telemetry.otel_log_attributes()
     if "_record" in event_dict:
         record = cast(logging.LogRecord, event_dict["_record"])
         if hasattr(record, "telemetry_attributes"):
-            event_dict.update(getattr(record, "telemetry_attributes"))  # noqa: B009 - Added dynamically by the logging hook.
-            return event_dict
+            attributes = cast(
+                dict[str, str | int | bool],
+                getattr(record, "telemetry_attributes"),  # noqa: B009 - Added dynamically by the logging hook.
+            )
 
-    event_dict.update(telemetry.otel_log_attributes())
-
+    event_dict.update(
+        (key, value)
+        for key, value in attributes.items()
+        if key not in _BUILD_PROVENANCE
+    )
     return event_dict

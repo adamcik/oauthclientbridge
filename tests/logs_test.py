@@ -5,6 +5,8 @@ import os
 import socket
 import threading
 from collections.abc import AsyncGenerator
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
@@ -40,10 +42,52 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Route
 
+import oauthclientbridge
 from oauthclientbridge import asgi, db, logs, startup, types
 from oauthclientbridge.settings import LogLevel, LogSettings, Settings
 
 tracer = trace.get_tracer(__name__)
+
+
+@dataclass(frozen=True)
+class LoggingCase:
+    id: str
+    threaded: bool
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        LoggingCase(id="main-thread", threaded=False),
+        LoggingCase(id="worker-thread", threaded=True),
+    ],
+    ids=lambda case: case.id,
+)
+def test_logs_include_installed_provenance_without_span(
+    case: LoggingCase, capsys: pytest.CaptureFixture[str]
+) -> None:
+    logs.init_logging(LogSettings(json_output=True))
+
+    def emit() -> None:
+        with trace.use_span(trace.INVALID_SPAN):
+            logging.getLogger(__name__).info("Stdlib outside a span")
+            structlog.get_logger().info("Structlog outside a span")
+
+    if case.threaded:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            executor.submit(emit).result()
+    else:
+        emit()
+
+    records = parse_logs(capsys)
+
+    assert len(records) == 2
+    for record in records:
+        assert record["service.version"] == oauthclientbridge.__version__
+        assert record["vcs.revision"] == oauthclientbridge.__revision__
+        assert record["vcs.dirty"] == oauthclientbridge.__dirty__
+        assert "trace_id" not in record
+
 
 # TODO: Add a test using stdlib logging, with extra=... to make sure that also works.
 
@@ -439,11 +483,12 @@ def assert_has_otel_records(record: types.JsonDict, span: trace.Span) -> None:
     assert "trace_sampled" in record
     assert record["service.name"] == "tests"
     assert record["service.namespace"] == "oauthclientbridge"
-    assert record["service.version"] == "1.2.3"
+    assert record["service.version"] == oauthclientbridge.__version__
     assert record["deployment.environment"] == "testing"
     assert record["oauth.provider"] == "spotify"
     assert record["service.instance.id"] == "tests-spotify-testing"
-    assert record["vcs.revision"] == "abc1234"
+    assert record["vcs.revision"] == oauthclientbridge.__revision__
+    assert record["vcs.dirty"] == oauthclientbridge.__dirty__
     assert record["process.pid"] == os.getpid()
     assert record["process.thread.id"] == threading.get_ident()
     assert record["process.thread.name"] == threading.current_thread().name

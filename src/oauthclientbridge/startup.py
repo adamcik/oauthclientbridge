@@ -10,7 +10,6 @@ from contextlib import contextmanager
 
 from pydantic import ValidationError
 
-import oauthclientbridge
 from oauthclientbridge import logs, settings, telemetry
 
 
@@ -63,12 +62,5 @@ def initialize(
     telemetry.instrument()
     telemetry.init_tracing(configured.otel)
     telemetry.init_metrics(configured.otel)
-    logs.logger.info(
-        "Application initialized",
-        **{
-            "service.version": oauthclientbridge.__version__,
-            "vcs.revision": oauthclientbridge.__revision__,
-            "vcs.dirty": oauthclientbridge.__dirty__,
-        },
-    )
+    logs.logger.info("Application initialized")
     return configured
