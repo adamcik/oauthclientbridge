@@ -115,14 +115,18 @@ class FetchSettings(_CredentialSettings):
     pool_max_connections: int = 3
     """Maximum concurrent upstream HTTP connections."""
 
-    pool_max_keepalive_connections: int = 1
-    """Maximum idle upstream HTTP connections to retain."""
+    pool_max_keepalive_connections: int = 3
+    """Maximum idle upstream HTTP connections to retain across request bursts."""
 
     pool_timeout: float = 1.0
     """Maximum time to wait for an available upstream connection."""
 
-    pool_keepalive_expiry: float = 5.0
-    """Maximum idle lifetime for an upstream HTTP connection."""
+    pool_keepalive_expiry: float = 600.0
+    """Idle lifetime in seconds, allowing reuse across five-minute polling gaps.
+
+    The provider may close idle connections sooner. This does not keep sockets
+    alive with probes or limit the total lifetime of a connection in use.
+    """
 
     total_attempts: int = Field(3, ge=1)
     """Maximum initial and retry attempts for fetching OAuth data."""
