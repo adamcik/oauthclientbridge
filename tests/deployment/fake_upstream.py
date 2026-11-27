@@ -51,6 +51,7 @@ def main() -> None:
 
     server = ThreadingHTTPServer(("127.0.0.1", 9443), Handler)
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.minimum_version = ssl.TLSVersion.TLSv1_3
     context.load_cert_chain(args.cert, args.key)
     context.set_alpn_protocols(["http/1.1"])
     server.socket = context.wrap_socket(server.socket, server_side=True)
