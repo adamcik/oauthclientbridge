@@ -8,7 +8,7 @@ from oauthclientbridge import bridge, db, oauth, observer, startup, telemetry
 from oauthclientbridge.asgi_context import AppContext, TokenStateRefresher
 from oauthclientbridge.proxy import ForwardedHeadersMiddleware
 from oauthclientbridge.routes import fallback, routes
-from oauthclientbridge.settings import Settings
+from oauthclientbridge.settings import FetchTransport, Settings
 
 
 def create_app(
@@ -46,7 +46,10 @@ def _create_app(
     token_state_refresher = TokenStateRefresher(settings.database)
     client: oauth.HttpxUpstreamClient | None = None
     if fetch is None:
-        client = oauth.create_httpx_upstream_client(settings.fetch)
+        origin = None
+        if settings.fetch.transport == FetchTransport.PREPARED:
+            origin = settings.oauth.prepared_origin()
+        client = oauth.create_httpx_upstream_client(settings.fetch, origin=origin)
         oauth_fetch = client.fetch
     else:
         oauth_fetch = fetch
@@ -61,6 +64,8 @@ def _create_app(
                 raise RuntimeError(
                     "Database must be initialized before starting runtime services"
                 )
+            if client is not None:
+                await client.start()
             async with create_task_group() as group:
                 await token_state_refresher.start(group)
                 telemetry.start_asyncio_monitor(group, "main")

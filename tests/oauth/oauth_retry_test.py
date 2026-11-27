@@ -209,7 +209,9 @@ async def test_httpx_retries_transport_errors(
     monkeypatch.setattr(
         _httpx,
         "_create_client",
-        lambda _: httpx.AsyncClient(transport=httpx.MockTransport(respond)),
+        lambda _, _prepared, _ssl_context: httpx.AsyncClient(
+            transport=httpx.MockTransport(respond)
+        ),
     )
     client = oauth.create_httpx_upstream_client(FetchSettings(backoff_factor=0))
     try:
@@ -261,7 +263,9 @@ async def test_httpx_retries_share_monotonic_total_deadline(
     monkeypatch.setattr(
         _httpx,
         "_create_client",
-        lambda _: httpx.AsyncClient(transport=httpx.MockTransport(respond)),
+        lambda _, _prepared, _ssl_context: httpx.AsyncClient(
+            transport=httpx.MockTransport(respond)
+        ),
     )
     client = oauth.create_httpx_upstream_client(
         FetchSettings(total_timeout=1, backoff_factor=0)

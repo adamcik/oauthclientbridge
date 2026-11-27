@@ -24,6 +24,12 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
 
 
+@dataclass(frozen=True)
+class Response:
+    status: int
+    body: bytes
+
+
 @dataclass
 class Operation:
     connection_id: int
@@ -67,6 +73,8 @@ class HTTP2Peer:
         self, directory: Path, *, alpn: str | None = "h2", max_streams: int | None = 4
     ) -> None:
         self.context, self.trusted = _contexts(directory, alpn)
+        self.ca_path = directory / "ca.pem"
+        self.responses: list[Response] = []
         self.max_streams = max_streams
         self.accepted: list[Accepted] = []
         self.operations: list[Operation] = []
@@ -253,11 +261,12 @@ class HTTP2Peer:
                                     error_code=h2.errors.ErrorCodes.CANCEL,
                                 )
                             else:
-                                payload = str(accepted.id).encode()
+                                response = self._response(accepted)
+                                payload = response.body
                                 engine.send_headers(
                                     event.stream_id,
                                     [
-                                        (":status", "200"),
+                                        (":status", str(response.status)),
                                         ("content-length", str(len(payload))),
                                     ],
                                 )
@@ -310,6 +319,11 @@ class HTTP2Peer:
         except (h2.exceptions.StreamClosedError, ConnectionError):
             pass
 
+    def _response(self, accepted: Accepted) -> Response:
+        if self.responses:
+            return self.responses.pop(0)
+        return Response(status=200, body=str(accepted.id).encode())
+
     async def _http1(self, accepted: Accepted, reader: asyncio.StreamReader) -> None:
         engine = h11.Connection(h11.SERVER)
         headers: dict[str, str] = {}
@@ -347,12 +361,13 @@ class HTTP2Peer:
                 if headers[":path"] == "/lost":
                     accepted.writer.transport.abort()
                     return
-                payload = str(accepted.id).encode()
+                response = self._response(accepted)
+                payload = response.body
                 self._write(
                     accepted,
                     engine.send(
                         h11.Response(
-                            status_code=200,
+                            status_code=response.status,
                             headers=[(b"Content-Length", str(len(payload)).encode())],
                         )
                     )
@@ -421,6 +436,7 @@ def _contexts(
         .sign(key, hashes.SHA256())
     )
     cert_path, key_path = directory / "server.pem", directory / "server.key"
+    (directory / "ca.pem").write_bytes(ca.public_bytes(serialization.Encoding.PEM))
     cert_path.write_bytes(leaf.public_bytes(serialization.Encoding.PEM))
     key_path.touch(mode=0o600)
     key_path.write_bytes(

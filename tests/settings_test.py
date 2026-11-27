@@ -7,7 +7,9 @@ from pydantic import ValidationError
 from oauthclientbridge.settings import (
     ClientResetError,
     FetchSettings,
+    FetchTransport,
     PrometheusSettings,
+    Settings,
     TelemetryExporter,
     TelemetrySettings,
 )
@@ -115,3 +117,66 @@ def test_fetch_settings_accepts_rfc_grant_types_for_read_timeout_retries() -> No
         UpstreamGrantType.AUTHORIZATION_CODE,
         UpstreamGrantType.REFRESH_TOKEN,
     )
+
+
+def test_prepared_settings_load_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FETCH_TRANSPORT", "prepared")
+    monkeypatch.setenv("FETCH_PREPARED_VERSIONS", '["HTTP/1.1","HTTP/2"]')
+    monkeypatch.setenv("FETCH_PREPARED_MAX_STREAMS", "7")
+    configured = FetchSettings()
+    assert configured.transport == FetchTransport.PREPARED
+    assert configured.prepared_versions == ("HTTP/1.1", "HTTP/2")
+    assert configured.prepared_max_streams == 7
+
+
+@pytest.mark.parametrize(
+    "policy",
+    [
+        {"transport": "unknown"},
+        {"prepared_versions": []},
+        {"prepared_versions": ["HTTP/2", "HTTP/2"]},
+        {"prepared_versions": ["HTTP/3"]},
+        {"prepared_max_streams": 0},
+        {
+            "transport": "prepared",
+            "read_timeout_retry_grant_types": ["authorization_code"],
+        },
+    ],
+)
+def test_prepared_settings_reject_invalid_policy(policy: dict[str, object]) -> None:
+    with pytest.raises(ValidationError):
+        FetchSettings.model_validate(policy)
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "http://provider.example.com/token",
+        "https://user:secret@provider.example.com/token",
+        "https:///token",
+        "https://provider.example.com:invalid/token",
+    ],
+)
+def test_prepared_settings_require_valid_https_token_uri(
+    settings: Settings, uri: str
+) -> None:
+    values = settings.model_dump()
+    values["fetch"]["transport"] = "prepared"
+    values["oauth"]["token_uri"] = uri
+    with pytest.raises(ValidationError):
+        Settings.model_validate(values)
+
+
+def test_prepared_settings_pin_token_and_refresh_to_same_origin(
+    settings: Settings,
+) -> None:
+    values = settings.model_dump()
+    values["fetch"]["transport"] = "prepared"
+    values["oauth"]["refresh_uri"] = "https://other.example.com/refresh"
+    with pytest.raises(ValidationError, match="one token/refresh origin"):
+        Settings.model_validate(values)
+    values["oauth"]["refresh_uri"] = (
+        "https://PROVIDER.example.com:443/refresh?purpose=refresh"
+    )
+    configured = Settings.model_validate(values)
+    assert configured.oauth.prepared_origin() == "https://provider.example.com/"

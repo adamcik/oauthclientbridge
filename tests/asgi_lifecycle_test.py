@@ -52,7 +52,12 @@ async def test_asgi_lifespan_closes_only_runtime_owned_httpx_client(
     settings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     class RecordingClient(oauth.HttpxUpstreamClient):
+        started = False
         closed = False
+
+        async def start(self) -> None:
+            self.started = True
+            await super().start()
 
         async def aclose(self) -> None:
             self.closed = True
@@ -60,7 +65,9 @@ async def test_asgi_lifespan_closes_only_runtime_owned_httpx_client(
 
     monkeypatch.setattr(db, "is_initialized", lambda _: True)
     runtime_owned = RecordingClient(settings.fetch)
-    monkeypatch.setattr(oauth, "create_httpx_upstream_client", lambda _: runtime_owned)
+    monkeypatch.setattr(
+        oauth, "create_httpx_upstream_client", lambda _, **kwargs: runtime_owned
+    )
     injected = RecordingClient(settings.fetch)
 
     runtime_app = create_app(settings, initialize_runtime=False)
@@ -72,11 +79,15 @@ async def test_asgi_lifespan_closes_only_runtime_owned_httpx_client(
         pass
 
     assert runtime_owned.closed is True
+    assert runtime_owned.started is True
     assert injected.closed is False
+    assert injected.started is False
     await injected.aclose()
 
     failed_startup = RecordingClient(settings.fetch)
-    monkeypatch.setattr(oauth, "create_httpx_upstream_client", lambda _: failed_startup)
+    monkeypatch.setattr(
+        oauth, "create_httpx_upstream_client", lambda _, **kwargs: failed_startup
+    )
     monkeypatch.setattr(db, "is_initialized", lambda _: False)
     failed_app = create_app(settings, initialize_runtime=False)
 
@@ -85,3 +96,4 @@ async def test_asgi_lifespan_closes_only_runtime_owned_httpx_client(
             pass
 
     assert failed_startup.closed is True
+    assert failed_startup.started is False

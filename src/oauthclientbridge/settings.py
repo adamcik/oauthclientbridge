@@ -6,8 +6,9 @@ from enum import IntEnum, StrEnum
 from http import HTTPStatus
 from importlib.metadata import PackageNotFoundError, metadata, version
 from pathlib import Path
-from typing import Self, cast
+from typing import Literal, Self, cast
 
+import httpx
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import (
     BaseSettings,
@@ -59,6 +60,11 @@ class ClientResetError(StrEnum):
     TLS_ERROR = "tls_error"
 
 
+class FetchTransport(StrEnum):
+    HTTPX = "httpx"
+    PREPARED = "prepared"
+
+
 def _settings_factory[T: BaseSettings](
     settings_type: type[T],
 ) -> Callable[[], T]:
@@ -99,9 +105,46 @@ class OAuthSettings(_CredentialSettings):
     registered with the upstream provider.
     """
 
+    def prepared_origin(self) -> str:
+        """Require both token exchanges to use one credential-free HTTPS origin."""
+        origins: list[httpx.URL] = []
+        for uri in (self.token_uri, self.refresh_uri or self.token_uri):
+            try:
+                url = httpx.URL(uri)
+            except httpx.InvalidURL:
+                raise ValueError(
+                    "prepared transport requires valid OAuth endpoint URIs"
+                ) from None
+            if url.scheme != "https" or not url.host or url.userinfo:
+                raise ValueError(
+                    "prepared transport requires HTTPS token/refresh URIs without userinfo"
+                )
+            origins.append(url.copy_with(path="/", query=None, fragment=None))
+        if origins[0] != origins[1]:
+            raise ValueError("prepared transport requires one token/refresh origin")
+        return str(origins[0])
+
 
 class FetchSettings(_CredentialSettings):
     model_config = SettingsConfigDict(env_prefix="FETCH_")
+
+    transport: FetchTransport = FetchTransport.HTTPX
+    """Outbound transport. Prepared mode requires startup TLS to the token origin.
+
+    Prepared mode owns connection replacement and never retries transport failures;
+    explicit retryable HTTP responses still follow the shared retry policy.
+    """
+
+    prepared_versions: tuple[Literal["HTTP/2", "HTTP/1.1"], ...] = ("HTTP/2",)
+    """Prepared-mode ALPN preference/allowlist, not a retry or downgrade sequence."""
+
+    prepared_max_streams: int = Field(4, ge=1)
+    """Local prepared H2 lease limit, not reserved peer credit. H1 admits one.
+
+    Prepared mode uses one admitting connection and at most one preparing/draining
+    replacement per worker. HTTPX pool limits and pool wait settings do not apply;
+    unavailable or saturated admission fails immediately.
+    """
 
     total_timeout: float = 20.0
     """Overall allowed timeout across all retires, backoff and retry-after time."""
@@ -160,7 +203,7 @@ class FetchSettings(_CredentialSettings):
             ClientResetError.TLS_ERROR,
         )
     )
-    """Retryable upstream failures that replace the outbound client generation."""
+    """Retryable failures that replace the standard HTTPX client generation only."""
 
     unavailable_status_codes: tuple[HTTPStatus, ...] = Field(
         (
@@ -194,6 +237,19 @@ class FetchSettings(_CredentialSettings):
 
     backoff_jitter_max: float = 1.25
     """Upper multiplier bound for retry backoff jitter around the base delay."""
+
+    @model_validator(mode="after")
+    def validate_prepared_policy(self) -> Self:
+        if not self.prepared_versions or len(set(self.prepared_versions)) != len(
+            self.prepared_versions
+        ):
+            raise ValueError("prepared versions must be nonempty and unique")
+        if (
+            self.transport == FetchTransport.PREPARED
+            and self.read_timeout_retry_grant_types
+        ):
+            raise ValueError("prepared transport does not permit read timeout retries")
+        return self
 
     @model_validator(mode="after")
     def validate_client_reset_errors(self) -> Self:
@@ -467,6 +523,12 @@ class Settings(_CredentialSettings):
     prometheus: PrometheusSettings = Field(
         default_factory=_settings_factory(PrometheusSettings)
     )
+
+    @model_validator(mode="after")
+    def validate_prepared_origin(self) -> Self:
+        if self.fetch.transport == FetchTransport.PREPARED:
+            self.oauth.prepared_origin()
+        return self
 
     @model_validator(mode="after")
     def load_callback_template_file(self) -> "Settings":
