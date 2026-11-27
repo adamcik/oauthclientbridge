@@ -3,7 +3,6 @@ import json
 import ssl
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 from urllib.parse import parse_qs
 
 
@@ -46,18 +45,15 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--port-file", required=True, type=Path)
-    parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--cert", required=True)
     parser.add_argument("--key", required=True)
     args = parser.parse_args()
 
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+    server = ThreadingHTTPServer(("127.0.0.1", 9443), Handler)
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain(args.cert, args.key)
     context.set_alpn_protocols(["http/1.1"])
     server.socket = context.wrap_socket(server.socket, server_side=True)
-    args.port_file.write_text(str(server.server_port))
     server.serve_forever()
 
 
