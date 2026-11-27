@@ -95,20 +95,6 @@ ClientRetryDecisionCounter = prometheus_client.Counter(
     registry=registry,
 )
 
-ClientGenerationResetCounter = prometheus_client.Counter(
-    "oauth_client_generation_resets",
-    "Outbound HTTP client generation resets.",
-    ["endpoint", "error"],
-    registry=registry,
-)
-
-ClientGenerationDrainHistogram = prometheus_client.Histogram(
-    "oauth_client_generation_drain_seconds",
-    "Time for retired outbound HTTP client generations to drain.",
-    buckets=TIME,
-    registry=registry,
-)
-
 ClientTransportRequestCounter = prometheus_client.Counter(
     "oauth_client_transport_requests",
     "Instrumented async HTTPX transport requests, including retries.",

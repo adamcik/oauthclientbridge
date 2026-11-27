@@ -8,7 +8,7 @@ from oauthclientbridge import bridge, db, oauth, observer, startup, telemetry
 from oauthclientbridge.asgi_context import AppContext, TokenStateRefresher
 from oauthclientbridge.proxy import ForwardedHeadersMiddleware
 from oauthclientbridge.routes import fallback, routes
-from oauthclientbridge.settings import FetchTransport, Settings
+from oauthclientbridge.settings import Settings
 
 
 def create_app(
@@ -46,10 +46,9 @@ def _create_app(
     token_state_refresher = TokenStateRefresher(settings.database)
     client: oauth.HttpxUpstreamClient | None = None
     if fetch is None:
-        origin = None
-        if settings.fetch.transport == FetchTransport.PREPARED:
-            origin = settings.oauth.prepared_origin()
-        client = oauth.create_httpx_upstream_client(settings.fetch, origin=origin)
+        client = oauth.create_httpx_upstream_client(
+            settings.fetch, origin=settings.oauth.upstream_origin()
+        )
         oauth_fetch = client.fetch
     else:
         oauth_fetch = fetch

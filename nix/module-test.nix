@@ -20,9 +20,8 @@
           beta = {
             cleanDatabase.enable = true;
             environment = {
-              FETCH_TRANSPORT = "prepared";
-              FETCH_PREPARED_VERSIONS = builtins.toJSON ["HTTP/2" "HTTP/1.1"];
-              FETCH_PREPARED_MAX_STREAMS = "2";
+              FETCH_VERSIONS = builtins.toJSON ["HTTP/2" "HTTP/1.1"];
+              FETCH_MAX_STREAMS = "2";
             };
           };
           preprod = {
@@ -58,9 +57,8 @@ in
   assert checkInstance "beta" appPackages;
   assert checkInstance "preprod" overridePackages;
   assert lib.all (command:
-    config.systemd.services.${command}.environment.FETCH_TRANSPORT
-    == "prepared"
-    && builtins.fromJSON config.systemd.services.${command}.environment.FETCH_PREPARED_VERSIONS == ["HTTP/2" "HTTP/1.1"]
-    && config.systemd.services.${command}.environment.FETCH_PREPARED_MAX_STREAMS == "2")
+    builtins.fromJSON config.systemd.services.${command}.environment.FETCH_VERSIONS
+    == ["HTTP/2" "HTTP/1.1"]
+    && config.systemd.services.${command}.environment.FETCH_MAX_STREAMS == "2")
   ["oauthclientbridge-beta" "oauthclientbridge-beta-initdb" "oauthclientbridge-beta-upgradedb" "oauthclientbridge-beta-cleandb"];
     pkgs.runCommand "oauthclientbridge-module-check" {} "touch $out"

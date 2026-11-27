@@ -70,8 +70,11 @@ def initialize_sentry(
 
 def run_fetch(settings: FetchSettings, *args: str, **data: str | None) -> OAuthResponse:
     async def fetch() -> OAuthResponse:
-        client = oauth.create_httpx_upstream_client(settings)
+        client = oauth.create_httpx_upstream_client(
+            settings, origin=str(httpx.URL(args[0]).copy_with(path="/", query=None))
+        )
         try:
+            await client.start()
             return await client.fetch(*args, **data)
         finally:
             await client.aclose()

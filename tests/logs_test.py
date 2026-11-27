@@ -45,6 +45,7 @@ from starlette.routing import Route
 import oauthclientbridge
 from oauthclientbridge import asgi, db, logs, startup, types
 from oauthclientbridge.settings import LogLevel, LogSettings, Settings
+from tests.conftest import ScriptedOAuth
 
 tracer = trace.get_tracer(__name__)
 
@@ -154,6 +155,7 @@ def test_uvicorn_startup_keeps_access_logs_suppressed(
     settings: Settings,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
+    scripted_oauth: ScriptedOAuth,
 ) -> None:
     settings.log = LogSettings(json_output=True)
     settings.database.database = str(tmp_path / "bridge.db")
@@ -170,7 +172,7 @@ def test_uvicorn_startup_keeps_access_logs_suppressed(
         # Match CLI bootstrap -> Uvicorn configuration -> factory bootstrap.
         with startup.bootstrap(settings.log):
             config = uvicorn.Config(
-                lambda: asgi.create_app(settings),
+                lambda: asgi.create_app(settings, fetch=scripted_oauth.fetch),
                 factory=True,
                 proxy_headers=False,
                 log_config=None,

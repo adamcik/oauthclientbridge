@@ -207,6 +207,38 @@ class PreparedHTTPTransport(httpx.AsyncBaseTransport):
         await self._start_task
         await self._cycle("planned")
 
+    async def replace_for_retry(self, connection_id: int) -> None:
+        """Require a different connection before retrying a completed operation.
+
+        Concurrent callers may share a healthy successor. The preceding connection
+        stops admitting work even if preparation fails; it is never a fallback.
+        Existing response leases continue draining. Failure to prepare within the
+        two-socket bound raises rather than reusing the preceding connection.
+        """
+        if self._start_task is None:
+            raise RuntimeError("transport has not been started")
+        await self._start_task
+        previous = self._slots.get(connection_id)
+        if previous is not None:
+            self._retire(previous, "retry")
+        async with self._build_lock:
+            if self._closing:
+                raise TransportNotReady("transport is closing")
+            current = self._current
+            if (
+                current is not None
+                and current.id != connection_id
+                and current.wire.available()
+                and self._clock.now() - current.born < self._max_age
+            ):
+                return
+            if current is not None:
+                self._retire(current, "problem")
+            for slot in self._slots.copy().values():
+                if slot.retired_at is not None and not slot.leases:
+                    await self._close_slot(slot)
+            await self._build("retry")
+
     def discard(self, connection_id: int) -> None:
         """Stop new admissions on this transport's connection ID; retain its leases."""
         slot = self._slots.get(connection_id)
@@ -257,16 +289,21 @@ class PreparedHTTPTransport(httpx.AsyncBaseTransport):
 
     async def _cycle(self, reason: Reason) -> None:
         async with self._build_lock:
-            if self._closing or len(self._slots) >= 2:
-                raise TransportNotReady(
-                    "preparation unavailable: shutdown or two-socket capacity"
-                )
-            self._builder = asyncio.create_task(self._prepare_and_publish(reason))
-            try:
-                await self._builder
-            finally:
-                self._builder = None
-                self._wake()
+            if reason == "refill" and self._current is not None:
+                return
+            await self._build(reason)
+
+    async def _build(self, reason: Reason) -> None:
+        if self._closing or len(self._slots) >= 2:
+            raise TransportNotReady(
+                "preparation unavailable: shutdown or two-socket capacity"
+            )
+        self._builder = asyncio.create_task(self._prepare_and_publish(reason))
+        try:
+            await self._builder
+        finally:
+            self._builder = None
+            self._wake()
 
     async def _initialize(self) -> None:
         await self._cycle("startup")

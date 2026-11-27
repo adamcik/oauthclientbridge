@@ -56,7 +56,7 @@ def main() -> None:
     status, headers, _ = request(args.socket, "GET", "/?state=caller-state")
     assert status == HTTPStatus.FOUND, status
     location = urllib.parse.urlsplit(headers["location"])
-    assert location.scheme == "http", location
+    assert location.scheme == "https", location
     assert location.hostname == "127.0.0.1", location
     authorization_query = urllib.parse.parse_qs(location.query)
     assert authorization_query["client_id"] == ["smoke-client"]

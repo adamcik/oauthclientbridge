@@ -44,6 +44,10 @@ pkgs.testers.runNixOSTest {
 
     services.oauthclientbridge.instances = {
       alpha = {
+        environment = {
+          FETCH_VERSIONS = builtins.toJSON ["HTTP/1.1"];
+          NIX_SSL_CERT_FILE = "/run/upstream/cert.pem";
+        };
         environmentFile = "/run/secrets/alpha";
         credentials = {
           OAUTH_CLIENT_SECRET = "/run/secrets/alpha-client-secret";
@@ -58,7 +62,9 @@ pkgs.testers.runNixOSTest {
         environment = {
           OAUTH_CLIENT_ID = "test-beta";
           OAUTH_AUTHORIZATION_URI = "https://provider.example/authorize";
-          OAUTH_TOKEN_URI = "https://provider.example/token";
+          OAUTH_TOKEN_URI = "https://127.0.0.1:9443/token";
+          FETCH_VERSIONS = builtins.toJSON ["HTTP/1.1"];
+          NIX_SSL_CERT_FILE = "/run/upstream/cert.pem";
         };
         credentials = {
           OAUTH_CLIENT_SECRET = "/run/secrets/beta-client-secret";
@@ -81,9 +87,15 @@ pkgs.testers.runNixOSTest {
     };
     systemd.services.upstream = {
       wantedBy = ["multi-user.target"];
+      preStart = ''
+        ${pkgs.openssl}/bin/openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+          -subj /CN=local-upstream -addext subjectAltName=IP:127.0.0.1 \
+          -keyout /run/upstream/key.pem -out /run/upstream/cert.pem
+        chmod 0600 /run/upstream/key.pem
+      '';
       serviceConfig = {
         RuntimeDirectory = "upstream";
-        ExecStart = "${pkgs.python312}/bin/python ${../tests/deployment/fake_upstream.py} --port-file /run/upstream/port";
+        ExecStart = "${pkgs.python312}/bin/python ${../tests/deployment/fake_upstream.py} --port 9443 --port-file /run/upstream/port --cert /run/upstream/cert.pem --key /run/upstream/key.pem";
       };
     };
 
@@ -120,8 +132,8 @@ pkgs.testers.runNixOSTest {
     machine.succeed("chmod 0400 /run/secrets/*")
     environment = "\n".join([
         "OAUTH_CLIENT_ID=smoke-client",
-        f"OAUTH_AUTHORIZATION_URI=http://127.0.0.1:{upstream_port}/authorize",
-        f"OAUTH_TOKEN_URI=http://127.0.0.1:{upstream_port}/token",
+        f"OAUTH_AUTHORIZATION_URI=https://127.0.0.1:{upstream_port}/authorize",
+        f"OAUTH_TOKEN_URI=https://127.0.0.1:{upstream_port}/token",
         "OAUTH_REDIRECT_URI=https://auth.example.com/spotify/callback",
         "BRIDGE_SESSION_COOKIE_DOMAIN=auth.example.com",
         "BRIDGE_SESSION_COOKIE_PATH=/spotify",

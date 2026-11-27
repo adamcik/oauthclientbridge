@@ -4,17 +4,14 @@ from pathlib import Path
 
 import pytest
 
-from oauthclientbridge import oauth, telemetry, transport, types
+from oauthclientbridge import oauth, transport, types
 from oauthclientbridge.asgi import create_app
 from oauthclientbridge.settings import (
     FetchSettings,
-    FetchTransport,
-    PrometheusSettings,
     Settings,
 )
 from tests.http2_peer import HTTP2Peer, Response
 from tests.plugins.otel import OTelMocker
-from tests.prometheus import sample_value
 
 
 @pytest.fixture
@@ -57,10 +54,8 @@ async def test_prepared_fetch_uses_startup_socket_and_preserves_httpx_tracing(
         settings.oauth.token_uri = peer.origin + "/token"
         settings.oauth.refresh_uri = peer.origin + "/refresh"
         client = oauth.create_httpx_upstream_client(
-            FetchSettings(
-                transport=FetchTransport.PREPARED, prepared_versions=case.versions
-            ),
-            origin=settings.oauth.prepared_origin(),
+            FetchSettings(versions=case.versions),
+            origin=settings.oauth.upstream_origin(),
             ssl_context=peer.trusted,
         )
         try:
@@ -125,13 +120,12 @@ async def test_prepared_fetch_never_replays_transport_failures(
         settings.oauth.token_uri = peer.origin + case.path
         client = oauth.create_httpx_upstream_client(
             FetchSettings(
-                transport=FetchTransport.PREPARED,
                 total_attempts=3,
                 timeout=0.2,
                 backoff_factor=0,
-                prepared_versions=("HTTP/2", "HTTP/1.1"),
+                versions=("HTTP/2", "HTTP/1.1"),
             ),
-            origin=settings.oauth.prepared_origin(),
+            origin=settings.oauth.upstream_origin(),
             ssl_context=peer.trusted,
         )
         try:
@@ -149,22 +143,21 @@ async def test_prepared_fetch_never_replays_transport_failures(
 
 
 @pytest.mark.anyio
-async def test_prepared_http_response_retry_does_not_rotate_client_or_connection(
+async def test_every_http_response_retry_uses_a_different_connection(
     tmp_path: Path,
     settings: Settings,
 ) -> None:
-    before = telemetry.export_metrics(PrometheusSettings())
     async with HTTP2Peer(tmp_path) as peer:
         peer.responses = [
             Response(status=503, body=b"{}"),
+            Response(status=429, body=b"{}"),
+            Response(status=504, body=b"{}"),
             Response(status=200, body=_TOKEN),
         ]
         settings.oauth.token_uri = peer.origin + "/token"
         client = oauth.create_httpx_upstream_client(
-            FetchSettings(
-                transport=FetchTransport.PREPARED, total_attempts=2, backoff_factor=0
-            ),
-            origin=settings.oauth.prepared_origin(),
+            FetchSettings(total_attempts=4, backoff_factor=0),
+            origin=settings.oauth.upstream_origin(),
             ssl_context=peer.trusted,
         )
         try:
@@ -172,15 +165,54 @@ async def test_prepared_http_response_retry_does_not_rotate_client_or_connection
             assert await client.fetch(
                 settings.oauth.token_uri, types.UpstreamGrantType.REFRESH_TOKEN
             ) == {"access_token": "local-only", "token_type": "Bearer"}
-            assert [operation.connection_id for operation in peer.operations] == [1, 1]
-            assert len(peer.accepted) == 1
+            assert [operation.connection_id for operation in peer.operations] == [
+                1,
+                2,
+                3,
+                4,
+            ]
         finally:
             await client.aclose()
-    after = telemetry.export_metrics(PrometheusSettings())
-    labels = {"endpoint": "refresh_token", "error": "http_503"}
-    assert sample_value(
-        after, "oauth_client_generation_resets_total", labels
-    ) == sample_value(before, "oauth_client_generation_resets_total", labels)
+
+
+@pytest.mark.anyio
+async def test_failed_retry_preparation_preserves_failure_without_replaying(
+    tmp_path: Path,
+) -> None:
+    async with HTTP2Peer(tmp_path) as peer:
+        peer.responses = [
+            Response(
+                status=503,
+                body=b'{"error":"temporarily_unavailable","error_description":"local-provider-failure"}',
+            )
+        ]
+        client = oauth.create_httpx_upstream_client(
+            FetchSettings(backoff_factor=0),
+            origin=peer.origin,
+            ssl_context=peer.trusted,
+        )
+        fetch: asyncio.Task[object] | None = None
+        try:
+            await client.start()
+            fetch = asyncio.create_task(
+                client.fetch(
+                    peer.origin + "/hold", types.UpstreamGrantType.REFRESH_TOKEN
+                )
+            )
+            await peer.until(lambda: len(peer.operations) == 1)
+            peer.context.set_alpn_protocols(["http/1.1"])
+            await peer.release(1, peer.operations[0].stream_id)
+            result = await fetch
+            assert result == {
+                "error": "temporarily_unavailable",
+                "error_description": "local-provider-failure",
+            }
+            assert len(peer.operations) == 1
+        finally:
+            if fetch is not None:
+                fetch.cancel()
+                await asyncio.gather(fetch, return_exceptions=True)
+            await client.aclose()
 
 
 @pytest.mark.anyio
@@ -191,8 +223,8 @@ async def test_prepared_admission_is_bounded_and_does_not_connect_on_fetch(
     async with HTTP2Peer(tmp_path) as peer:
         settings.oauth.token_uri = peer.origin + "/token"
         client = oauth.create_httpx_upstream_client(
-            FetchSettings(transport=FetchTransport.PREPARED, prepared_max_streams=1),
-            origin=settings.oauth.prepared_origin(),
+            FetchSettings(max_streams=1),
+            origin=settings.oauth.upstream_origin(),
             ssl_context=peer.trusted,
         )
         held: asyncio.Task[object] | None = None
@@ -233,7 +265,7 @@ async def test_prepared_shutdown_drains_cancelled_fetches_before_closing(
 ) -> None:
     async with HTTP2Peer(tmp_path) as peer:
         client = oauth.create_httpx_upstream_client(
-            FetchSettings(transport=FetchTransport.PREPARED),
+            FetchSettings(),
             origin=peer.origin,
             ssl_context=peer.trusted,
         )
@@ -276,7 +308,7 @@ async def test_asgi_prepares_before_serving_and_closes_on_exit(
         # Nix's OpenSSL gives this platform override precedence over SSL_CERT_FILE.
         monkeypatch.setenv("NIX_SSL_CERT_FILE", str(peer.ca_path))
         settings.oauth.token_uri = peer.origin + "/token"
-        settings.fetch = FetchSettings(transport=FetchTransport.PREPARED)
+        settings.fetch = FetchSettings()
         app = create_app(settings, initialize_runtime=False)
         assert not peer.accepted
         async with app.router.lifespan_context(app):
@@ -293,7 +325,7 @@ async def test_asgi_refuses_unverified_preparation_and_cleans_up(
 ) -> None:
     async with HTTP2Peer(tmp_path) as peer:
         settings.oauth.token_uri = peer.origin + "/token"
-        settings.fetch = FetchSettings(transport=FetchTransport.PREPARED)
+        settings.fetch = FetchSettings()
         app = create_app(settings, initialize_runtime=False)
         with pytest.raises(Exception, match="CERTIFICATE_VERIFY_FAILED"):
             async with app.router.lifespan_context(app):

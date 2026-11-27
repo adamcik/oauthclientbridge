@@ -1,14 +1,17 @@
 import json
+import socket
 import ssl
 from collections import deque
-from collections.abc import Mapping
+from collections.abc import AsyncGenerator, Mapping
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Condition, Event, Lock, Thread
 from typing import Self, cast
 
-from oauthclientbridge import types
+from oauthclientbridge import oauth, types
+from oauthclientbridge.settings import FetchSettings
 
 
 @dataclass(frozen=True)
@@ -34,6 +37,13 @@ class _Expectation:
 class _RequestHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
+    def handle(self) -> None:
+        try:
+            super().handle()
+        except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError):
+            # Retiring a prepared connection may close an idle keepalive reader.
+            pass
+
     def do_POST(self) -> None:  # Required by BaseHTTPRequestHandler.
         oauth_server = cast("_OAuthServer", self.server).oauth_server
         expectation = oauth_server._next_expectation(
@@ -42,7 +52,7 @@ class _RequestHandler(BaseHTTPRequestHandler):
                 path=self.path,
                 headers=dict(self.headers),
                 body=self.rfile.read(int(self.headers["Content-Length"])),
-                client_address=self.client_address,
+                client_address=(self.client_address[0], self.client_address[1]),
             )
         )
         if expectation.request_started is not None:
@@ -65,6 +75,10 @@ class _RequestHandler(BaseHTTPRequestHandler):
 
 class _OAuthServer(ThreadingHTTPServer):
     oauth_server: "OAuthServer"
+
+
+class _IPv6OAuthServer(_OAuthServer):
+    address_family = socket.AF_INET6
 
 
 class Expectation:
@@ -104,12 +118,15 @@ class Expectation:
 
 
 class OAuthServer:
-    def __init__(self, *, tls_context: ssl.SSLContext | None = None) -> None:
+    def __init__(
+        self, *, tls_context: ssl.SSLContext | None = None, host: str = "127.0.0.1"
+    ) -> None:
         self._expectations: deque[_Expectation] = deque()
         self._lock = Lock()
         self._requests_ready = Condition(self._lock)
         self.requests: list[ObservedRequest] = []
-        self._server = _OAuthServer(("127.0.0.1", 0), _RequestHandler)
+        server_type = _IPv6OAuthServer if ":" in host else _OAuthServer
+        self._server = server_type((host, 0), _RequestHandler)
         self._scheme = "http"
         if tls_context is not None:
             self._server.socket = tls_context.wrap_socket(
@@ -123,9 +140,25 @@ class OAuthServer:
     def expect(self, path: str) -> Expectation:
         return Expectation(self, path)
 
+    @asynccontextmanager
+    async def client(
+        self, settings: FetchSettings | None = None
+    ) -> AsyncGenerator[oauth.HttpxUpstreamClient]:
+        configured = settings or FetchSettings()
+        configured = configured.model_copy(update={"versions": ("HTTP/1.1",)})
+        client = oauth.create_httpx_upstream_client(
+            configured, origin=self.url_for("/")
+        )
+        try:
+            await client.start()
+            yield client
+        finally:
+            await client.aclose()
+
     def url_for(self, path: str) -> str:
-        host, port = self._server.server_address
-        return f"{self._scheme}://{host}:{port}{path}"
+        host, port = self._server.server_address[:2]
+        authority = f"[{host}]" if ":" in host else host
+        return f"{self._scheme}://{authority}:{port}{path}"
 
     def close(self) -> None:
         self._server.shutdown()

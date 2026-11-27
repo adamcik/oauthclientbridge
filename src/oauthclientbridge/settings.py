@@ -17,7 +17,6 @@ from pydantic_settings import (
     SettingsConfigDict,
 )
 
-from oauthclientbridge import types
 from oauthclientbridge.errors import OAuthError
 
 
@@ -47,22 +46,6 @@ class _CredentialSettings(BaseSettings):
                 os.environ.get("CREDENTIALS_DIRECTORY") or None
             )
         return init_settings, env_settings, dotenv_settings, file_secret_settings
-
-
-class ClientResetError(StrEnum):
-    HTTP_500 = "http_500"
-    HTTP_502 = "http_502"
-    HTTP_503 = "http_503"
-    HTTP_504 = "http_504"
-    CONNECTION_ERROR = "connection_error"
-    CONNECTION_TIMEOUT = "connection_timeout"
-    READ_TIMEOUT = "read_timeout"
-    TLS_ERROR = "tls_error"
-
-
-class FetchTransport(StrEnum):
-    HTTPX = "httpx"
-    PREPARED = "prepared"
 
 
 def _settings_factory[T: BaseSettings](
@@ -105,7 +88,7 @@ class OAuthSettings(_CredentialSettings):
     registered with the upstream provider.
     """
 
-    def prepared_origin(self) -> str:
+    def upstream_origin(self) -> str:
         """Require both token exchanges to use one credential-free HTTPS origin."""
         origins: list[httpx.URL] = []
         for uri in (self.token_uri, self.refresh_uri or self.token_uri):
@@ -128,22 +111,16 @@ class OAuthSettings(_CredentialSettings):
 class FetchSettings(_CredentialSettings):
     model_config = SettingsConfigDict(env_prefix="FETCH_")
 
-    transport: FetchTransport = FetchTransport.HTTPX
-    """Outbound transport. Prepared mode requires startup TLS to the token origin.
+    versions: tuple[Literal["HTTP/2", "HTTP/1.1"], ...] = ("HTTP/2",)
+    """TLS ALPN preference/allowlist, not a retry or downgrade sequence."""
 
-    Prepared mode owns connection replacement and never retries transport failures;
-    explicit retryable HTTP responses still follow the shared retry policy.
-    """
+    max_streams: int = Field(4, ge=1)
+    """Local H2 lease limit, not reserved peer credit. H1 admits one.
 
-    prepared_versions: tuple[Literal["HTTP/2", "HTTP/1.1"], ...] = ("HTTP/2",)
-    """Prepared-mode ALPN preference/allowlist, not a retry or downgrade sequence."""
-
-    prepared_max_streams: int = Field(4, ge=1)
-    """Local prepared H2 lease limit, not reserved peer credit. H1 admits one.
-
-    Prepared mode uses one admitting connection and at most one preparing/draining
-    replacement per worker. HTTPX pool limits and pool wait settings do not apply;
-    unavailable or saturated admission fails immediately.
+    Each worker owns one admitting connection and at most one preparing/draining
+    replacement. Unavailable or saturated admission fails immediately. Every
+    permitted HTTP-response retry uses a different connection from its preceding
+    attempt. Transport failures never authorize replay of an OAuth POST.
     """
 
     total_timeout: float = 20.0
@@ -155,22 +132,6 @@ class FetchSettings(_CredentialSettings):
     upstream OAuth endpoint for a single fetch attempt.
     """
 
-    pool_max_connections: int = 3
-    """Maximum concurrent upstream HTTP connections."""
-
-    pool_max_keepalive_connections: int = 3
-    """Maximum idle upstream HTTP connections to retain across request bursts."""
-
-    pool_timeout: float = 1.0
-    """Maximum time to wait for an available upstream connection."""
-
-    pool_keepalive_expiry: float = 600.0
-    """Idle lifetime in seconds, allowing reuse across five-minute polling gaps.
-
-    The provider may close idle connections sooner. This does not keep sockets
-    alive with probes or limit the total lifetime of a connection in use.
-    """
-
     total_attempts: int = Field(3, ge=1)
     """Maximum initial and retry attempts for fetching OAuth data."""
 
@@ -179,9 +140,6 @@ class FetchSettings(_CredentialSettings):
 
     retry_budget_refill_per_initial: float = 0.25
     """How much retry budget each initial outgoing request replenishes."""
-
-    read_timeout_retry_grant_types: tuple[types.UpstreamGrantType, ...] = ()
-    """Grant types whose providers explicitly permit retries after read timeouts."""
 
     retry_status_codes: tuple[HTTPStatus, ...] = Field(
         (
@@ -192,18 +150,6 @@ class FetchSettings(_CredentialSettings):
         ),
     )
     """Status codes that should be considered retryable for oauth."""
-
-    client_reset_errors: tuple[ClientResetError, ...] = Field(
-        (
-            ClientResetError.HTTP_502,
-            ClientResetError.HTTP_503,
-            ClientResetError.HTTP_504,
-            ClientResetError.CONNECTION_ERROR,
-            ClientResetError.CONNECTION_TIMEOUT,
-            ClientResetError.TLS_ERROR,
-        )
-    )
-    """Retryable failures that replace the standard HTTPX client generation only."""
 
     unavailable_status_codes: tuple[HTTPStatus, ...] = Field(
         (
@@ -239,33 +185,9 @@ class FetchSettings(_CredentialSettings):
     """Upper multiplier bound for retry backoff jitter around the base delay."""
 
     @model_validator(mode="after")
-    def validate_prepared_policy(self) -> Self:
-        if not self.prepared_versions or len(set(self.prepared_versions)) != len(
-            self.prepared_versions
-        ):
-            raise ValueError("prepared versions must be nonempty and unique")
-        if (
-            self.transport == FetchTransport.PREPARED
-            and self.read_timeout_retry_grant_types
-        ):
-            raise ValueError("prepared transport does not permit read timeout retries")
-        return self
-
-    @model_validator(mode="after")
-    def validate_client_reset_errors(self) -> Self:
-        reset_statuses = {
-            ClientResetError.HTTP_500: HTTPStatus.INTERNAL_SERVER_ERROR,
-            ClientResetError.HTTP_502: HTTPStatus.BAD_GATEWAY,
-            ClientResetError.HTTP_503: HTTPStatus.SERVICE_UNAVAILABLE,
-            ClientResetError.HTTP_504: HTTPStatus.GATEWAY_TIMEOUT,
-        }
-        configured_statuses = {
-            reset_statuses[error]
-            for error in self.client_reset_errors
-            if error in reset_statuses
-        }
-        if not configured_statuses.issubset(self.retry_status_codes):
-            raise ValueError("client reset HTTP errors must be configured retryable")
+    def validate_versions(self) -> Self:
+        if not self.versions or len(set(self.versions)) != len(self.versions):
+            raise ValueError("versions must be nonempty and unique")
         return self
 
 
@@ -525,9 +447,8 @@ class Settings(_CredentialSettings):
     )
 
     @model_validator(mode="after")
-    def validate_prepared_origin(self) -> Self:
-        if self.fetch.transport == FetchTransport.PREPARED:
-            self.oauth.prepared_origin()
+    def validate_upstream_origin(self) -> Self:
+        self.oauth.upstream_origin()
         return self
 
     @model_validator(mode="after")

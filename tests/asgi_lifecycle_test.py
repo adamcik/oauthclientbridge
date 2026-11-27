@@ -4,6 +4,7 @@ from oauthclientbridge import db, oauth
 from oauthclientbridge.asgi import create_app
 from oauthclientbridge.asgi_context import TokenStateRefresher
 from oauthclientbridge.settings import Settings
+from tests.oauth_server import OAuthServer
 
 
 def test_asgi_factory_loads_settings_from_environment(
@@ -31,8 +32,11 @@ async def test_asgi_lifespan_requires_initialized_database(settings: Settings) -
 
 @pytest.mark.anyio
 async def test_asgi_lifespan_starts_token_state_refresh(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    oauth_server: OAuthServer,
 ) -> None:
+    settings.oauth.token_uri = oauth_server.url_for("/token")
     started = False
 
     async def start(self: TokenStateRefresher, task_spawner: object) -> None:
@@ -57,18 +61,19 @@ async def test_asgi_lifespan_closes_only_runtime_owned_httpx_client(
 
         async def start(self) -> None:
             self.started = True
-            await super().start()
 
         async def aclose(self) -> None:
             self.closed = True
             await super().aclose()
 
     monkeypatch.setattr(db, "is_initialized", lambda _: True)
-    runtime_owned = RecordingClient(settings.fetch)
+    runtime_owned = RecordingClient(
+        settings.fetch, origin=settings.oauth.upstream_origin()
+    )
     monkeypatch.setattr(
         oauth, "create_httpx_upstream_client", lambda _, **kwargs: runtime_owned
     )
-    injected = RecordingClient(settings.fetch)
+    injected = RecordingClient(settings.fetch, origin=settings.oauth.upstream_origin())
 
     runtime_app = create_app(settings, initialize_runtime=False)
     injected_app = create_app(settings, fetch=injected.fetch, initialize_runtime=False)
@@ -84,7 +89,9 @@ async def test_asgi_lifespan_closes_only_runtime_owned_httpx_client(
     assert injected.started is False
     await injected.aclose()
 
-    failed_startup = RecordingClient(settings.fetch)
+    failed_startup = RecordingClient(
+        settings.fetch, origin=settings.oauth.upstream_origin()
+    )
     monkeypatch.setattr(
         oauth, "create_httpx_upstream_client", lambda _, **kwargs: failed_startup
     )

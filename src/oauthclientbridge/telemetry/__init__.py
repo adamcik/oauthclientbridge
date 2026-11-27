@@ -3,11 +3,9 @@ from http import HTTPStatus
 from typing import Literal
 
 from anyio import abc
-from opentelemetry import trace
 
 from oauthclientbridge import types
 from oauthclientbridge.errors import OAuthError
-from oauthclientbridge.settings import ClientResetError
 
 from . import (
     _asyncio,
@@ -34,12 +32,10 @@ __all__ = [
     "instrument_asgi_app",
     "instrument_httpx_transport",
     "oauth_outcome_observer",
-    "observe_client_generation_drain_metric",
     "observe_token_grant_age_metric",
     "otel_log_attributes",
     "record_client_attempt_metric",
     "record_client_error_metric",
-    "record_client_generation_reset",
     "record_client_response_metric",
     "record_client_retries_metric",
     "record_database_error_metric",
@@ -74,9 +70,7 @@ init_sentry = _sentry.init
 oauth_outcome_observer = _oauth_outcome.OAuthOutcomeObserver
 fallback_observer = _fallback.FallbackObserver
 
-type ClientErrorLabel = (
-    OAuthError | Literal["invalid_error", "pool_saturation", "transport_unavailable"]
-)
+type ClientErrorLabel = OAuthError | Literal["invalid_error", "transport_unavailable"]
 type ClientResponseStatus = Literal[
     "connection_error",
     "connection_timeout",
@@ -151,26 +145,6 @@ def record_client_error_metric(
         status=_prometheus.status(status) if status else "unknown",
         error=error,
     ).inc()
-
-
-def record_client_generation_reset(
-    endpoint: types.UpstreamGrantType, error: ClientResetError
-) -> None:
-    """Record a real outbound client generation replacement."""
-    _prometheus.ClientGenerationResetCounter.labels(
-        endpoint=endpoint, error=error
-    ).inc()
-    trace.get_current_span().add_event(
-        "Client generation reset",
-        {
-            "oauth.upstream_grant_type": str(endpoint),
-            "client.reset_error": str(error),
-        },
-    )
-
-
-def observe_client_generation_drain_metric(duration: float) -> None:
-    _prometheus.ClientGenerationDrainHistogram.observe(duration)
 
 
 def record_client_retries_metric(

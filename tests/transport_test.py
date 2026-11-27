@@ -26,6 +26,81 @@ def anyio_backend() -> str:
 
 
 @pytest.mark.anyio
+async def test_concurrent_retry_replacement_shares_a_different_connection(
+    tmp_path: Path,
+) -> None:
+    async with HTTP2Peer(tmp_path) as peer:
+        prepared = transport.PreparedHTTPTransport(
+            peer.origin, ssl_context=peer.trusted
+        )
+        async with httpx.AsyncClient(transport=prepared) as client:
+            first = await client.post(peer.origin + "/token")
+            previous = first.extensions["prepared_connection_id"]
+            await asyncio.gather(
+                *(prepared.replace_for_retry(previous) for _ in range(4))
+            )
+            second = await client.post(peer.origin + "/token")
+            assert second.extensions["prepared_connection_id"] != previous
+            assert len(peer.accepted) == 2
+
+
+@pytest.mark.anyio
+async def test_failed_retry_replacement_never_falls_back_to_previous_connection(
+    tmp_path: Path,
+) -> None:
+    async with HTTP2Peer(tmp_path) as peer:
+        prepared = transport.PreparedHTTPTransport(
+            peer.origin, ssl_context=peer.trusted
+        )
+        async with httpx.AsyncClient(transport=prepared) as client:
+            first = await client.post(peer.origin + "/token")
+            peer.context.set_alpn_protocols(["http/1.1"])
+            with pytest.raises(httpx.UnsupportedProtocol):
+                await prepared.replace_for_retry(
+                    first.extensions["prepared_connection_id"]
+                )
+            with pytest.raises(transport.TransportNotReady):
+                await client.post(peer.origin + "/token")
+            assert len(peer.operations) == 1
+
+
+@pytest.mark.anyio
+async def test_retry_replacement_respects_draining_two_socket_bound(
+    tmp_path: Path,
+) -> None:
+    async with HTTP2Peer(tmp_path) as peer:
+        prepared = transport.PreparedHTTPTransport(
+            peer.origin, ssl_context=peer.trusted
+        )
+        async with httpx.AsyncClient(transport=prepared) as client:
+            old = await client.send(
+                client.build_request("POST", peer.origin + "/hold"), stream=True
+            )
+            await prepared.cycle()
+            current = await client.send(
+                client.build_request("POST", peer.origin + "/hold"), stream=True
+            )
+            try:
+                previous = current.extensions["prepared_connection_id"]
+                with pytest.raises(transport.TransportNotReady):
+                    await prepared.replace_for_retry(previous)
+                with pytest.raises(transport.TransportNotReady):
+                    await client.post(peer.origin + "/token")
+                assert len(peer.accepted) == 2
+                await peer.release(1, old.extensions["stream_id"])
+                await old.aread()
+                await old.aclose()
+                await prepared.replace_for_retry(previous)
+                replacement = await client.post(peer.origin + "/token")
+                assert replacement.extensions["prepared_connection_id"] != previous
+                await peer.release(2, current.extensions["stream_id"])
+                assert await current.aread() == b"2"
+            finally:
+                await old.aclose()
+                await current.aclose()
+
+
+@pytest.mark.anyio
 async def test_prepares_verified_h2_without_http_and_reuses_exact_connection(
     tmp_path: Path,
 ) -> None:

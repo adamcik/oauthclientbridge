@@ -3,10 +3,9 @@ from dataclasses import dataclass
 from unittest import mock
 
 import anyio
-import httpx
 import pytest
 
-from oauthclientbridge import oauth, types
+from oauthclientbridge import types
 from oauthclientbridge.oauth import (
     _core,  # pyright: ignore[reportPrivateUsage] # Control jitter sampling.
     _httpx,  # pyright: ignore[reportPrivateUsage] # Control transport and retry delay.
@@ -94,15 +93,12 @@ async def test_httpx_retry_policy(case: RetryCase, oauth_server: OAuthServer) ->
             else None,
             status=status,
         )
-    client = oauth.create_httpx_upstream_client(
+    async with oauth_server.client(
         FetchSettings(total_attempts=case.attempts, backoff_factor=0)
-    )
-    try:
+    ) as client:
         result = await client.fetch(
             oauth_server.url_for("/token"), types.UpstreamGrantType.REFRESH_TOKEN
         )
-    finally:
-        await client.aclose()
     assert len(oauth_server.requests) == len(case.statuses)
     assert (
         oauth_server.requests[0].headers["User-Agent"].startswith("oauthclientbridge ")
@@ -168,15 +164,12 @@ async def test_httpx_retry_jitter(
     sleep = mock.AsyncMock()
     monkeypatch.setattr(_core.random, "uniform", uniform)
     monkeypatch.setattr(_httpx, "_sleep", sleep)
-    client = oauth.create_httpx_upstream_client(
+    async with oauth_server.client(
         FetchSettings(backoff_jitter_min=case.lower, backoff_jitter_max=case.upper)
-    )
-    try:
+    ) as client:
         result = await client.fetch(
             oauth_server.url_for("/token"), types.UpstreamGrantType.REFRESH_TOKEN
         )
-    finally:
-        await client.aclose()
     assert result["access_token"] == "token"
     assert [call.args[0] for call in sleep.await_args_list] == list(
         case.expected_delays
@@ -187,54 +180,13 @@ async def test_httpx_retry_jitter(
 
 
 @pytest.mark.anyio
-async def test_httpx_retries_transport_errors(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    responses = iter(
-        (
-            httpx.ConnectError("connection failed"),
-            httpx.ConnectTimeout("timeout"),
-            httpx.Response(200, json={"access_token": "token", "token_type": "Bearer"}),
-        )
-    )
-    observed: list[httpx.Request] = []
-
-    def respond(request: httpx.Request) -> httpx.Response:
-        observed.append(request)
-        response = next(responses)
-        if isinstance(response, Exception):
-            raise response
-        return response
-
-    monkeypatch.setattr(
-        _httpx,
-        "_create_client",
-        lambda _, _prepared, _ssl_context: httpx.AsyncClient(
-            transport=httpx.MockTransport(respond)
-        ),
-    )
-    client = oauth.create_httpx_upstream_client(FetchSettings(backoff_factor=0))
-    try:
-        result = await client.fetch(
-            "https://provider.invalid/token", types.UpstreamGrantType.REFRESH_TOKEN
-        )
-    finally:
-        await client.aclose()
-    assert result["access_token"] == "token"
-    assert len(observed) == 3
-
-
-@pytest.mark.anyio
 async def test_httpx_expired_deadline_sends_no_request(
     oauth_server: OAuthServer,
 ) -> None:
-    client = oauth.create_httpx_upstream_client(FetchSettings(total_timeout=0))
-    try:
+    async with oauth_server.client(FetchSettings(total_timeout=0)) as client:
         result = await client.fetch(
             oauth_server.url_for("/token"), types.UpstreamGrantType.REFRESH_TOKEN
         )
-    finally:
-        await client.aclose()
     assert result["error"] == "server_error"
     assert not oauth_server.requests
 
@@ -242,41 +194,30 @@ async def test_httpx_expired_deadline_sends_no_request(
 @pytest.mark.anyio
 async def test_httpx_retries_share_monotonic_total_deadline(
     monkeypatch: pytest.MonkeyPatch,
+    oauth_server: OAuthServer,
 ) -> None:
-    attempts = 0
     deadlines: list[float] = []
     remaining: list[float] = []
 
-    async def respond(request: httpx.Request) -> httpx.Response:
-        nonlocal attempts
-        attempts += 1
+    async def observe_delay(_: float) -> None:
         deadlines.append(anyio.current_effective_deadline())
         remaining.append(deadlines[-1] - anyio.current_time())
-        await anyio.lowlevel.checkpoint()
-        if attempts == 1:
-            monkeypatch.setattr(time, "time", lambda: 1e12)
-            return httpx.Response(503, json={"error": "temporarily_unavailable"})
-        return httpx.Response(
-            200, json={"access_token": "token", "token_type": "Bearer"}
-        )
+        if len(deadlines) == 1:
+            monkeypatch.setattr(time, "time", lambda: 2_000_000_000)
 
-    monkeypatch.setattr(
-        _httpx,
-        "_create_client",
-        lambda _, _prepared, _ssl_context: httpx.AsyncClient(
-            transport=httpx.MockTransport(respond)
-        ),
+    monkeypatch.setattr(_httpx, "_sleep", observe_delay)
+    oauth_server.expect("/token").respond(status=503)
+    oauth_server.expect("/token").respond(status=503)
+    oauth_server.expect("/token").respond(
+        {"access_token": "token", "token_type": "Bearer"}
     )
-    client = oauth.create_httpx_upstream_client(
-        FetchSettings(total_timeout=1, backoff_factor=0)
-    )
-    try:
+    async with oauth_server.client(
+        FetchSettings(total_timeout=5, backoff_factor=0.1)
+    ) as client:
         result = await client.fetch(
-            "https://provider.invalid/token", types.UpstreamGrantType.REFRESH_TOKEN
+            oauth_server.url_for("/token"), types.UpstreamGrantType.REFRESH_TOKEN
         )
-    finally:
-        await client.aclose()
     assert result["access_token"] == "token"
-    assert attempts == 2
+    assert len(oauth_server.requests) == 3
     assert deadlines[0] == deadlines[1]
-    assert all(0 < budget <= 1 for budget in remaining)
+    assert all(0 < budget <= 5 for budget in remaining)
