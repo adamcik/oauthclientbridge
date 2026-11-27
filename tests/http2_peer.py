@@ -72,7 +72,7 @@ class HTTP2Peer:
     def __init__(
         self, directory: Path, *, alpn: str | None = "h2", max_streams: int | None = 4
     ) -> None:
-        self.context, self.trusted = _contexts(directory, alpn)
+        self.context, self.trusted = tls_contexts(directory, alpn)
         self.ca_path = directory / "ca.pem"
         self.responses: list[Response] = []
         self.max_streams = max_streams
@@ -401,7 +401,7 @@ class HTTP2Peer:
                     return
 
 
-def _contexts(
+def tls_contexts(
     directory: Path, alpn: str | None
 ) -> tuple[ssl.SSLContext, ssl.SSLContext]:
     now = datetime.datetime.now(datetime.UTC)

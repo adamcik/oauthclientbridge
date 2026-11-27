@@ -192,8 +192,11 @@ async def test_asgi_adapter_supports_httpx_backed_upstream_fetch(
         {"token_type": "Bearer", "access_token": "provider-token"}
     )
 
-    upstream = oauth.create_httpx_upstream_client(settings.fetch)
+    upstream = oauth.create_httpx_upstream_client(
+        settings.fetch, origin=settings.oauth.upstream_origin()
+    )
     try:
+        await upstream.start()
         async with adapter_client(settings, upstream.fetch) as client:
             authorization = await client.get("/")
             state = urllib.parse.parse_qs(

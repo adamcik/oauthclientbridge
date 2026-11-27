@@ -170,7 +170,9 @@ async def test_httpx_connection_metrics_do_not_depend_on_trace_sampling(
     )
 
     with trace.use_span(unsampled_parent):
-        async with httpx.AsyncClient(trust_env=False) as client:
+        async with httpx.AsyncClient(
+            verify=ssl.create_default_context(), trust_env=False
+        ) as client:
             for _ in range(2):
                 response = await client.post(oauth_server.url_for("/token"))
                 assert response.status_code == 200
@@ -201,7 +203,9 @@ async def test_httpx_preserves_trace_callback_when_resending_request(
 
     for _ in range(2):
         oauth_server.expect("/token").respond({"access_token": "token"})
-    async with httpx.AsyncClient(trust_env=False) as client:
+    async with httpx.AsyncClient(
+        verify=ssl.create_default_context(), trust_env=False
+    ) as client:
         request = client.build_request(
             "POST", oauth_server.url_for("/token"), extensions={"trace": observe}
         )
@@ -235,7 +239,9 @@ async def test_httpx_closes_response_wait_span_when_cancelled(
         if name == "http11.receive_response_headers.started":
             waiting.set()
 
-    async with httpx.AsyncClient(trust_env=False) as client:
+    async with httpx.AsyncClient(
+        verify=ssl.create_default_context(), trust_env=False
+    ) as client:
 
         async def fetch() -> None:
             await client.post(

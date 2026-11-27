@@ -1,19 +1,15 @@
-from http import HTTPStatus
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
 from oauthclientbridge.settings import (
-    ClientResetError,
     FetchSettings,
-    FetchTransport,
     PrometheusSettings,
     Settings,
     TelemetryExporter,
     TelemetrySettings,
 )
-from oauthclientbridge.types import UpstreamGrantType
 
 
 def test_telemetry_settings_defaults() -> None:
@@ -81,62 +77,22 @@ def test_prometheus_settings_multiproc_dir() -> None:
     assert settings.multiproc_dir == Path("/prom")
 
 
-def test_fetch_settings_reset_errors_default_to_unhealthy_paths() -> None:
-    settings = FetchSettings()
-
-    assert settings.client_reset_errors == (
-        ClientResetError.HTTP_502,
-        ClientResetError.HTTP_503,
-        ClientResetError.HTTP_504,
-        ClientResetError.CONNECTION_ERROR,
-        ClientResetError.CONNECTION_TIMEOUT,
-        ClientResetError.TLS_ERROR,
-    )
-
-
-def test_fetch_settings_rejects_http_reset_error_that_is_not_retryable() -> None:
-    with pytest.raises(ValidationError, match="client reset HTTP errors"):
-        FetchSettings(client_reset_errors=(ClientResetError.HTTP_500,))
-
-
-def test_fetch_settings_permits_configured_http_reset_error() -> None:
-    settings = FetchSettings(
-        retry_status_codes=(HTTPStatus.INTERNAL_SERVER_ERROR,),
-        client_reset_errors=(ClientResetError.HTTP_500,),
-    )
-
-    assert settings.client_reset_errors == (ClientResetError.HTTP_500,)
-
-
-def test_fetch_settings_accepts_rfc_grant_types_for_read_timeout_retries() -> None:
-    settings = FetchSettings(
-        read_timeout_retry_grant_types=("authorization_code", "refresh_token")
-    )
-
-    assert settings.read_timeout_retry_grant_types == (
-        UpstreamGrantType.AUTHORIZATION_CODE,
-        UpstreamGrantType.REFRESH_TOKEN,
-    )
-
-
 def test_prepared_settings_load_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("FETCH_TRANSPORT", "prepared")
-    monkeypatch.setenv("FETCH_PREPARED_VERSIONS", '["HTTP/1.1","HTTP/2"]')
-    monkeypatch.setenv("FETCH_PREPARED_MAX_STREAMS", "7")
+    monkeypatch.setenv("FETCH_VERSIONS", '["HTTP/1.1","HTTP/2"]')
+    monkeypatch.setenv("FETCH_MAX_STREAMS", "7")
     configured = FetchSettings()
-    assert configured.transport == FetchTransport.PREPARED
-    assert configured.prepared_versions == ("HTTP/1.1", "HTTP/2")
-    assert configured.prepared_max_streams == 7
+    assert configured.versions == ("HTTP/1.1", "HTTP/2")
+    assert configured.max_streams == 7
 
 
 @pytest.mark.parametrize(
     "policy",
     [
         {"transport": "unknown"},
-        {"prepared_versions": []},
-        {"prepared_versions": ["HTTP/2", "HTTP/2"]},
-        {"prepared_versions": ["HTTP/3"]},
-        {"prepared_max_streams": 0},
+        {"versions": []},
+        {"versions": ["HTTP/2", "HTTP/2"]},
+        {"versions": ["HTTP/3"]},
+        {"max_streams": 0},
         {
             "transport": "prepared",
             "read_timeout_retry_grant_types": ["authorization_code"],
@@ -161,7 +117,6 @@ def test_prepared_settings_require_valid_https_token_uri(
     settings: Settings, uri: str
 ) -> None:
     values = settings.model_dump()
-    values["fetch"]["transport"] = "prepared"
     values["oauth"]["token_uri"] = uri
     with pytest.raises(ValidationError):
         Settings.model_validate(values)
@@ -171,7 +126,6 @@ def test_prepared_settings_pin_token_and_refresh_to_same_origin(
     settings: Settings,
 ) -> None:
     values = settings.model_dump()
-    values["fetch"]["transport"] = "prepared"
     values["oauth"]["refresh_uri"] = "https://other.example.com/refresh"
     with pytest.raises(ValidationError, match="one token/refresh origin"):
         Settings.model_validate(values)
@@ -179,4 +133,4 @@ def test_prepared_settings_pin_token_and_refresh_to_same_origin(
         "https://PROVIDER.example.com:443/refresh?purpose=refresh"
     )
     configured = Settings.model_validate(values)
-    assert configured.oauth.prepared_origin() == "https://provider.example.com/"
+    assert configured.oauth.upstream_origin() == "https://provider.example.com/"

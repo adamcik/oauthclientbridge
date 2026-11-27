@@ -4,9 +4,6 @@ from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field
 from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from threading import Thread
-from typing import ClassVar
 from urllib.parse import parse_qs, urlsplit
 
 import httpx
@@ -22,7 +19,6 @@ from oauthclientbridge.routes import (
 )
 from oauthclientbridge.settings import FetchSettings, Settings
 from tests.oauth_server import OAuthServer
-from tests.prometheus import sample_value
 
 type AsgiClient = Callable[..., AbstractAsyncContextManager[httpx.AsyncClient]]
 
@@ -37,9 +33,8 @@ class RecordingFallbackObserver:
 
 @dataclass(frozen=True)
 class RetryConnectionCase:
-    name: str
+    id: str
     failure_status: HTTPStatus
-    uses_fresh_connection: bool
 
 
 @pytest.fixture
@@ -158,75 +153,29 @@ async def test_starlette_adapter_scopes_session_cookie_per_instance(
 
 @pytest.mark.anyio
 async def test_asgi_callback_reuses_its_upstream_connection(
-    settings: Settings, bridge_harness: object
+    settings: Settings,
+    bridge_harness: object,
+    oauth_server: OAuthServer,
 ) -> None:
     _ = bridge_harness  # Keeps the initialized shared-memory database alive.
-
-    class OAuthHandler(BaseHTTPRequestHandler):
-        protocol_version = "HTTP/1.1"
-        connections: ClassVar[set[tuple[str, int]]] = set()
-        response_status = HTTPStatus.OK
-
-        def do_POST(self) -> None:  # Required by BaseHTTPRequestHandler.
-            self.connections.add(self.client_address)
-            length = int(self.headers["Content-Length"])
-            self.rfile.read(length)
-            body = b'{"access_token":"provider-token","token_type":"Bearer"}'
-            self.send_response(self.response_status)
-            if self.response_status.is_redirection:
-                self.send_header("Location", "http://redirected.example.com/token")
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-
-        def log_message(self, _format: str, *_args: object) -> None:
-            pass
-
-    server = ThreadingHTTPServer(("127.0.0.1", 0), OAuthHandler)
-    server_thread = Thread(target=server.serve_forever, daemon=True)
-    server_thread.start()
-    host, port = server.server_address
-    settings.oauth.token_uri = f"http://{host}:{port}/token"
-
-    try:
-        app = create_app(settings, initialize_runtime=False)
-        transport = httpx.ASGITransport(app=app)
-        async with (
-            app.router.lifespan_context(app),
-            httpx.AsyncClient(
-                transport=transport,
-                base_url="https://bridge.example.com",
-                follow_redirects=False,
-            ) as client,
-        ):
-            for _ in range(2):
-                authorization = await client.get("/")
-                state = parse_qs(urlsplit(authorization.headers["location"]).query)[
-                    "state"
-                ][0]
-                callback = await client.get(
-                    "/callback",
-                    params={"code": "authorization-code", "state": state},
-                )
-                assert callback.status_code == HTTPStatus.OK
-
-            OAuthHandler.response_status = HTTPStatus.FOUND
-            authorization = await client.get("/")
-            state = parse_qs(urlsplit(authorization.headers["location"]).query)[
-                "state"
-            ][0]
-            callback = await client.get(
-                "/callback",
-                params={"code": "authorization-code", "state": state},
-            )
-            assert callback.status_code == HTTPStatus.BAD_REQUEST
-    finally:
-        server.shutdown()
-        server.server_close()
-        server_thread.join()
-
-    assert len(OAuthHandler.connections) == 1
+    settings.oauth.token_uri = oauth_server.url_for("/token")
+    for status in (200, 200, 302):
+        oauth_server.expect("/token").respond(
+            {"access_token": "provider-token", "token_type": "Bearer"},
+            status=status,
+            headers={"Location": "https://unconfigured.invalid/token"},
+        )
+    app = create_app(settings, initialize_runtime=False)
+    async with (
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="https://bridge.example.com",
+        ) as client,
+    ):
+        for status in (HTTPStatus.OK, HTTPStatus.OK, HTTPStatus.BAD_REQUEST):
+            assert (await _callback(client)).status_code == status
+    assert len({request.client_address for request in oauth_server.requests}) == 1
 
 
 @pytest.mark.anyio
@@ -275,19 +224,17 @@ async def test_asgi_callback_returns_initial_failure_when_retry_budget_is_exhaus
     "case",
     [
         RetryConnectionCase(
-            name="gateway failure",
+            id="gateway-failure",
             failure_status=HTTPStatus.SERVICE_UNAVAILABLE,
-            uses_fresh_connection=True,
         ),
         RetryConnectionCase(
-            name="upstream rate limit",
+            id="upstream-rate-limit",
             failure_status=HTTPStatus.TOO_MANY_REQUESTS,
-            uses_fresh_connection=False,
         ),
     ],
-    ids=lambda case: case.name,
+    ids=lambda case: case.id,
 )
-async def test_asgi_callback_retry_connection_and_generation_observability(
+async def test_asgi_callback_retry_uses_a_different_connection(
     case: RetryConnectionCase,
     settings: Settings,
     bridge_harness: object,
@@ -303,46 +250,16 @@ async def test_asgi_callback_retry_connection_and_generation_observability(
         {"access_token": "provider-token", "token_type": "Bearer"}
     )
     app = create_app(settings, initialize_runtime=False)
-    metric_labels = {"endpoint": "authorization_code", "error": "http_503"}
 
     async with app.router.lifespan_context(app), asgi_client(app) as client:
-        metrics_before = await client.get("/metrics")
         response = await _callback(client)
-        metrics_after = await client.get("/metrics")
 
     assert response.status_code == HTTPStatus.OK
     connections = {request.client_address for request in oauth_server.requests}
-    assert (len(connections) == 2) is case.uses_fresh_connection
-    generation_resets = [
-        event
+    assert len(connections) == 2
+    replacements = [
+        span
         for span in otel_mock.get_finished_spans()
-        for event in span.events
-        if event.name == "Client generation reset"
+        if span.name == "connection.prepare" and span.attributes["reason"] == "retry"
     ]
-    assert len(generation_resets) == int(case.uses_fresh_connection)
-    if case.uses_fresh_connection:
-        assert generation_resets[0].attributes == {
-            "oauth.upstream_grant_type": "authorization_code",
-            "client.reset_error": "http_503",
-        }
-    expected_delta = int(case.uses_fresh_connection)
-    assert sample_value(
-        metrics_after.content,
-        "oauth_client_generation_resets_total",
-        metric_labels,
-    ) == (
-        sample_value(
-            metrics_before.content,
-            "oauth_client_generation_resets_total",
-            metric_labels,
-        )
-        + expected_delta
-    )
-    assert sample_value(
-        metrics_after.content, "oauth_client_generation_drain_seconds_count"
-    ) == (
-        sample_value(
-            metrics_before.content, "oauth_client_generation_drain_seconds_count"
-        )
-        + expected_delta
-    )
+    assert len(replacements) == 1

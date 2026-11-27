@@ -23,10 +23,12 @@ from oauthclientbridge.oauth import (
 )
 from oauthclientbridge.settings import (
     DatabaseSettings,
+    FetchSettings,
     OAuthSettings,
     SentrySettings,
     Settings,
 )
+from tests.http2_peer import tls_contexts
 from tests.oauth_server import OAuthServer
 
 pytest_plugins = ["tests.plugins.otel"]
@@ -80,8 +82,14 @@ def reset_retry_limiter():
 
 
 @pytest.fixture
-def oauth_server() -> Generator[OAuthServer, None, None]:
-    server = OAuthServer()
+def oauth_server(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Generator[OAuthServer, None, None]:
+    context, _ = tls_contexts(tmp_path, "http/1.1")
+    for name in ("SSL_CERT_FILE", "NIX_SSL_CERT_FILE"):
+        monkeypatch.setenv(name, str(tmp_path / "ca.pem"))
+    monkeypatch.setenv("FETCH_VERSIONS", '["HTTP/1.1"]')
+    server = OAuthServer(tls_context=context, host="::1")
     try:
         yield server
     finally:
@@ -195,6 +203,7 @@ def settings() -> Settings:
         database=DatabaseSettings(
             database=":memory:",
         ),
+        fetch=FetchSettings(versions=("HTTP/1.1",)),
         oauth=OAuthSettings(
             client_id="client",
             client_secret=SecretStr("s3cret"),
@@ -236,15 +245,18 @@ class PostClient(Protocol):
 @pytest.fixture
 def upstream_fetch(settings: Settings) -> oauth.UpstreamFetcher:
     # These endpoint tests do not start runtime services. Bound each HTTPX client
-    # to its fetch so TestClient's per-request event loops cannot share a pool.
+    # to its fetch so TestClient's per-request event loops cannot share a transport.
     async def fetch(
         uri: str,
         upstream_grant_type: types.UpstreamGrantType,
         auth: str | None = None,
         **data: str | None,
     ) -> dict[str, Any]:
-        client = oauth.create_httpx_upstream_client(settings.fetch)
+        client = oauth.create_httpx_upstream_client(
+            settings.fetch, origin=settings.oauth.upstream_origin()
+        )
         try:
+            await client.start()
             return await client.fetch(uri, upstream_grant_type, auth, **data)
         finally:
             await client.aclose()

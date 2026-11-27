@@ -20,7 +20,7 @@ from oauthclientbridge.settings import DatabaseSettings, Settings, TelemetrySett
 from oauthclientbridge.telemetry import _prometheus as stats
 from tests.oauth_server import OAuthServer
 
-from .conftest import PostClient, TokenTuple
+from .conftest import PostClient, ScriptedOAuth, TokenTuple
 
 PRESENT_CLIENT_ID = types.ClientId(uuid.UUID("00000000-0000-0000-0000-000000000001"))
 REVOKED_CLIENT_ID = types.ClientId(uuid.UUID("00000000-0000-0000-0000-000000000002"))
@@ -266,6 +266,7 @@ async def test_asgi_shutdown_stops_background_refresh(
     settings: Settings,
     metrics_database: sqlite3.Connection,
     monkeypatch: pytest.MonkeyPatch,
+    scripted_oauth: ScriptedOAuth,
 ):
     _ = metrics_database
     started = anyio.Event()
@@ -285,7 +286,7 @@ async def test_asgi_shutdown_stops_background_refresh(
         group.start_soon(refresh)
 
     monkeypatch.setattr(TokenStateRefresher, "start", start)
-    app = create_app(settings, initialize_runtime=False)
+    app = create_app(settings, fetch=scripted_oauth.fetch, initialize_runtime=False)
     assert start_calls == 0
     with anyio.fail_after(5):
         async with app.router.lifespan_context(app):

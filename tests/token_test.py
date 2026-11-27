@@ -4,8 +4,10 @@ from dataclasses import dataclass
 import httpx
 import pytest
 from pytest_sentry_capture import SentryCapture
+from starlette.testclient import TestClient
 
 from oauthclientbridge import crypto, db
+from oauthclientbridge.asgi import create_app
 from oauthclientbridge.errors import OAuthError
 from oauthclientbridge.settings import Settings
 from tests.oauth_server import OAuthServer
@@ -867,20 +869,23 @@ def test_token_terminal_refresh_error_ignores_retry_after_header(
 
 
 def test_token_unexpected_error_returns_json(
-    asgi_client: httpx.Client,
+    settings: Settings,
+    initialized_database: None,
     refresh_token: TokenTuple,
-    monkeypatch: pytest.MonkeyPatch,
     sentry_capture: SentryCapture,
 ):
-    async def fail(*args: object, **kwargs: object) -> httpx.Response:
+    async def fail(*args: object, **kwargs: object) -> dict[str, object]:
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", fail)
-    response = asgi_client.post(
-        "/token",
-        data={"grant_type": "client_credentials"},
-        auth=(str(refresh_token.client_id), refresh_token.client_secret),
-    )
+    app = create_app(settings, fetch=fail, initialize_runtime=False)
+    with TestClient(
+        app, base_url="https://bridge.example.com", raise_server_exceptions=False
+    ) as client:
+        response = client.post(
+            "/token",
+            data={"grant_type": "client_credentials"},
+            auth=(str(refresh_token.client_id), refresh_token.client_secret),
+        )
 
     assert response.status_code == 500
     assert response.json() == OAuthError.SERVER_ERROR.json()

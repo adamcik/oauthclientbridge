@@ -12,12 +12,8 @@ from opentelemetry import trace
 
 from oauthclientbridge import telemetry, transport, types
 from oauthclientbridge.errors import OAuthError
-from oauthclientbridge.settings import (
-    FetchSettings,
-    FetchTransport,
-)
+from oauthclientbridge.settings import FetchSettings
 
-from . import _httpx_attempts
 from ._core import jitter_delay, parse_retry, record_fetch_metrics
 from ._outcome import OAuthResponse, token_endpoint_outcome
 from ._retry import (
@@ -30,46 +26,41 @@ from ._retry import (
 def create_upstream_client(
     settings: FetchSettings,
     *,
-    origin: str | None = None,
+    origin: str,
     ssl_context: ssl.SSLContext | None = None,
 ) -> "HttpxUpstreamClient":
     return HttpxUpstreamClient(settings, origin=origin, ssl_context=ssl_context)
 
 
 class HttpxUpstreamClient:
-    """Own outbound fetches; prepared mode must be started before serving traffic."""
+    """Own prepared upstream HTTPS; start before serving traffic.
+
+    Only explicit HTTP responses can authorize retries, and each retry requires
+    a different connection. A supplied SSL context belongs to this client.
+    """
 
     def __init__(
         self,
         settings: FetchSettings,
         *,
-        origin: str | None = None,
+        origin: str,
         ssl_context: ssl.SSLContext | None = None,
     ) -> None:
         self._settings = settings
         self._fetches = _FetchTracker()
-        self._http: _httpx_attempts.Backend
-        if settings.transport == FetchTransport.PREPARED:
-            if origin is None:
-                raise ValueError("prepared transport requires a configured origin")
-            prepared = transport.PreparedHTTPTransport(
-                origin,
-                versions=settings.prepared_versions,
-                max_streams=settings.prepared_max_streams,
-                connect_timeout=settings.timeout,
-                ssl_context=ssl_context,
-            )
-            self._http = _httpx_attempts.PreparedHTTPX(
-                prepared, _create_client(settings, prepared, ssl_context)
-            )
-        else:
-            self._http = _httpx_attempts.StandardHTTPX(
-                settings, lambda: _create_client(settings, None, ssl_context)
-            )
+        self._transport = transport.PreparedHTTPTransport(
+            origin,
+            versions=settings.versions,
+            max_streams=settings.max_streams,
+            connect_timeout=settings.timeout,
+            ssl_context=ssl_context,
+        )
+        self._client = _create_client(settings, self._transport)
+        self._close_lock = anyio.Lock()
 
     async def start(self) -> None:
-        """Prepare verified TLS before traffic; standard HTTPX remains lazy."""
-        await self._http.start()
+        """Prepare verified TLS before traffic, without sending HTTP."""
+        await self._transport.start()
 
     async def fetch(
         self,
@@ -78,9 +69,10 @@ class HttpxUpstreamClient:
         auth: str | None = None,
         **data: str | None,
     ) -> OAuthResponse:
-        async with self._fetches.track(), self._http.acquire() as attempts:
+        async with self._fetches.track():
             return await _fetch(
-                attempts,
+                self._client,
+                self._transport,
                 self._settings,
                 uri,
                 upstream_grant_type,
@@ -91,7 +83,8 @@ class HttpxUpstreamClient:
     async def aclose(self) -> None:
         with anyio.CancelScope(shield=True):
             await self._fetches.aclose(self._settings.total_timeout)
-            await self._http.aclose()
+            async with self._close_lock:
+                await self._client.aclose()
 
 
 class _FetchTracker:
@@ -156,39 +149,31 @@ class _FetchTracker:
 
 def _create_client(
     settings: FetchSettings,
-    prepared: transport.PreparedHTTPTransport | None,
-    ssl_context: ssl.SSLContext | None,
+    prepared: transport.PreparedHTTPTransport,
 ) -> httpx.AsyncClient:
-    instrumented_transport = None
-    if prepared is not None:
-        instrumented_transport = telemetry.instrument_httpx_transport(prepared)
+    instrumented_transport = telemetry.instrument_httpx_transport(prepared)
 
     return httpx.AsyncClient(
         transport=instrumented_transport,
-        verify=ssl_context if ssl_context is not None else True,
-        trust_env=prepared is None,
+        trust_env=False,
         follow_redirects=False,
         headers={
             "User-Agent": "oauthclientbridge {}".format(
                 importlib.metadata.version("oauthclientbridge")
             )
         },
-        limits=httpx.Limits(
-            max_connections=settings.pool_max_connections,
-            max_keepalive_connections=settings.pool_max_keepalive_connections,
-            keepalive_expiry=settings.pool_keepalive_expiry,
-        ),
         timeout=httpx.Timeout(
             connect=settings.timeout,
             read=settings.timeout,
             write=settings.timeout,
-            pool=settings.pool_timeout,
+            pool=None,
         ),
     )
 
 
 async def _fetch(
-    attempts: _httpx_attempts.Attempts,
+    client: httpx.AsyncClient,
+    prepared: transport.PreparedHTTPTransport,
     settings: FetchSettings,
     uri: str,
     upstream_grant_type: types.UpstreamGrantType,
@@ -200,7 +185,8 @@ async def _fetch(
     span = tracer.start_span(f"OAUTH {upstream_grant_type}")
     try:
         outcome = await _fetch_outcome(
-            attempts,
+            client,
+            prepared,
             settings,
             uri,
             upstream_grant_type,
@@ -227,8 +213,86 @@ class _FetchOutcome:
     completed_retries: int
 
 
+@dataclass(frozen=True)
+class _Failure:
+    response: OAuthResponse
+    metric_status: telemetry.ClientResponseStatus
+
+
+async def _send(
+    client: httpx.AsyncClient,
+    uri: str,
+    grant_type: types.UpstreamGrantType,
+    data: dict[str, str | None],
+    auth: str | None,
+) -> httpx.Response | _Failure:
+    response_status: HTTPStatus | telemetry.ClientResponseStatus = "unknown_exception"
+    response_size: int | None = None
+    started = time.monotonic()
+    try:
+        if auth is None:
+            response = await client.post(uri, data=data)
+        else:
+            response = await client.post(uri, data=data, auth=httpx.BasicAuth(auth, ""))
+        response_status = HTTPStatus(response.status_code)
+        response_size = len(response.content)
+        return response
+    except httpx.HTTPError as error:
+        failure = _classify_failure(error)
+        response_status = failure.metric_status
+        if isinstance(error, transport.TransportNotReady):
+            telemetry.record_client_error_metric(
+                grant_type, None, "transport_unavailable"
+            )
+        return failure
+    finally:
+        telemetry.record_client_response_metric(
+            grant_type, response_status, time.monotonic() - started, response_size
+        )
+
+
+def _classify_failure(error: httpx.HTTPError) -> _Failure:
+    if isinstance(error, transport.TransportNotReady):
+        return _Failure(
+            response=OAuthError.TEMPORARILY_UNAVAILABLE.json(
+                description="Provider prepared transport is unavailable."
+            ),
+            metric_status="transport_unavailable",
+        )
+    if isinstance(error, httpx.ReadTimeout):
+        return _Failure(
+            response=OAuthError.TEMPORARILY_UNAVAILABLE.json(
+                description="Request timed out while reading from provider."
+            ),
+            metric_status="read_timeout",
+        )
+    if isinstance(error, httpx.TimeoutException):
+        return _Failure(
+            response=OAuthError.SERVER_ERROR.json(
+                description="Request timed out while connecting to provider."
+            ),
+            metric_status="connection_timeout",
+        )
+    return _Failure(
+        response=OAuthError.SERVER_ERROR.json(
+            description="An error occurred while connecting to the provider."
+        ),
+        metric_status="ssl_error" if _has_tls_cause(error) else "connection_error",
+    )
+
+
+def _has_tls_cause(error: BaseException) -> bool:
+    cause: BaseException | None = error
+    while cause is not None:
+        if isinstance(cause, ssl.SSLError):
+            return True
+        cause = cause.__cause__ or cause.__context__
+    return False
+
+
 async def _fetch_outcome(
-    attempts: _httpx_attempts.Attempts,
+    client: httpx.AsyncClient,
+    prepared: transport.PreparedHTTPTransport,
     settings: FetchSettings,
     uri: str,
     upstream_grant_type: types.UpstreamGrantType,
@@ -256,13 +320,13 @@ async def _fetch_outcome(
                     retry_limiter.add(settings.retry_budget_refill_per_initial)
                 retry_after_seconds = 0
                 status = None
-                attempt_result = await attempts.send(
-                    uri, upstream_grant_type, data, auth
+                attempt_result = await _send(
+                    client, uri, upstream_grant_type, data, auth
                 )
-                if isinstance(attempt_result, _httpx_attempts.Failure):
-                    result = attempt_result.response
-                    if not attempt_result.retryable:
-                        return _FetchOutcome(result, status, completed_retries)
+                if isinstance(attempt_result, _Failure):
+                    return _FetchOutcome(
+                        attempt_result.response, status, completed_retries
+                    )
                 else:
                     response = attempt_result
                     status = HTTPStatus(response.status_code)
@@ -293,11 +357,7 @@ async def _fetch_outcome(
                     error_types=settings.error_types,
                 )
                 if not outcome.retryable:
-                    if (
-                        status is not None
-                        and status.is_success
-                        and outcome.normalized_error is None
-                    ):
+                    if status.is_success and outcome.normalized_error is None:
                         return _FetchOutcome(result, status, completed_retries)
 
                     description = result.get("error_description")
@@ -317,12 +377,11 @@ async def _fetch_outcome(
                 )
                 if retry_after_seconds:
                     result["retry_after"] = retry_after_seconds
-                if status is not None:
-                    telemetry.record_client_error_metric(
-                        upstream_grant_type,
-                        status,
-                        outcome.normalized_error or OAuthError.SERVER_ERROR,
-                    )
+                telemetry.record_client_error_metric(
+                    upstream_grant_type,
+                    status,
+                    outcome.normalized_error or OAuthError.SERVER_ERROR,
+                )
                 if attempt == settings.total_attempts - 1:
                     _record_suppressed_retry(
                         upstream_grant_type,
@@ -359,9 +418,15 @@ async def _fetch_outcome(
                     RetryDecisionAction.RETRY,
                     outcome.retry_condition or RetryCondition.UNKNOWN,
                 )
-                await attempts.prepare_retry(attempt_result, upstream_grant_type)
                 if delay:
                     await _sleep(sleep_for)
+                try:
+                    await prepared.replace_for_retry(
+                        response.extensions["prepared_connection_id"]
+                    )
+                except httpx.HTTPError:
+                    # Failed replacement must not replay on the preceding socket.
+                    return _FetchOutcome(result, status, completed_retries)
     except TimeoutError:
         if timed_out_result is not None:
             return _FetchOutcome(timed_out_result, status, completed_retries)

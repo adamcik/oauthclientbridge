@@ -56,6 +56,7 @@ type Reason = Literal[
     "planned",
     "scheduled",
     "refill",
+    "retry",
     "problem",
     "age_limit",
     "peer_closure",
