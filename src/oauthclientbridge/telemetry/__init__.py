@@ -12,6 +12,7 @@ from oauthclientbridge.settings import ClientResetError
 from . import (
     _asyncio,
     _fallback,
+    _httpx,
     _lifecycle,
     _oauth_outcome,
     _otel,
@@ -31,6 +32,7 @@ __all__ = [
     "init_tracing",
     "instrument",
     "instrument_asgi_app",
+    "instrument_httpx_transport",
     "oauth_outcome_observer",
     "observe_client_generation_drain_metric",
     "observe_token_grant_age_metric",
@@ -65,19 +67,23 @@ record_oauth_error_trace = _otel.record_oauth_error_trace
 instrument = _otel.instrument
 uninstrument = _otel.uninstrument
 instrument_asgi_app = _otel.instrument_asgi_app
+instrument_httpx_transport = _httpx.instrument_transport
 init_tracing = _otel.init_tracing
 init_metrics = _otel.init_metrics
 init_sentry = _sentry.init
 oauth_outcome_observer = _oauth_outcome.OAuthOutcomeObserver
 fallback_observer = _fallback.FallbackObserver
 
-type ClientErrorLabel = OAuthError | Literal["invalid_error", "pool_saturation"]
+type ClientErrorLabel = (
+    OAuthError | Literal["invalid_error", "pool_saturation", "transport_unavailable"]
+)
 type ClientResponseStatus = Literal[
     "connection_error",
     "connection_timeout",
     "proxy_error",
     "read_timeout",
     "ssl_error",
+    "transport_unavailable",
     "unknown_exception",
 ]
 type Workaround = Literal["revoked_grant"]

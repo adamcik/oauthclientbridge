@@ -21,6 +21,19 @@ from opentelemetry.instrumentation import httpx
 from . import _prometheus
 
 
+def instrument_transport(
+    transport: httpx_client.AsyncBaseTransport,
+) -> httpx_client.AsyncBaseTransport:
+    """Instrument a custom transport that global HTTPX instrumentation cannot wrap.
+
+    The caller still owns explicit startup of transports with preparation lifecycles.
+    The adapter forwards closure to the owned transport.
+    """
+    return httpx.AsyncOpenTelemetryTransport(
+        transport, request_hook=request_hook, response_hook=response_hook
+    )
+
+
 async def request_hook(span: trace.Span, request: httpx.RequestInfo) -> None:
     _prometheus.ClientTransportRequestCounter.inc()
     extensions = request.extensions

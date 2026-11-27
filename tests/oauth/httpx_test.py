@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Event, Thread
@@ -256,40 +257,52 @@ async def test_httpx_fetcher_skips_retry_when_budget_is_exhausted(
     assert all(event.name != "Client generation reset" for event in span.events)
 
 
+@dataclass(frozen=True)
+class RetrySuppressionCase:
+    id: str
+    settings: FetchSettings
+    reason: str
+    retry_after: int
+
+
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("settings", "reason"),
+    "case",
     [
-        pytest.param(
-            FetchSettings(
+        RetrySuppressionCase(
+            id="budget-exhausted",
+            settings=FetchSettings(
                 total_attempts=2,
                 backoff_factor=0,
                 retry_budget_capacity=0,
             ),
-            "budget_exhausted",
-            id="budget exhausted",
+            reason="budget_exhausted",
+            retry_after=1,
         ),
-        pytest.param(
-            FetchSettings(
+        RetrySuppressionCase(
+            id="retry-delay-exceeds-deadline",
+            settings=FetchSettings(
                 total_attempts=2,
-                total_timeout=0.1,
+                total_timeout=20,
                 backoff_factor=0,
             ),
-            "deadline_exceeded",
-            id="deadline exhausted",
+            reason="deadline_exceeded",
+            retry_after=21,
         ),
     ],
+    ids=lambda case: case.id,
 )
 async def test_httpx_fetcher_records_suppressed_retry_decision(
-    settings: FetchSettings,
-    reason: str,
+    case: RetrySuppressionCase,
     oauth_server: OAuthServer,
     otel_mock: OTelMocker,
 ) -> None:
     oauth_server.expect("/token").respond(
-        {}, status=HTTPStatus.SERVICE_UNAVAILABLE, headers={"Retry-After": "1"}
+        {},
+        status=HTTPStatus.SERVICE_UNAVAILABLE,
+        headers={"Retry-After": str(case.retry_after)},
     )
-    client = oauth.create_httpx_upstream_client(settings)
+    client = oauth.create_httpx_upstream_client(case.settings)
     tracer = trace.get_tracer("tests")
 
     try:
@@ -303,7 +316,7 @@ async def test_httpx_fetcher_records_suppressed_retry_decision(
     metrics = telemetry.export_metrics(PrometheusSettings())
     assert (
         b'oauth_client_retry_decisions_total{decision="skip",endpoint="refresh_token",reason="'
-        + reason.encode()
+        + case.reason.encode()
         + b'"} 1.0'
     ) in metrics
     span = next(
@@ -315,7 +328,7 @@ async def test_httpx_fetcher_records_suppressed_retry_decision(
     assert len(events) == 1
     assert events[0].attributes == {
         "oauth.upstream_grant_type": "refresh_token",
-        "retry.reason": reason,
+        "retry.reason": case.reason,
     }
     assert oauth_server.url_for("/token") not in str(events[0].attributes)
 
