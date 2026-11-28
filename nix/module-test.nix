@@ -22,6 +22,8 @@
             environment = {
               FETCH_VERSIONS = builtins.toJSON ["HTTP/2" "HTTP/1.1"];
               FETCH_MAX_STREAMS = "2";
+              FETCH_MAX_ADMISSION_AGE = "3600";
+              FETCH_PREPARE_AHEAD = "60";
             };
           };
           preprod = {
@@ -59,6 +61,8 @@ in
   assert lib.all (command:
     builtins.fromJSON config.systemd.services.${command}.environment.FETCH_VERSIONS
     == ["HTTP/2" "HTTP/1.1"]
-    && config.systemd.services.${command}.environment.FETCH_MAX_STREAMS == "2")
+    && config.systemd.services.${command}.environment.FETCH_MAX_STREAMS == "2"
+    && config.systemd.services.${command}.environment.FETCH_MAX_ADMISSION_AGE == "3600"
+    && config.systemd.services.${command}.environment.FETCH_PREPARE_AHEAD == "60")
   ["oauthclientbridge-beta" "oauthclientbridge-beta-initdb" "oauthclientbridge-beta-upgradedb" "oauthclientbridge-beta-cleandb"];
     pkgs.runCommand "oauthclientbridge-module-check" {} "touch $out"
