@@ -50,6 +50,8 @@ class HttpxUpstreamClient:
             origin,
             versions=settings.versions,
             max_streams=settings.max_streams,
+            max_admission_age=settings.max_admission_age,
+            prepare_ahead=settings.prepare_ahead,
             connect_timeout=settings.timeout,
             ssl_context=ssl_context,
         )

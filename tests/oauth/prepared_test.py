@@ -54,7 +54,9 @@ async def test_prepared_fetch_uses_startup_socket_and_preserves_httpx_tracing(
         settings.oauth.token_uri = peer.origin + "/token"
         settings.oauth.refresh_uri = peer.origin + "/refresh"
         client = oauth.create_httpx_upstream_client(
-            FetchSettings(versions=case.versions),
+            FetchSettings(
+                versions=case.versions, max_admission_age=3600, prepare_ahead=60
+            ),
             origin=settings.oauth.upstream_origin(),
             ssl_context=peer.trusted,
         )

@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -80,9 +81,39 @@ def test_prometheus_settings_multiproc_dir() -> None:
 def test_prepared_settings_load_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("FETCH_VERSIONS", '["HTTP/1.1","HTTP/2"]')
     monkeypatch.setenv("FETCH_MAX_STREAMS", "7")
+    monkeypatch.setenv("FETCH_MAX_ADMISSION_AGE", "3600")
+    monkeypatch.setenv("FETCH_PREPARE_AHEAD", "60")
     configured = FetchSettings()
     assert configured.versions == ("HTTP/1.1", "HTTP/2")
     assert configured.max_streams == 7
+    assert configured.max_admission_age == 3600
+    assert configured.prepare_ahead == 60
+
+
+@dataclass(frozen=True)
+class PreparationWindowCase:
+    id: str
+    max_age: float
+    ahead: float
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        PreparationWindowCase(id="zero-age", max_age=0, ahead=1),
+        PreparationWindowCase(id="nonfinite-age", max_age=float("nan"), ahead=1),
+        PreparationWindowCase(id="zero-headroom", max_age=60, ahead=0),
+        PreparationWindowCase(id="nonfinite-headroom", max_age=60, ahead=float("inf")),
+        PreparationWindowCase(id="headroom-at-cap", max_age=60, ahead=60),
+        PreparationWindowCase(id="headroom-beyond-cap", max_age=60, ahead=61),
+    ],
+    ids=lambda case: case.id,
+)
+def test_preparation_window_requires_positive_headroom_before_age_cap(
+    case: PreparationWindowCase,
+) -> None:
+    with pytest.raises(ValidationError):
+        FetchSettings(max_admission_age=case.max_age, prepare_ahead=case.ahead)
 
 
 @pytest.mark.parametrize(

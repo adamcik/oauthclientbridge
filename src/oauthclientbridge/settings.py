@@ -123,6 +123,20 @@ class FetchSettings(_CredentialSettings):
     attempt. Transport failures never authorize replay of an OAuth POST.
     """
 
+    max_admission_age: float = Field(60, gt=0, allow_inf_nan=False)
+    """Seconds since preparation starts before a connection stops admitting work.
+
+    This is an age cap, not an idle timeout. Existing response leases drain
+    separately; failed replacement never permits admission beyond this cap.
+    """
+
+    prepare_ahead: float = Field(10, gt=0, allow_inf_nan=False)
+    """Begin replacement this many seconds before the admission-age cap.
+
+    Must be less than max_admission_age. This headroom lets preparation retry
+    while the preceding healthy connection can still admit work.
+    """
+
     total_timeout: float = 20.0
     """Overall allowed timeout across all retires, backoff and retry-after time."""
 
@@ -188,6 +202,12 @@ class FetchSettings(_CredentialSettings):
     def validate_versions(self) -> Self:
         if not self.versions or len(set(self.versions)) != len(self.versions):
             raise ValueError("versions must be nonempty and unique")
+        return self
+
+    @model_validator(mode="after")
+    def validate_preparation_window(self) -> Self:
+        if self.prepare_ahead >= self.max_admission_age:
+            raise ValueError("prepare_ahead must be less than max_admission_age")
         return self
 
 
